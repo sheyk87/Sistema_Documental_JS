@@ -1,0 +1,17 @@
+/* La mayoria de los estilos son manejados por Tailwind CSS. 
+   Aqui puedes agregar estilos que no sean posibles con clases utilitarias. */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+.hide {
+    display: none !important;
+}
+
+/* Transiciones para la interfaz */
+.transition-view {
+    transition: opacity 0.3s ease;
+}
