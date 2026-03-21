@@ -26,6 +26,12 @@ const STATUS = {
     ARCHIVADO: 'Archivado', ELIMINADO: 'Eliminado'
 };
 
+const CHART_COLORS = {
+    'Memo': '#f59e0b', 'Nota': '#22c55e', 'Acta': '#f97316', 'Informe': '#3b82f6', 
+    'Resolucion': '#ef4444', 'Disposicion': '#14b8a6', 'Actuacion': '#6366f1', 
+    'expediente': '#a855f7', 'default': '#94a3b8'
+};
+
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
     currentUser: null,
@@ -33,15 +39,27 @@ let state = {
     selectedItem: null,
     searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos' },
     sort: {
-        inbox: { field: 'date', order: 'desc' }, inboxArea: { field: 'date', order: 'desc' },
+        inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
+        areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
         drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' }, 
-        archive: { field: 'date', order: 'desc' }, anulados: { field: 'date', order: 'desc' }
+        archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
+        anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
     },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true },
+    statsOpts: { type: 'all', area: 'all', user: 'all', dateFrom: '', dateTo: '', chartType: 'pie' },
     modal: null 
 };
 
+let chartInstances = {};
 const appRoot = document.getElementById('app-root');
+
+// Inyectar Chart.js dinámicamente
+if (!window.Chart) {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.onload = () => { if (state.currentView === 'stats') renderApp(); };
+    document.head.appendChild(script);
+}
 
 // ==========================================
 // 2. FUNCIONES AUXILIARES GLOBALES
@@ -72,28 +90,20 @@ function setState(newState) {
 
 function getBadgeColor(status) {
     const colors = {
-        [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200',
-        [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200',
-        [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200',
-        [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700',
-        [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900',
-        [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-        [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200',
+        [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200',
+        [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200',
+        [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900',
+        [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200'
     };
     return colors[status] || colors[STATUS.BORRADOR];
 }
 
 function getTypeColorClass(type) {
     const colors = {
-        'Memo': 'bg-amber-100 text-amber-800',
-        'Nota': 'bg-green-100 text-green-800',
-        'Acta': 'bg-orange-100 text-orange-800',
-        'Informe': 'bg-blue-100 text-blue-800',
-        'Resolucion': 'bg-red-100 text-red-800',
-        'Disposicion': 'bg-teal-100 text-teal-800',
-        'Actuacion': 'bg-indigo-100 text-indigo-800',
-        'expediente': 'bg-purple-100 text-purple-800'
+        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800',
+        'Acta': 'bg-orange-100 text-orange-800', 'Informe': 'bg-blue-100 text-blue-800',
+        'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800',
+        'Actuacion': 'bg-indigo-100 text-indigo-800', 'expediente': 'bg-purple-100 text-purple-800'
     };
     return colors[type] || 'bg-gray-100 text-gray-800';
 }
@@ -134,25 +144,90 @@ function isAreaExp(e, user) {
     return e.currentOwnerId === user.areaId;
 }
 
+function getDerivationsCount(item) {
+    return item.history.filter(h => h.action === 'Derivar').length;
+}
+
 // ==========================================
-// 3. SISTEMA DE TABLAS, ORDENAMIENTO Y FILTROS
+// 3. EXPORTACIÓN CSV
+// ==========================================
+
+function exportToCSV(filename, rows) {
+    const processRow = function (row) {
+        return row.map(val => {
+            let finalVal = val === null || val === undefined ? '' : val.toString();
+            finalVal = finalVal.replace(/"/g, '""');
+            return `"${finalVal}"`;
+        }).join(',');
+    };
+    const csvFile = rows.map(processRow).join('\n');
+    const blob = new Blob([csvFile], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+}
+
+function handleExport(model) {
+    let items = [], headers = [], rows = [];
+    
+    if (model === 'admin_users') {
+        headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol'];
+        rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])];
+    } else if (model === 'admin_areas') {
+        headers = ['ID', 'Nombre', 'Usuarios'];
+        rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u=>u.areaId===a.id).length])];
+    } else {
+        headers = ['Número', 'Tipo', 'Asunto', 'Estado', 'Enviado Por', 'Fecha', 'Fojas'];
+        items = sortItems([...getFilteredItemsForModel(model)], model);
+        rows = [headers, ...items.map(i => [
+            i.number || 'S/N', i.docType || i.type, i.subject, i.status, 
+            getSender(i), formatDateOnly(i.createdAt), i.linkedDocs ? i.linkedDocs.length : 0
+        ])];
+    }
+    exportToCSV(`${model}_export.csv`, rows);
+}
+
+function getFilteredItemsForModel(model) {
+    const term = state.searchTerms[model.replace(/(Doc|Exp)$/, '')] || '';
+    switch(model) {
+        case 'inboxDoc': return state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'inboxExp': return state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
+        case 'areaDoc': return state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'areaExp': return state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
+        case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+        case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u=>u.id===d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
+        case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
+        case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
+        case 'anuladosExp': return state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
+        case 'search': 
+            const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)));
+            const sExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
+            return [...sDocs, ...sExps].filter(item => filterItem(item, term));
+        default: return [];
+    }
+}
+
+// ==========================================
+// 4. SISTEMA DE TABLAS
 // ==========================================
 
 function filterItem(item, term) {
     if (!term) return true;
     const t = term.toLowerCase();
-    const sender = getSender(item).toLowerCase();
-    const date = formatDateOnly(item.createdAt);
-    return ((item.number || '').toLowerCase().includes(t) || 
-            (item.docType || item.type).toLowerCase().includes(t) || 
-            item.subject.toLowerCase().includes(t) || 
-            item.status.toLowerCase().includes(t) || 
-            sender.includes(t) || 
-            date.includes(t));
+    return ((item.number || '').toLowerCase().includes(t) || (item.docType || item.type).toLowerCase().includes(t) || 
+            item.subject.toLowerCase().includes(t) || item.status.toLowerCase().includes(t) || 
+            getSender(item).toLowerCase().includes(t) || formatDateOnly(item.createdAt).includes(t));
 }
 
 function sortItems(items, model) {
-    const sortInfo = state.sort[model];
+    const sortInfo = state.sort[model] || { field: 'date', order: 'desc' };
     return items.sort((a, b) => {
         let valA, valB;
         switch(sortInfo.field) {
@@ -173,7 +248,7 @@ function sortItems(items, model) {
 
 function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn = false) {
     const sortedItems = sortItems(items, model);
-    const s = state.sort[model];
+    const s = state.sort[model] || { field: 'date', order: 'desc' };
     
     const th = (label, field) => {
         const isAct = s.field === field;
@@ -184,8 +259,9 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
     if (sortedItems.length === 0) return `<table class="w-full text-left border-collapse"><tbody><tr><td class="p-8 text-center text-gray-500 text-sm">${emptyMsg}</td></tr></tbody></table>`;
 
     return `
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
+        <div class="overflow-x-auto relative">
+            <div class="absolute top-2 right-4 z-10"><button data-action="export-csv" data-model="${model}" class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> CSV</button></div>
+            <table class="w-full text-left border-collapse mt-8">
                 <thead>
                     <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                         ${th('ID/Número', 'number')}
@@ -209,7 +285,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 text-xs font-semibold uppercase tracking-wider">${item.isPublic ? 'Público' : 'Reservado'}</td>` : ''}
                             <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
-                            ${isExpList ? `<td class="p-4 text-gray-600 font-medium">${item.linkedDocs?.length || 0}</td>` : ''}
+                            ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${item.linkedDocs?.length || 0}</td>` : ''}
                             ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
                         </tr>
                     `).join('')}
@@ -220,7 +296,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
 }
 
 // ==========================================
-// 4. RENDERIZADO PRINCIPAL Y VISTAS
+// 5. RENDERIZADO PRINCIPAL Y VISTAS
 // ==========================================
 
 function renderApp() {
@@ -228,19 +304,17 @@ function renderApp() {
     else appRoot.innerHTML = renderMainLayout();
     restoreInputFocus(); 
     lucide.createIcons();
+    if (state.currentView === 'stats') drawCharts();
 }
 
 function renderMenuSection(id, title, itemsHtml) {
     const isOpen = state.menus[id];
     return `
-        <div class="mb-2">
+        <div class="mb-1">
             <button data-action="toggle-menu" data-menu="${id}" class="w-full flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-2 hover:text-slate-300 transition-colors outline-none">
-                ${title}
-                <i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>
+                ${title} <i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>
             </button>
-            <div class="${isOpen ? 'block' : 'hidden'} space-y-1 mt-1">
-                ${itemsHtml}
-            </div>
+            <div class="${isOpen ? 'block' : 'hidden'} space-y-1 mt-1">${itemsHtml}</div>
         </div>
     `;
 }
@@ -255,25 +329,10 @@ function renderMainLayout() {
                     <p class="text-xs text-slate-500">${getAreaName(state.currentUser.areaId)}</p>
                 </div>
                 <nav class="flex-1 p-4 overflow-y-auto">
-                    ${renderMenuSection('trabajo', 'Mi Trabajo', 
-                        renderNavItem('send', 'Bandeja de Entrada', 'inbox') +
-                        renderNavItem('file-text', 'Mis Borradores', 'drafts')
-                    )}
-                    ${renderMenuSection('nuevo', 'Nuevo', 
-                        renderNavItem('file-plus', 'Crear Documento', 'create_doc') +
-                        renderNavItem('folder-open', 'Crear Expediente', 'create_exp')
-                    )}
-                    ${renderMenuSection('consultas', 'Consultas', 
-                        renderNavItem('search', 'Buscador', 'search') +
-                        renderNavItem('archive', 'Archivo Central', 'archive') +
-                        renderNavItem('ban', 'Anulados', 'anulados')
-                    )}
-                    ${state.currentUser.role === 'admin' ? 
-                        renderMenuSection('admin', 'Administración', 
-                            renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') +
-                            renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')
-                        )
-                    : ''}
+                    ${renderMenuSection('trabajo', 'Mi Trabajo', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+                    ${renderMenuSection('nuevo', 'Nuevo', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
+                    ${renderMenuSection('consultas', 'Consultas', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
+                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -307,6 +366,7 @@ function getViewContent() {
         case 'search': return renderSearcher();
         case 'archive': return renderArchive();
         case 'anulados': return renderAnulados();
+        case 'stats': return renderStats();
         case 'admin_users': return renderAdminUsers();
         case 'admin_areas': return renderAdminAreas();
         default: return renderInbox();
@@ -315,12 +375,8 @@ function getViewContent() {
 
 function renderInbox() {
     const term = state.searchTerms.inbox;
-    
-    // Bandeja Personal
     const myDocs = state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
     const myExps = state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
-
-    // Bandeja de Área
     const areaDocs = state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
     const areaExps = state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
 
@@ -332,26 +388,22 @@ function renderInbox() {
 
             <div class="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden">
                 <div class="px-6 py-4 border-b border-blue-200 bg-blue-50"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4"></i> Documentos - Bandeja Personal (${myDocs.length})</h3></div>
-                ${renderTable(myDocs, 'inbox', 'No tienes documentos pendientes en tu bandeja personal.')}
+                ${renderTable(myDocs, 'inboxDoc', 'No tienes documentos pendientes en tu bandeja personal.')}
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden">
                 <div class="px-6 py-4 border-b border-purple-200 bg-purple-50"><h3 class="font-semibold text-purple-900 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal (${myExps.length})</h3></div>
-                ${renderTable(myExps, 'inbox', 'No tienes expedientes asignados a ti.', true)}
+                ${renderTable(myExps, 'inboxExp', 'No tienes expedientes asignados a ti.', true)}
             </div>
 
-            ${areaDocs.length > 0 || areaExps.length > 0 ? `
-                <h3 class="text-lg font-bold text-gray-700 mt-8 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área</h3>
-                
-                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área (${areaDocs.length})</h3></div>
-                    ${renderTable(areaDocs, 'inboxArea', 'No hay documentos de área.', false, true)}
-                </div>
-                
-                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área (${areaExps.length})</h3></div>
-                    ${renderTable(areaExps, 'inboxArea', 'No hay expedientes de área.', true, true)}
-                </div>
-            ` : ''}
+            <h3 class="text-lg font-bold text-gray-700 mt-8 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área</h3>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área (${areaDocs.length})</h3></div>
+                ${renderTable(areaDocs, 'areaDoc', 'No hay documentos pendientes de adquirir en el área.', false, true)}
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área (${areaExps.length})</h3></div>
+                ${renderTable(areaExps, 'areaExp', 'No hay expedientes pendientes de adquirir en el área.', true, true)}
+            </div>
         </div>
     `;
 }
@@ -365,7 +417,7 @@ function renderDrafts() {
                 <i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="drafts" placeholder="Filtrar borradores..." value="${term}" class="w-full outline-none text-sm" autofocus />
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800">Mis Borradores (${drafts.length})</h3></div>
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="edit-2" class="w-4 h-4"></i> Mis Borradores (${drafts.length})</h3></div>
                 ${renderTable(drafts, 'drafts', 'No tienes borradores.')}
             </div>
         </div>
@@ -382,12 +434,12 @@ function renderArchive() {
                 <i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="archive" placeholder="Filtrar archivo..." value="${term}" class="w-full outline-none text-sm" autofocus />
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800">Documentos Archivados (${docs.length})</h3></div>
-                ${renderTable(docs, 'archive', 'No hay documentos archivados.')}
+                <div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos Archivados (${docs.length})</h3></div>
+                ${renderTable(docs, 'archiveDoc', 'No hay documentos archivados.')}
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800">Expedientes Archivados (${exps.length})</h3></div>
-                ${renderTable(exps, 'archive', 'No hay expedientes archivados.', true)}
+                <div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes Archivados (${exps.length})</h3></div>
+                ${renderTable(exps, 'archiveExp', 'No hay expedientes archivados.', true)}
             </div>
         </div>
     `;
@@ -396,19 +448,19 @@ function renderArchive() {
 function renderAnulados() {
     const term = state.searchTerms.anulados;
     const docs = state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
-    const exps = state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
+    const exps = state.db.expedientes.filter(e => e.status === STATUS.ANULADO).filter(e => filterItem(e, term));
     return `
         <div class="space-y-6">
             <div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200">
                 <i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="anulados" placeholder="Filtrar anulados..." value="${term}" class="w-full outline-none text-sm" autofocus />
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800">Documentos Anulados (${docs.length})</h3></div>
-                ${renderTable(docs, 'anulados', 'No hay documentos anulados.')}
+                <div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos Anulados (${docs.length})</h3></div>
+                ${renderTable(docs, 'anuladosDoc', 'No hay documentos anulados.')}
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800">Expedientes Anulados (${exps.length})</h3></div>
-                ${renderTable(exps, 'anulados', 'No hay expedientes anulados.', true)}
+                <div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes Anulados (${exps.length})</h3></div>
+                ${renderTable(exps, 'anuladosExp', 'No hay expedientes anulados.', true)}
             </div>
         </div>
     `;
@@ -458,8 +510,9 @@ function renderSearcher() {
 
 function renderAdminUsers() {
     return `
-        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios</h3>
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3>
             <form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
                 <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
                 <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
@@ -499,8 +552,9 @@ function renderAdminUsers() {
 
 function renderAdminAreas() {
     return `
-        <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas</h3>
+        <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3>
             <form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
                 <input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" />
                 <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button>
@@ -521,6 +575,105 @@ function renderAdminAreas() {
             </table>
         </div>
     `;
+}
+
+// --- ESTADISTICAS ---
+function renderStats() {
+    const o = state.statsOpts;
+    return `
+        <div class="max-w-7xl mx-auto space-y-6">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-end">
+                <div><label class="block text-xs font-bold text-gray-500 mb-1">Tipo</label><select data-stats-filter="type" class="p-2 border rounded text-sm"><option value="all">Todos</option><option value="doc" ${o.type==='doc'?'selected':''}>Documentos</option><option value="exp" ${o.type==='exp'?'selected':''}>Expedientes</option></select></div>
+                <div><label class="block text-xs font-bold text-gray-500 mb-1">Área Creadora</label><select data-stats-filter="area" class="p-2 border rounded text-sm"><option value="all">Todas</option>${state.db.areas.map(a=>`<option value="${a.id}" ${o.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+                <div><label class="block text-xs font-bold text-gray-500 mb-1">Usuario Creador</label><select data-stats-filter="user" class="p-2 border rounded text-sm"><option value="all">Todos</option>${state.db.users.map(u=>`<option value="${u.id}" ${o.user===u.id?'selected':''}>${u.name}</option>`).join('')}</select></div>
+                <div><label class="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" data-stats-filter="dateFrom" value="${o.dateFrom}" class="p-2 border rounded text-sm"/></div>
+                <div><label class="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" data-stats-filter="dateTo" value="${o.dateTo}" class="p-2 border rounded text-sm"/></div>
+                <div class="ml-auto flex bg-gray-100 p-1 rounded-lg border">
+                    <button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded ${o.chartType==='pie'?'bg-white shadow text-blue-600':'text-gray-500'}">Torta</button>
+                    <button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded ${o.chartType==='bar'?'bg-white shadow text-blue-600':'text-gray-500'}">Barras</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 lg:grid-cols-3 gap-6">
+                ${['Firmados', 'Creados (Exp)', 'Archivados', 'Anulados'].map(t => `<div class="bg-white p-4 rounded-xl shadow-sm border"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Total ${t}</h4><div class="relative h-48"><canvas id="chart-tot-${t.split(' ')[0]}"></canvas></div></div>`).join('')}
+                
+                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Expedientes con más Fojas</h4><div class="relative h-48"><canvas id="chart-top-vinculaciones"></canvas></div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs más Relacionados</h4><div class="relative h-48"><canvas id="chart-top-relaciones"></canvas></div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs con más Firmantes</h4><div class="relative h-48"><canvas id="chart-top-firmantes"></canvas></div></div>
+                
+                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs más Derivados</h4><div class="relative h-48"><canvas id="chart-top-deriv-doc"></canvas></div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Exps más Derivados</h4><div class="relative h-48"><canvas id="chart-top-deriv-exp"></canvas></div></div>
+            </div>
+        </div>
+    `;
+}
+
+function checkStatsFilters(item) {
+    const o = state.statsOpts;
+    if (o.type === 'doc' && item.type !== 'documento') return false;
+    if (o.type === 'exp' && item.type !== 'expediente') return false;
+    if (o.user !== 'all' && item.creatorId !== o.user) return false;
+    if (o.area !== 'all' && state.db.users.find(u=>u.id===item.creatorId)?.areaId !== o.area) return false;
+    const dTime = new Date(item.createdAt).getTime();
+    if (o.dateFrom && dTime < new Date(o.dateFrom).getTime()) return false;
+    if (o.dateTo && dTime > new Date(o.dateTo).setHours(23,59,59)) return false;
+    return true;
+}
+
+function drawCharts() {
+    if (!window.Chart) return;
+    Object.values(chartInstances).forEach(c => c.destroy());
+    chartInstances = {};
+
+    const docs = state.db.documents.filter(checkStatsFilters);
+    const exps = state.db.expedientes.filter(checkStatsFilters);
+
+    const typeColors = t => CHART_COLORS[t] || CHART_COLORS['default'];
+    const buildChart = (id, labels, data, bgColors) => {
+        const ctx = document.getElementById(id);
+        if(!ctx) return;
+        chartInstances[id] = new Chart(ctx, {
+            type: state.statsOpts.chartType,
+            data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: state.statsOpts.chartType==='pie', position: 'right' } } }
+        });
+    };
+
+    // Totales
+    const countByType = (items, validStatus) => {
+        let counts = {};
+        items.forEach(i => {
+            if(validStatus && i.status !== validStatus) return;
+            const t = i.docType || i.type;
+            counts[t] = (counts[t]||0) + 1;
+        });
+        return { labels: Object.keys(counts), data: Object.values(counts), colors: Object.keys(counts).map(typeColors) };
+    };
+
+    let firmados = countByType(docs, STATUS.FIRMADO); buildChart('chart-tot-Firmados', firmados.labels, firmados.data, firmados.colors);
+    let creadosExp = countByType(exps, null); buildChart('chart-tot-Creados', creadosExp.labels, creadosExp.data, creadosExp.colors);
+    
+    let arcD = countByType(docs, STATUS.ARCHIVADO), arcE = countByType(exps, STATUS.ARCHIVADO);
+    buildChart('chart-tot-Archivados', [...arcD.labels, ...arcE.labels], [...arcD.data, ...arcE.data], [...arcD.colors, ...arcE.colors]);
+    
+    let anuD = countByType(docs, STATUS.ANULADO), anuE = countByType(exps, STATUS.ANULADO);
+    buildChart('chart-tot-Anulados', [...anuD.labels, ...anuE.labels], [...anuD.data, ...anuE.data], [...anuD.colors, ...anuE.colors]);
+
+    // Top 10s
+    const topVinc = [...exps].sort((a,b)=>(b.linkedDocs?.length||0)-(a.linkedDocs?.length||0)).slice(0,10);
+    buildChart('chart-top-vinculaciones', topVinc.map(e=>e.number), topVinc.map(e=>e.linkedDocs?.length||0), topVinc.map(()=>CHART_COLORS['expediente']));
+
+    const topRel = [...docs].sort((a,b)=>(b.relatedDocs?.length||0)-(a.relatedDocs?.length||0)).slice(0,10);
+    buildChart('chart-top-relaciones', topRel.map(d=>d.number), topRel.map(d=>d.relatedDocs?.length||0), topRel.map(d=>typeColors(d.docType)));
+
+    const topFir = [...docs].sort((a,b)=>(b.signedBy?.length||0)-(a.signedBy?.length||0)).slice(0,10);
+    buildChart('chart-top-firmantes', topFir.map(d=>d.number), topFir.map(d=>d.signedBy?.length||0), topFir.map(d=>typeColors(d.docType)));
+
+    const topDerD = [...docs].sort((a,b)=>getDerivationsCount(b)-getDerivationsCount(a)).slice(0,10);
+    buildChart('chart-top-deriv-doc', topDerD.map(d=>d.number), topDerD.map(getDerivationsCount), topDerD.map(d=>typeColors(d.docType)));
+
+    const topDerE = [...exps].sort((a,b)=>getDerivationsCount(b)-getDerivationsCount(a)).slice(0,10);
+    buildChart('chart-top-deriv-exp', topDerE.map(e=>e.number), topDerE.map(getDerivationsCount), topDerE.map(()=>CHART_COLORS['expediente']));
 }
 
 function renderLogin() {
@@ -636,16 +789,16 @@ function renderDocumentDetail() {
                                 <p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
                             </div>
                             
-                            ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
+                            ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
                             
-                            <div class="mt-4">
-                                <label class="font-bold block mb-1">ASUNTO:</label>
-                                ${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="w-full p-2 border font-medium outline-none" />` : `<p class="text-lg">${doc.subject}</p>`}
+                            <div class="mt-4 flex items-center gap-2">
+                                <label class="font-bold">ASUNTO:</label>
+                                ${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="flex-1 p-2 border font-medium outline-none rounded" />` : `<span class="text-lg">${doc.subject}</span>`}
                             </div>
                         </div>
 
                         <div class="flex-1 relative z-10 mb-12">
-                            ${canEdit ? `<textarea id="edit-doc-content" class="w-full h-full min-h-[300px] p-2 border outline-none font-serif resize-y leading-relaxed text-gray-800">${doc.content}</textarea>` : `<div class="font-serif text-lg leading-relaxed text-gray-800 whitespace-pre-wrap">${doc.content}</div>`}
+                            ${canEdit ? `<textarea id="edit-doc-content" class="w-full h-full min-h-[300px] p-2 border outline-none font-serif resize-y leading-relaxed text-gray-800 rounded">${doc.content}</textarea>` : `<div class="font-serif text-lg leading-relaxed text-gray-800 whitespace-pre-wrap">${doc.content}</div>`}
                         </div>
                         
                         ${doc.signedBy && doc.signedBy.length > 0 ? `
@@ -686,12 +839,12 @@ function renderDocumentDetail() {
 
                 ${(isOwner || isSignedOrArchived) && doc.status !== STATUS.ANULADO ? `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
+                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Acciones</h3>
                     <div class="space-y-2">
                         ${isBorradorOrRechazado ? `
                             ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}
                             <button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>
-                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button>
+                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="file-signature" class="w-4 h-4"></i> Enviar a Firmar</button>
                             <button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button>
                             <button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>
                         ` : ''}
@@ -790,7 +943,7 @@ function renderExpedienteDetail() {
                             ${!exp.isPublic ? `<button data-action="open-modal" data-modal-type="editar_permisos_exp" class="w-full py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
                             <button data-action="open-modal" data-modal-type="derivar_exp" class="w-full py-1.5 bg-indigo-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Expediente</button>
                             ${isActive ? `
-                                <button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar (Sellar)</button>
+                                <button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar (Sellar Fojas)</button>
                                 <button data-action="open-modal" data-modal-type="anular_exp" class="w-full py-1.5 bg-slate-800 text-white text-sm rounded border mt-4 flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Expediente</button>
                             ` : ''}
                             ${isArchived ? `
@@ -870,7 +1023,7 @@ function renderModalOverlay() {
     else if (m.type === 'derivar_doc' || m.type === 'enviar_firmar' || m.type === 'destinatarios') {
         const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' };
         title = titles[m.type];
-        const list = m.type === 'derivar_doc' ? mixedList : usersList;
+        const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
         
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
@@ -960,6 +1113,11 @@ document.addEventListener('input', (e) => {
             renderApp();
         }
     }
+    if (e.target.hasAttribute('data-stats-filter')) {
+        const key = e.target.getAttribute('data-stats-filter');
+        state.statsOpts[key] = e.target.value;
+        renderApp();
+    }
 });
 
 document.addEventListener('change', (e) => {
@@ -972,6 +1130,11 @@ document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-modal-input')) {
         const key = e.target.getAttribute('data-modal-input');
         state.modal[key] = e.target.value;
+    }
+    if (e.target.hasAttribute('data-stats-filter')) {
+        const key = e.target.getAttribute('data-stats-filter');
+        state.statsOpts[key] = e.target.value;
+        renderApp();
     }
 });
 
@@ -1044,6 +1207,16 @@ document.addEventListener('click', (e) => {
     if (actionBtn) {
         const action = actionBtn.getAttribute('data-action');
         
+        if (action === 'set-chart-type') {
+            state.statsOpts.chartType = actionBtn.getAttribute('data-type');
+            return renderApp();
+        }
+
+        if (action === 'export-csv') {
+            handleExport(actionBtn.getAttribute('data-model'));
+            return;
+        }
+
         if (action === 'toggle-menu') {
             const menu = actionBtn.getAttribute('data-menu');
             state.menus[menu] = !state.menus[menu];
@@ -1271,6 +1444,7 @@ document.addEventListener('click', (e) => {
                 item.status = STATUS.FIRMADO;
                 if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
+                // Consolidación de relaciones
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
                     item.relatedDocs.forEach(relId => {
                         const targetDoc = state.db.documents.find(d => d.id === relId);
@@ -1283,7 +1457,20 @@ document.addEventListener('click', (e) => {
                     });
                 }
 
-                item.owners = isConDest ? [...item.recipients] : [item.creatorId];
+                // Transformar las áreas seleccionadas como destinatarios en usuarios individuales (Deduplicación)
+                if (isConDest) {
+                    let finalUsers = new Set();
+                    item.recipients.forEach(r => {
+                        if (r.startsWith('u')) finalUsers.add(r);
+                        if (r.startsWith('a')) {
+                            state.db.users.filter(u => u.areaId === r).forEach(u => finalUsers.add(u.id));
+                        }
+                    });
+                    item.owners = Array.from(finalUsers);
+                } else {
+                    item.owners = [item.creatorId];
+                }
+
                 item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
                 setState({ selectedItem: null, currentView: 'inbox' });
             }
