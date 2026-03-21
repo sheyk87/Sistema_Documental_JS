@@ -12,21 +12,29 @@ const INITIAL_USERS = [
     { id: 'u4', name: 'Carlos Lopez', email: 'carlos@gde.com', password: '123', areaId: 'a3', role: 'user' }
 ];
 
-const DOC_TYPES = { CON_DEST: ['Memo', 'Nota'], SIN_DEST: ['Acta', 'Informe', 'Resolucion', 'Disposicion', 'Actuacion'] };
+const DOC_TYPES = {
+    CON_DEST_EXCL: ['Solicitud', 'Solicitud de Compra', 'Solicitud de Gasto', 'Orden de Compra', 'Carta'],
+    CON_DEST_MULT: ['Memo', 'Nota', 'Notificación', 'Circular'],
+    SIN_DEST: ['Acta', 'Informe', 'Resolucion', 'Disposicion', 'Actuacion', 'Dictamen', 'Sanción', 'Acuerdo de confidencialidad', 'Factura', 'Presupuesto', 'Balance', 'Informes Técnico', 'Evaluación', 'Manual de procedimientos', 'Código de conducta', 'Política Interna', 'Contrato']
+};
+
 const STATUS = {
     BORRADOR: 'Borrador', FIRMANDOSE: 'Firmandose', FIRMADO: 'Firmado', RECHAZADO: 'Rechazado',
     ANULADO: 'Anulado', DERIVADO: 'Derivado', ARCHIVADO: 'Archivado', ELIMINADO: 'Eliminado'
 };
+
 const CHART_COLORS = {
     'Memo': '#f59e0b', 'Nota': '#22c55e', 'Acta': '#f97316', 'Informe': '#3b82f6',
     'Resolucion': '#ef4444', 'Disposicion': '#14b8a6', 'Actuacion': '#6366f1',
+    'Dictamen': '#8b5cf6', 'Sanción': '#dc2626', 'Factura': '#84cc16', 
+    'Solicitud': '#0ea5e9', 'Orden de Compra': '#10b981',
     'expediente': '#a855f7', 'default': '#94a3b8'
 };
 
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
     currentUser: null, currentView: 'inbox', selectedItem: null,
-    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos' },
+    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '' },
     sort: {
         inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
         areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
@@ -50,10 +58,7 @@ if (!window.Chart && !isChartLoading) {
     const script1 = document.createElement('script'); script1.src = 'https://cdn.jsdelivr.net/npm/chart.js';
     script1.onload = () => {
         const script2 = document.createElement('script'); script2.src = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0';
-        script2.onload = () => {
-            Chart.register(ChartDataLabels); isChartLoading = false;
-            if (state.currentView === 'stats') renderApp();
-        };
+        script2.onload = () => { Chart.register(ChartDataLabels); isChartLoading = false; if (state.currentView === 'stats') renderApp(); };
         document.head.appendChild(script2);
     };
     document.head.appendChild(script1);
@@ -68,19 +73,19 @@ function restoreInputFocus() {
         if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; }
     }
 }
+
 const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().toISOString(), userId, action, notes });
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
 const getAreaName = (id) => state.db.areas.find(a => a.id === id)?.name || 'Desconocida';
 const getCurrentYear = () => new Date().getFullYear().toString();
 
 function formatDateOnly(dateString) {
-    const d = new Date(dateString);
-    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+    const d = new Date(dateString); return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 const getDocCode = (type) => {
-    const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX' };
-    return map[type] || type.toUpperCase().substring(0, 3);
+    const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX', 'Dictamen': 'DICT', 'Sanción': 'SANC', 'Acuerdo de confidencialidad': 'CONF', 'Factura': 'FACT', 'Presupuesto': 'PRESUP', 'Balance': 'BAL', 'Informes Técnico': 'IFT', 'Evaluación': 'EVAL', 'Manual de procedimientos': 'MPROC', 'Código de conducta': 'CCOND', 'Política Interna': 'POL', 'Contrato': 'CONT', 'Solicitud': 'SOLI', 'Solicitud de Compra': 'SC', 'Solicitud de Gasto': 'GASTO', 'Orden de Compra': 'OC', 'Carta': 'CAR', 'Notificación': 'NOTI', 'Circular': 'CIRC' };
+    return map[type] || type.toUpperCase().substring(0, 4);
 };
 
 const generateNumber = (type, areaName) => {
@@ -97,23 +102,13 @@ function getBadgeColor(status) {
         [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200',
         [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900',
         [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200'
-    };
-    return colors[status] || colors[STATUS.BORRADOR];
+    }; return colors[status] || colors[STATUS.BORRADOR];
 }
-
-function getTypeColorClass(type) {
-    const colors = {
-        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800', 'Acta': 'bg-orange-100 text-orange-800',
-        'Informe': 'bg-blue-100 text-blue-800', 'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800',
-        'Actuacion': 'bg-indigo-100 text-indigo-800', 'expediente': 'bg-purple-100 text-purple-800'
-    };
-    return colors[type] || 'bg-gray-100 text-gray-800';
-}
+function getTypeColorClass(type) { return CHART_COLORS[type] ? `bg-[${CHART_COLORS[type]}]/10 text-[${CHART_COLORS[type]}]` : 'bg-gray-100 text-gray-800'; }
 
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
-    const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
-    const lastTransfer = [...item.history].reverse().find(h => transferActions.some(act => h.action.includes(act)));
+    const lastTransfer = [...item.history].reverse().find(h => ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'].some(act => h.action.includes(act)));
     return lastTransfer ? getUserName(lastTransfer.userId) : getUserName(item.creatorId);
 }
 
@@ -136,7 +131,7 @@ function getDerivationsCount(item) { return item.history.filter(h => h.action.in
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
 
 // ==========================================
-// 3. EXPORTACIÓN CSV Y TABLAS
+// 3. EXPORTACIÓN Y TABLAS
 // ==========================================
 function exportToCSV(filename, rows) {
     const processRow = row => row.map(val => `"${(val === null || val === undefined ? '' : val.toString()).replace(/"/g, '""')}"`).join(',');
@@ -201,7 +196,7 @@ function sortItems(items, model) {
             case 'subject': vA = a.subject.toLowerCase(); vB = b.subject.toLowerCase(); break;
             case 'status': vA = a.status; vB = b.status; break;
             case 'sender': vA = getSender(a).toLowerCase(); vB = getSender(b).toLowerCase(); break;
-            case 'acceso': vA = a.type === 'expediente' ? (a.isPublic ? 'Publico' : 'Reservado') : ''; vB = b.type === 'expediente' ? (b.isPublic ? 'Publico' : 'Reservado') : ''; break;
+            case 'acceso': vA = a.type === 'expediente' ? (a.isPublic ? 'Publico' : 'Reservado') : '-'; vB = b.type === 'expediente' ? (b.isPublic ? 'Publico' : 'Reservado') : '-'; break;
             case 'fojas': vA = a.type === 'expediente' ? (a.linkedDocs?.length || 0) : -1; vB = b.type === 'expediente' ? (b.linkedDocs?.length || 0) : -1; break;
             case 'date': default: vA = new Date(a.createdAt).getTime(); vB = new Date(b.createdAt).getTime(); break;
         }
@@ -213,6 +208,7 @@ function sortItems(items, model) {
 function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn = false) {
     const sortedItems = sortItems(items, model); const s = state.sort[model] || { field: 'date', order: 'desc' };
     const th = (label, field) => `<th class="p-4 font-medium border-b border-gray-200 cursor-pointer hover:bg-gray-100 whitespace-nowrap" data-sort="${model}" data-field="${field}">${label} <i data-lucide="${s.field === field ? (s.order === 'asc' ? 'chevron-up' : 'chevron-down') : 'minus'}" class="inline w-3 h-3 text-gray-400"></i></th>`;
+
     if (sortedItems.length === 0) return `<table class="w-full text-left border-collapse"><tbody><tr><td class="p-8 text-center text-gray-500 text-sm">${emptyMsg}</td></tr></tbody></table>`;
 
     return `
@@ -224,7 +220,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                     ${sortedItems.map(item => `
                         <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
                             <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
-                            <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
+                            <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
                             <td class="p-4 font-medium text-gray-800">${item.subject}</td>
                             <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
@@ -241,7 +237,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
 }
 
 // ==========================================
-// 4. ESTADÍSTICAS Y GRÁFICOS CON DATALABELS
+// 4. ESTADÍSTICAS Y GRÁFICOS
 // ==========================================
 function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
     const o = state.statsOpts;
@@ -266,11 +262,9 @@ function getAggregatedStats() {
 
     state.db.documents.forEach(d => {
         let relationsCounted = false;
-        if (d.relatedDocs && d.relatedDocs.length > 0) {
-            if (checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
-                const u = state.db.users.find(x=>x.id===d.creatorId);
-                if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
-            }
+        if (d.relatedDocs && d.relatedDocs.length > 0 && checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
+            const u = state.db.users.find(x=>x.id===d.creatorId);
+            if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
         }
         d.history.forEach(h => {
             const u = state.db.users.find(x=>x.id===h.userId); if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
@@ -304,13 +298,10 @@ function getAggregatedStats() {
 }
 
 function renderStats() {
-    const o = state.statsOpts; const tab = o.tab; const allTypes = [...DOC_TYPES.CON_DEST, ...DOC_TYPES.SIN_DEST, 'expediente'];
+    const o = state.statsOpts; const tab = o.tab; const allTypes = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST, 'expediente'];
     const renderMultiSelect = (key, label, optionsArr, isObj) => {
         const isAll = o[key].includes('all');
-        return `
-            <div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
-            <select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>
-            ${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
+        return `<div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label><select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
     };
 
     return `
@@ -342,7 +333,7 @@ function drawCharts() {
     const addKPI = (title, val, icon, color) => { html += `<div class="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-l-${color}-500 flex items-center justify-between col-span-2 lg:col-span-1"><div><p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p><p class="text-3xl font-black text-gray-800">${val}</p></div><i data-lucide="${icon}" class="w-10 h-10 text-${color}-200"></i></div>`; };
 
     if (tab === 'generales') {
-        addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald'); addKPI('Expedientes Creados', d.totals.expsCreados, 'folder-plus', 'purple');
+        addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald'); addKPI('Exps Creados', d.totals.expsCreados, 'folder-plus', 'purple');
         addKPI('Derivaciones Totales', d.totals.derivaciones, 'share', 'indigo'); addKPI('Fojas Vinculadas', d.totals.vinculaciones, 'link', 'blue');
         addKPI('Docs Relacionados', d.totals.relaciones, 'network', 'amber'); addKPI('Anulaciones', d.totals.anulados, 'ban', 'red');
         addKPI('Docs Archivados', d.totals.archD, 'archive', 'stone'); addKPI('Exps Archivados', d.totals.archE, 'archive', 'stone');
@@ -487,9 +478,13 @@ function renderSearcher() {
 }
 
 function renderCreateDocument() {
-    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none"><optgroup label="Con Destinatario">${DOC_TYPES.CON_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup><optgroup label="Sin Destinatario">${DOC_TYPES.SIN_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup></select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
-    <div id="dest-container"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a=>({id:a.id, name:`[Área] ${a.name}`})), ...state.db.users.filter(u=>u.id!==state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
-    <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
+    const term = state.searchTerms.docTypeCreate.toLowerCase();
+    const filterOpts = (arr) => arr.filter(t => t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term));
+    const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL);
+    const mult = filterOpts(DOC_TYPES.CON_DEST_MULT);
+    const sin = filterOpts(DOC_TYPES.SIN_DEST);
+
+    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div><div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
 
 function renderCreateExpediente() {
@@ -500,23 +495,32 @@ function renderDocumentDetail() {
     const doc = state.selectedItem;
     const isOwner = doc.currentOwnerId === state.currentUser.id; const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
     const isBorradorOrRechazado = (doc.status === STATUS.BORRADOR || doc.status === STATUS.RECHAZADO) && isOwner; const canEdit = isBorradorOrRechazado || isMyTurnToSign;
-    const isConDestinatario = DOC_TYPES.CON_DEST.includes(doc.docType); const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
-    const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id)); const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
+    const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
+    const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
+
+    let promotorHTML = '';
+    if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
+        const lastSignerArea = getAreaName(state.db.users.find(u => u.id === doc.signedBy[doc.signedBy.length - 1].id)?.areaId);
+        promotorHTML = `<p><strong>PROMOTOR:</strong> ${lastSignerArea}</p>`;
+    }
+
+    const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
+    const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
 
     return `
         <div class="flex gap-6 max-w-7xl mx-auto h-[calc(100vh-8rem)]">
             <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm ${getTypeColorClass(doc.docType)}">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
+                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm bg-gray-100">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
                 <div class="flex-1 overflow-auto p-8 bg-gray-50/50">
                     <div class="max-w-4xl mx-auto bg-white min-h-[700px] shadow-lg border border-gray-300 p-12 flex flex-col relative">
                         ${doc.status === STATUS.ANULADO ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span class="text-8xl text-red-600 font-black transform -rotate-45 border-8 border-red-600 p-8">ANULADO</span></div>` : ''}
                         <div class="text-sm space-y-2 mb-8 border-b-2 border-gray-800 pb-6 relative z-10">
                             <div class="flex justify-between"><p><strong>TIPO:</strong> ${doc.docType.toUpperCase()}</p><p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p></div>
-                            ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
+                            ${isConDestinatario ? `${promotorHTML}<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
                             <div class="mt-4 flex items-center gap-2"><label class="font-bold">ASUNTO:</label>${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="flex-1 p-2 border font-medium outline-none rounded" />` : `<span class="text-lg">${doc.subject}</span>`}</div>
                         </div>
                         <div class="flex-1 relative z-10 mb-12">${canEdit ? `<textarea id="edit-doc-content" class="w-full h-full min-h-[300px] p-2 border outline-none font-serif resize-y leading-relaxed text-gray-800 rounded">${doc.content}</textarea>` : `<div class="font-serif text-lg leading-relaxed text-gray-800 whitespace-pre-wrap">${doc.content}</div>`}</div>
-                        ${doc.signedBy && doc.signedBy.length > 0 ? `<div class="mt-8 pt-8 border-t border-gray-300 relative z-10 mb-12 flex justify-center gap-8 flex-wrap">${doc.signedBy.map(s => `<div class="text-center text-emerald-700"><p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p><p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p></div>`).join('')}</div>` : ''}
+                        ${doc.signedBy && doc.signedBy.length > 0 ? `<div class="mt-8 pt-8 border-t border-gray-300 relative z-10 mb-12 flex justify-center gap-8 flex-wrap">${doc.signedBy.map(s => `<div class="text-center text-emerald-700"><p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p><p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p><p class="text-xs text-gray-600 font-medium">${getAreaName(state.db.users.find(u=>u.id===s.id)?.areaId)}</p></div>`).join('')}</div>` : ''}
                         <div class="mt-auto pt-8 border-t border-gray-200 bg-gray-50 -mx-12 -mb-12 p-8 text-sm">
                             <h4 class="font-bold text-gray-600 mb-4">REFERENCIAS DEL DOCUMENTO</h4>
                             ${vinculados.length > 0 ? `<div class="mb-4"><strong>Vinculado en Expedientes:</strong><ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul></div>` : ''}
@@ -619,8 +623,7 @@ function renderModalOverlay() {
         `;
     } 
     else if (m.type === 'derivar_doc' || m.type === 'enviar_firmar' || m.type === 'destinatarios') {
-        const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' };
-        title = titles[m.type];
+        const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' }; title = titles[m.type];
         const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
@@ -640,14 +643,11 @@ function renderModalOverlay() {
     }
     else if (m.type === 'vincular_doc' || m.type === 'relacionar_doc') {
         title = m.type === 'vincular_doc' ? 'Vincular Documentos a Expediente' : 'Relacionar Documentos';
-        const isVincular = m.type === 'vincular_doc';
-        const filteredDocs = isVincular ? docsFirmados.filter(d => !state.selectedItem?.linkedDocs?.includes(d.id)) : docsFirmados.filter(d => !state.selectedItem?.relatedDocs?.includes(d.id));
+        const filteredDocs = m.type === 'vincular_doc' ? docsFirmados.filter(d => !state.selectedItem?.linkedDocs?.includes(d.id)) : docsFirmados.filter(d => !state.selectedItem?.relatedDocs?.includes(d.id));
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar documento firmado..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-60 overflow-y-auto bg-gray-50 p-1">
-                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `
-                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>
-                `).join('')}
+                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>`).join('')}
             </div>
         `;
     }
@@ -677,13 +677,6 @@ document.addEventListener('input', (e) => {
         const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value;
         if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); }
     }
-    if (e.target.hasAttribute('data-local-search')) {
-        const term = e.target.value.toLowerCase();
-        document.querySelectorAll('.dest-item').forEach(lbl => {
-            const text = lbl.querySelector('.dest-text').textContent.toLowerCase();
-            lbl.style.display = text.includes(term) ? 'flex' : 'none';
-        });
-    }
 });
 
 document.addEventListener('change', (e) => {
@@ -698,12 +691,6 @@ document.addEventListener('change', (e) => {
         if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp();
     }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
-    
-    if (e.target.id === 'create-doc-type') {
-        const isConDest = DOC_TYPES.CON_DEST.includes(e.target.value);
-        const destContainer = document.getElementById('dest-container');
-        if (destContainer) destContainer.style.display = isConDest ? 'block' : 'none';
-    }
 });
 
 document.addEventListener('submit', (e) => {
@@ -715,14 +702,12 @@ document.addEventListener('submit', (e) => {
     }
     else if (e.target.id === 'form-create-doc') {
         e.preventDefault();
-        const type = document.getElementById('create-doc-type').value;
-        const dests = DOC_TYPES.CON_DEST.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
         state.db.documents.push({
-            id: `doc_${Date.now()}`, type: 'documento', docType: type,
+            id: `doc_${Date.now()}`, type: 'documento', docType: document.getElementById('create-doc-type').value,
             subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id],
             status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
-            signatories: [], recipients: dests, relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+            signatories: [], recipients: [], relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
         });
         setState({ currentView: 'drafts' });
     }
@@ -840,18 +825,22 @@ document.addEventListener('click', (e) => {
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
-            if (m.type === 'destinatarios') { item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null }); }
-            if (m.type === 'editar_permisos_exp') { item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null }); }
+            if (m.type === 'destinatarios') {
+                const isExcl = DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                if (isExcl && m.selectionArr.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null });
+            }
+            if (m.type === 'editar_permisos_exp') {
+                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null });
+            }
 
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.currentOwnerId = m.selectedId;
                 if (m.type === 'revisar') item.status = STATUS.BORRADOR;
-                
-                const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
-                let hAction = m.type === 'revisar' ? 'Enviado a Revisar' : `Derivado a ${destName}`;
-                
                 if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
+                const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivado a ${destName}`;
                 item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
@@ -859,7 +848,8 @@ document.addEventListener('click', (e) => {
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Enviado a firmar', m.note));
+                const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
+                item.history.push(createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
@@ -867,7 +857,7 @@ document.addEventListener('click', (e) => {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                 const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ');
-                item.history.push(createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note));
+                item.history.push(createHistoryEntry(state.currentUser.id, `Derivad a ${destNames}`, m.note)); // Termina en "d" para el match de lastTransfer
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
@@ -914,8 +904,10 @@ document.addEventListener('click', (e) => {
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
                 saveEdits();
-                const isConDest = DOC_TYPES.CON_DEST.includes(item.docType);
+                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                const isExcl = DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
+                if (isExcl && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
                 
                 if (!item.signedBy) item.signedBy = [];
                 item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
