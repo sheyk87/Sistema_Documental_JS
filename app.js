@@ -37,6 +37,7 @@ let state = {
         drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' }, 
         archive: { field: 'date', order: 'desc' }, anulados: { field: 'date', order: 'desc' }
     },
+    menus: { trabajo: true, nuevo: true, consultas: true, admin: true },
     modal: null 
 };
 
@@ -50,6 +51,11 @@ const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().t
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
 const getAreaName = (id) => state.db.areas.find(a => a.id === id)?.name || 'Desconocida';
 const getCurrentYear = () => new Date().getFullYear().toString();
+
+function formatDateOnly(dateString) {
+    const d = new Date(dateString);
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+}
 
 const generateNumber = (type, areaName) => {
     const year = getCurrentYear();
@@ -136,7 +142,7 @@ function filterItem(item, term) {
     if (!term) return true;
     const t = term.toLowerCase();
     const sender = getSender(item).toLowerCase();
-    const date = new Date(item.createdAt).toLocaleDateString();
+    const date = formatDateOnly(item.createdAt);
     return ((item.number || '').toLowerCase().includes(t) || 
             (item.docType || item.type).toLowerCase().includes(t) || 
             item.subject.toLowerCase().includes(t) || 
@@ -202,9 +208,9 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                             <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 text-xs font-semibold uppercase tracking-wider">${item.isPublic ? 'Público' : 'Reservado'}</td>` : ''}
-                            <td class="p-4 text-gray-500">${new Date(item.createdAt).toLocaleDateString()}</td>
+                            <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 font-medium">${item.linkedDocs?.length || 0}</td>` : ''}
-                            ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors">Adquirir</button></td>` : ''}
+                            ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
                         </tr>
                     `).join('')}
                 </tbody>
@@ -224,6 +230,21 @@ function renderApp() {
     lucide.createIcons();
 }
 
+function renderMenuSection(id, title, itemsHtml) {
+    const isOpen = state.menus[id];
+    return `
+        <div class="mb-2">
+            <button data-action="toggle-menu" data-menu="${id}" class="w-full flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-2 hover:text-slate-300 transition-colors outline-none">
+                ${title}
+                <i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>
+            </button>
+            <div class="${isOpen ? 'block' : 'hidden'} space-y-1 mt-1">
+                ${itemsHtml}
+            </div>
+        </div>
+    `;
+}
+
 function renderMainLayout() {
     return `
         <div class="flex h-screen bg-gray-50 font-sans text-gray-800">
@@ -233,22 +254,26 @@ function renderMainLayout() {
                     <p class="text-xs text-slate-400 mt-1">${getUserName(state.currentUser.id)}</p>
                     <p class="text-xs text-slate-500">${getAreaName(state.currentUser.areaId)}</p>
                 </div>
-                <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
-                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-4">Mi Trabajo</p>
-                    ${renderNavItem('send', 'Bandeja de Entrada', 'inbox')}
-                    ${renderNavItem('file-text', 'Mis Borradores', 'drafts')}
-                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-6">Nuevo</p>
-                    ${renderNavItem('file-plus', 'Crear Documento', 'create_doc')}
-                    ${renderNavItem('folder-open', 'Crear Expediente', 'create_exp')}
-                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-6">Consultas</p>
-                    ${renderNavItem('search', 'Buscador', 'search')}
-                    ${renderNavItem('archive', 'Archivo Central', 'archive')}
-                    ${renderNavItem('ban', 'Anulados', 'anulados')}
-                    ${state.currentUser.role === 'admin' ? `
-                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-6">Administración</p>
-                        ${renderNavItem('users', 'Usuarios', 'admin_users')}
-                        ${renderNavItem('building', 'Áreas', 'admin_areas')}
-                    ` : ''}
+                <nav class="flex-1 p-4 overflow-y-auto">
+                    ${renderMenuSection('trabajo', 'Mi Trabajo', 
+                        renderNavItem('send', 'Bandeja de Entrada', 'inbox') +
+                        renderNavItem('file-text', 'Mis Borradores', 'drafts')
+                    )}
+                    ${renderMenuSection('nuevo', 'Nuevo', 
+                        renderNavItem('file-plus', 'Crear Documento', 'create_doc') +
+                        renderNavItem('folder-open', 'Crear Expediente', 'create_exp')
+                    )}
+                    ${renderMenuSection('consultas', 'Consultas', 
+                        renderNavItem('search', 'Buscador', 'search') +
+                        renderNavItem('archive', 'Archivo Central', 'archive') +
+                        renderNavItem('ban', 'Anulados', 'anulados')
+                    )}
+                    ${state.currentUser.role === 'admin' ? 
+                        renderMenuSection('admin', 'Administración', 
+                            renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') +
+                            renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')
+                        )
+                    : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -269,7 +294,7 @@ function renderMainLayout() {
 function renderNavItem(icon, label, view) {
     const isActive = state.currentView === view && !state.selectedItem;
     const activeClass = isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white';
-    return `<button data-target-view="${view}" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${activeClass}"><i data-lucide="${icon}" class="w-4 h-4"></i> ${label}</button>`;
+    return `<button data-target-view="${view}" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none"><i data-lucide="${icon}" class="w-4 h-4"></i> ${label}</button>`;
 }
 
 function getViewContent() {
@@ -305,19 +330,28 @@ function renderInbox() {
                 <i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="inbox" placeholder="Filtrar bandejas (por número, asunto, remitente, etc)..." value="${term}" class="w-full outline-none text-sm" autofocus />
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 bg-blue-50"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4"></i> Mi Bandeja Personal (${myDocs.length + myExps.length})</h3></div>
-                ${myDocs.length > 0 ? renderTable(myDocs, 'inbox', '') : ''}
-                ${myExps.length > 0 ? renderTable(myExps, 'inbox', '', true) : ''}
-                ${myDocs.length === 0 && myExps.length === 0 ? '<div class="p-8 text-center text-gray-500 text-sm">No tienes trámites pendientes en tu bandeja personal.</div>' : ''}
+            <div class="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-blue-200 bg-blue-50"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4"></i> Documentos - Bandeja Personal (${myDocs.length})</h3></div>
+                ${renderTable(myDocs, 'inbox', 'No tienes documentos pendientes en tu bandeja personal.')}
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-purple-200 bg-purple-50"><h3 class="font-semibold text-purple-900 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal (${myExps.length})</h3></div>
+                ${renderTable(myExps, 'inbox', 'No tienes expedientes asignados a ti.', true)}
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 bg-slate-100"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Bandeja de mi Área (${areaDocs.length + areaExps.length})</h3></div>
-                ${areaDocs.length > 0 ? renderTable(areaDocs, 'inboxArea', '', false, true) : ''}
-                ${areaExps.length > 0 ? renderTable(areaExps, 'inboxArea', '', true, true) : ''}
-                ${areaDocs.length === 0 && areaExps.length === 0 ? '<div class="p-8 text-center text-gray-500 text-sm">No hay trámites pendientes para adquirir en el área.</div>' : ''}
-            </div>
+            ${areaDocs.length > 0 || areaExps.length > 0 ? `
+                <h3 class="text-lg font-bold text-gray-700 mt-8 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área</h3>
+                
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área (${areaDocs.length})</h3></div>
+                    ${renderTable(areaDocs, 'inboxArea', 'No hay documentos de área.', false, true)}
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área (${areaExps.length})</h3></div>
+                    ${renderTable(areaExps, 'inboxArea', 'No hay expedientes de área.', true, true)}
+                </div>
+            ` : ''}
         </div>
     `;
 }
@@ -425,7 +459,7 @@ function renderSearcher() {
 function renderAdminUsers() {
     return `
         <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <h3 class="font-bold text-lg mb-4">ABM de Usuarios</h3>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios</h3>
             <form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
                 <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
                 <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
@@ -437,26 +471,28 @@ function renderAdminUsers() {
                     <option value="user">Usuario</option>
                     <option value="admin">Admin</option>
                 </select>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Crear</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button>
             </form>
-            <table class="w-full text-left text-sm border-collapse">
-                <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead>
-                <tbody class="divide-y">
-                    ${state.db.users.map(u => `
-                        <tr>
-                            <td class="p-2 text-xs text-gray-500">${u.id}</td>
-                            <td class="p-2 font-medium">${u.name}</td>
-                            <td class="p-2">${u.email}</td>
-                            <td class="p-2">${getAreaName(u.areaId)}</td>
-                            <td class="p-2 uppercase text-xs">${u.role}</td>
-                            <td class="p-2">
-                                <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3">Editar</button>
-                                <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold">Eliminar</button>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead>
+                    <tbody class="divide-y">
+                        ${state.db.users.map(u => `
+                            <tr>
+                                <td class="p-2 text-xs text-gray-500">${u.id}</td>
+                                <td class="p-2 font-medium">${u.name}</td>
+                                <td class="p-2">${u.email}</td>
+                                <td class="p-2">${getAreaName(u.areaId)}</td>
+                                <td class="p-2 uppercase text-xs">${u.role}</td>
+                                <td class="p-2">
+                                    <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
+                                    <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
         </div>
     `;
 }
@@ -464,15 +500,23 @@ function renderAdminUsers() {
 function renderAdminAreas() {
     return `
         <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <h3 class="font-bold text-lg mb-4">ABM de Áreas</h3>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas</h3>
             <form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
                 <input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" />
-                <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900">Agregar</button>
+                <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button>
             </form>
             <table class="w-full text-left text-sm border-collapse">
-                <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Acciones</th></tr></thead>
+                <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead>
                 <tbody class="divide-y">
-                    ${state.db.areas.map(a => `<tr><td class="p-2 text-xs text-gray-500">${a.id}</td><td class="p-2 font-medium">${a.name}</td><td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold">Eliminar</button></td></tr>`).join('')}
+                    ${state.db.areas.map(a => {
+                        const uCount = state.db.users.filter(u => u.areaId === a.id).length;
+                        return `<tr>
+                                    <td class="p-2 text-xs text-gray-500">${a.id}</td>
+                                    <td class="p-2 font-medium">${a.name}</td>
+                                    <td class="p-2 text-center font-bold text-blue-600">${uCount}</td>
+                                    <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
+                                </tr>`;
+                    }).join('')}
                 </tbody>
             </table>
         </div>
@@ -491,7 +535,7 @@ function renderLogin() {
                 <form id="form-login" class="space-y-4">
                     <input type="email" id="login-email" value="admin@gde.com" class="w-full px-4 py-2 border rounded-lg outline-none" />
                     <input type="password" id="login-password" value="123" class="w-full px-4 py-2 border rounded-lg outline-none" />
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md">Ingresar al Sistema</button>
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema</button>
                 </form>
             </div>
         </div>
@@ -501,7 +545,7 @@ function renderLogin() {
 function renderCreateDocument() {
     return `
         <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg">Nuevo Documento</h3></div>
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div>
             <form id="form-create-doc" class="p-6 space-y-6">
                 <div class="grid grid-cols-2 gap-6">
                     <div>
@@ -531,7 +575,7 @@ function renderCreateDocument() {
 function renderCreateExpediente() {
     return `
         <div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2"><i data-lucide="folder-open" class="text-purple-600"></i><h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3></div>
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2"><i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i><h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3></div>
             <form id="form-create-exp" class="p-6 space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label>
@@ -550,7 +594,7 @@ function renderCreateExpediente() {
                         </div>
                     </div>
                 </div>
-                <div class="flex justify-end pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium">Generar Expediente</button></div>
+                <div class="flex justify-end pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Generar Expediente</button></div>
             </form>
         </div>
     `;
@@ -589,7 +633,7 @@ function renderDocumentDetail() {
                         <div class="text-sm space-y-2 mb-8 border-b-2 border-gray-800 pb-6 relative z-10">
                             <div class="flex justify-between">
                                 <p><strong>TIPO:</strong> ${doc.docType.toUpperCase()}</p>
-                                <p><strong>FECHA:</strong> ${new Date(doc.createdAt).toLocaleDateString()}</p>
+                                <p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
                             </div>
                             
                             ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
@@ -626,10 +670,10 @@ function renderDocumentDetail() {
                             <div class="mb-4">
                                 <div class="flex justify-between items-center">
                                     <strong>Documentos Relacionados:</strong>
-                                    ${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">+ Relacionar Doc</button>` : ''}
+                                    ${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> Relacionar Doc</button>` : ''}
                                 </div>
                                 ${relacionados.length > 0 ? `
-                                    <ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2">X</button>` : ''}</li>`).join('')}</ul>
+                                    <ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2" title="Quitar Relación"><i data-lucide="unlink" class="w-3 h-3"></i></button>` : ''}</li>`).join('')}</ul>
                                 ` : '<p class="text-xs text-gray-500 mt-1">Sin relaciones.</p>'}
                             </div>
                         </div>
@@ -638,37 +682,37 @@ function renderDocumentDetail() {
             </div>
 
             <div class="w-80 flex flex-col gap-4">
-                <button data-action="close-detail" class="w-full py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">Volver</button>
+                <button data-action="close-detail" class="w-full py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 flex justify-center items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
 
                 ${(isOwner || isSignedOrArchived) && doc.status !== STATUS.ANULADO ? `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Acciones</h3>
+                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
                     <div class="space-y-2">
                         ${isBorradorOrRechazado ? `
-                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2">Seleccionar Destinatarios</button>` : ''}
-                            <button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium">Firmar Yo Mismo</button>
-                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium">Enviar a Firmar</button>
-                            <button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium">Enviar a Revisar</button>
-                            <button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4">Eliminar Borrador</button>
+                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}
+                            <button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>
+                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button>
+                            <button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button>
+                            <button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>
                         ` : ''}
 
                         ${isMyTurnToSign ? `
-                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2">Actualizar Destinatarios</button>` : ''}
-                            <button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2">Aplicar mi Firma</button>
-                            <button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium">Rechazar / Devolver</button>
+                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}
+                            <button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button>
+                            <button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>
                         ` : ''}
 
                         ${isSignedOrArchived ? `
-                            <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2">Derivar Documento</button>
-                            ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2">Archivar Documento</button>` : ''}
-                            <button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium">Anular Documento</button>
+                            <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>
+                            ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Documento</button>` : ''}
+                            <button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>
                         ` : ''}
                     </div>
                 </div>
                 ` : ''}
                 
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex-1 overflow-hidden flex flex-col">
-                    <h3 class="font-semibold text-gray-800 mb-4">Historial</h3>
+                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Historial</h3>
                     <div class="flex-1 overflow-auto pr-2 space-y-4">
                         ${[...doc.history].reverse().map(h => `
                             <div class="pl-4 border-l-2 border-blue-200 pb-2">
@@ -708,7 +752,7 @@ function renderExpedienteDetail() {
                     ${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}
                     ${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}
                     <span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
-                    <button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Volver</button>
+                    <button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
                 </div>
             </div>
 
@@ -716,7 +760,7 @@ function renderExpedienteDetail() {
                 <div class="flex-1 flex flex-col p-6 bg-gray-50 border-r border-gray-200 overflow-hidden">
                     <div class="flex justify-between items-center mb-4 shrink-0">
                         <h3 class="font-semibold text-lg">Fojas (${exp.linkedDocs.length})</h3>
-                        ${isOwnerUser && isActive ? `<button data-action="open-modal" data-modal-type="vincular_doc" class="px-3 py-1.5 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700">Vincular Documentos</button>` : ''}
+                        ${isOwnerUser && isActive ? `<button data-action="open-modal" data-modal-type="vincular_doc" class="px-3 py-1.5 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 flex items-center gap-1"><i data-lucide="link" class="w-4 h-4"></i> Vincular Documentos</button>` : ''}
                     </div>
                     <input type="text" data-search-model="expDetail" placeholder="Buscar foja vinculada..." value="${state.searchTerms.expDetail}" class="w-full px-3 py-2 border rounded-lg text-sm mb-4 outline-none" />
                     
@@ -728,9 +772,9 @@ function renderExpedienteDetail() {
                             <div class="bg-white p-4 rounded-lg border shadow-sm flex items-center justify-between group">
                                 <div class="flex items-center gap-4"><div class="font-bold text-slate-500">${originalIndex}</div><div><p class="font-medium text-blue-700">${d.number}</p><p class="text-sm text-gray-600">${d.subject}</p></div></div>
                                 <div class="flex gap-2">
-                                    ${isOwnerUser && isActive && !isSealed ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity">Desvincular</button>` : ''}
+                                    ${isOwnerUser && isActive && !isSealed ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><i data-lucide="unlink" class="w-3 h-3"></i> Desvincular</button>` : ''}
                                     ${isSealed ? `<span class="px-3 py-1.5 text-xs text-gray-400 bg-gray-100 rounded border">Sellada</span>` : ''}
-                                    <button data-action="view-item" data-id="${d.id}" data-type="documento" class="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded border">Ver</button>
+                                    <button data-action="view-item" data-id="${d.id}" data-type="documento" class="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded border flex items-center gap-1"><i data-lucide="eye" class="w-3 h-3"></i> Ver</button>
                                 </div>
                             </div>
                         `}).join('')}
@@ -743,19 +787,19 @@ function renderExpedienteDetail() {
                     
                     ${isOwnerUser && !isAnulado ? `
                         <div class="space-y-2 mb-8">
-                            ${!exp.isPublic ? `<button data-action="open-modal" data-modal-type="editar_permisos_exp" class="w-full py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200">Editar Permisos</button>` : ''}
-                            <button data-action="open-modal" data-modal-type="derivar_exp" class="w-full py-1.5 bg-indigo-600 text-white text-sm rounded border">Derivar Expediente</button>
+                            ${!exp.isPublic ? `<button data-action="open-modal" data-modal-type="editar_permisos_exp" class="w-full py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
+                            <button data-action="open-modal" data-modal-type="derivar_exp" class="w-full py-1.5 bg-indigo-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Expediente</button>
                             ${isActive ? `
-                                <button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border">Archivar (Sellar Fojas)</button>
-                                <button data-action="open-modal" data-modal-type="anular_exp" class="w-full py-1.5 bg-slate-800 text-white text-sm rounded border mt-4">Anular Expediente</button>
+                                <button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar (Sellar)</button>
+                                <button data-action="open-modal" data-modal-type="anular_exp" class="w-full py-1.5 bg-slate-800 text-white text-sm rounded border mt-4 flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Expediente</button>
                             ` : ''}
                             ${isArchived ? `
-                                <button data-action="exp-desarchivar" class="w-full py-1.5 bg-amber-500 text-white text-sm rounded border">Desarchivar Expediente</button>
+                                <button data-action="exp-desarchivar" class="w-full py-1.5 bg-amber-500 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="package-open" class="w-4 h-4"></i> Desarchivar Expediente</button>
                             ` : ''}
                         </div>
                     ` : ''}
                     
-                    <h4 class="font-semibold mb-4 border-b pb-2">Movimientos</h4>
+                    <h4 class="font-semibold mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Movimientos</h4>
                     <div class="flex-1 overflow-auto space-y-4">
                         ${[...exp.history].reverse().map(h => `
                             <div class="text-sm border-l-2 border-purple-200 pl-3">
@@ -925,7 +969,6 @@ document.addEventListener('change', (e) => {
         if (e.target.checked) state.modal[key].push(val);
         else state.modal[key] = state.modal[key].filter(v => v !== val);
     }
-    // Para selects dentro del modal
     if (e.target.hasAttribute('data-modal-input')) {
         const key = e.target.getAttribute('data-modal-input');
         state.modal[key] = e.target.value;
@@ -973,8 +1016,8 @@ document.addEventListener('submit', (e) => {
         e.preventDefault();
         state.db.users.push({
             id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value,
-            email: document.getElementById('admin-u-email').value, password: document.getElementById('admin-u-pass').value,
-            areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value
+            email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, 
+            role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value
         });
         setState({});
     }
@@ -1001,6 +1044,12 @@ document.addEventListener('click', (e) => {
     if (actionBtn) {
         const action = actionBtn.getAttribute('data-action');
         
+        if (action === 'toggle-menu') {
+            const menu = actionBtn.getAttribute('data-menu');
+            state.menus[menu] = !state.menus[menu];
+            return setState({});
+        }
+
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
         if (action === 'close-detail') return setState({ selectedItem: state.selectedItem.fromExpediente ? { ...state.db.expedientes.find(exp => exp.id === state.selectedItem.fromExpediente), type: 'expediente' } : null });
         if (action === 'view-item') {
