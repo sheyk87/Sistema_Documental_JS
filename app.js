@@ -1,24 +1,37 @@
 // ==========================================
 // 1. DATOS INICIALES Y ESTADO GLOBAL
 // ==========================================
-const INITIAL_AREAS = [{ id: 'a1', name: 'Dirección General' }, { id: 'a2', name: 'Recursos Humanos' }, { id: 'a3', name: 'Sistemas' }];
+const INITIAL_AREAS = [
+    { id: 'a1', name: 'Dirección General' }, { id: 'a2', name: 'Recursos Humanos' }, { id: 'a3', name: 'Sistemas' }
+];
+
 const INITIAL_USERS = [
     { id: 'u1', name: 'Admin Sistema', email: 'admin@gde.com', password: '123', areaId: 'a3', role: 'admin' },
     { id: 'u2', name: 'Juan Perez', email: 'juan@gde.com', password: '123', areaId: 'a1', role: 'user' },
     { id: 'u3', name: 'Maria Gomez', email: 'maria@gde.com', password: '123', areaId: 'a2', role: 'user' },
     { id: 'u4', name: 'Carlos Lopez', email: 'carlos@gde.com', password: '123', areaId: 'a3', role: 'user' }
 ];
+
 const DOC_TYPES = { CON_DEST: ['Memo', 'Nota'], SIN_DEST: ['Acta', 'Informe', 'Resolucion', 'Disposicion', 'Actuacion'] };
-const STATUS = { BORRADOR: 'Borrador', FIRMANDOSE: 'Firmandose', FIRMADO: 'Firmado', RECHAZADO: 'Rechazado', ANULADO: 'Anulado', DERIVADO: 'Derivado', ARCHIVADO: 'Archivado', ELIMINADO: 'Eliminado' };
-const CHART_COLORS = { 'Memo': '#f59e0b', 'Nota': '#22c55e', 'Acta': '#f97316', 'Informe': '#3b82f6', 'Resolucion': '#ef4444', 'Disposicion': '#14b8a6', 'Actuacion': '#6366f1', 'expediente': '#a855f7', 'default': '#94a3b8' };
+const STATUS = {
+    BORRADOR: 'Borrador', FIRMANDOSE: 'Firmandose', FIRMADO: 'Firmado', RECHAZADO: 'Rechazado',
+    ANULADO: 'Anulado', DERIVADO: 'Derivado', ARCHIVADO: 'Archivado', ELIMINADO: 'Eliminado'
+};
+const CHART_COLORS = {
+    'Memo': '#f59e0b', 'Nota': '#22c55e', 'Acta': '#f97316', 'Informe': '#3b82f6',
+    'Resolucion': '#ef4444', 'Disposicion': '#14b8a6', 'Actuacion': '#6366f1',
+    'expediente': '#a855f7', 'default': '#94a3b8'
+};
 
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
     currentUser: null, currentView: 'inbox', selectedItem: null,
     searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos' },
     sort: {
-        inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' }, areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
-        drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' }, archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
+        inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
+        areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
+        drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' },
+        archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
     },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
@@ -26,56 +39,113 @@ let state = {
     modal: null
 };
 
-let chartInstances = {}, currentStatsData = {}, activeInputSelector = null;
+let chartInstances = {};
+let currentStatsData = {};
+let activeInputSelector = null;
+let isChartLoading = false;
 const appRoot = document.getElementById('app-root');
 
-if (!window.Chart) {
-    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    script.onload = () => { if (state.currentView === 'stats') renderApp(); }; document.head.appendChild(script);
+if (!window.Chart && !isChartLoading) {
+    isChartLoading = true;
+    const script1 = document.createElement('script'); script1.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script1.onload = () => {
+        const script2 = document.createElement('script'); script2.src = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0';
+        script2.onload = () => {
+            Chart.register(ChartDataLabels); isChartLoading = false;
+            if (state.currentView === 'stats') renderApp();
+        };
+        document.head.appendChild(script2);
+    };
+    document.head.appendChild(script1);
 }
 
 // ==========================================
 // 2. FUNCIONES AUXILIARES GLOBALES
 // ==========================================
-function restoreInputFocus() { if (activeInputSelector) { const input = document.querySelector(activeInputSelector); if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; } } }
+function restoreInputFocus() {
+    if (activeInputSelector) {
+        const input = document.querySelector(activeInputSelector);
+        if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; }
+    }
+}
 const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().toISOString(), userId, action, notes });
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
 const getAreaName = (id) => state.db.areas.find(a => a.id === id)?.name || 'Desconocida';
 const getCurrentYear = () => new Date().getFullYear().toString();
-function formatDateOnly(dateString) { const d = new Date(dateString); return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`; }
-const generateNumber = (type, areaName) => { const year = getCurrentYear(); const key = `${year}-${type.toUpperCase()}`; state.db.counters[key] = (state.db.counters[key] || 0) + 1; return `${year}-${type.toUpperCase()}-${String(state.db.counters[key]).padStart(6, '0')}-${areaName}`; };
+
+function formatDateOnly(dateString) {
+    const d = new Date(dateString);
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+const getDocCode = (type) => {
+    const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX' };
+    return map[type] || type.toUpperCase().substring(0, 3);
+};
+
+const generateNumber = (type, areaName) => {
+    const year = getCurrentYear(); const code = getDocCode(type); const key = `${year}-${code}`;
+    state.db.counters[key] = (state.db.counters[key] || 0) + 1;
+    return `${year}-${code}-${String(state.db.counters[key]).padStart(6, '0')}-${areaName}`;
+};
+
 function setState(newState) { state = { ...state, ...newState }; renderApp(); }
 
-function getBadgeColor(s) {
-    const c = { [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200', [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200', [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900', [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200' }; return c[s] || c[STATUS.BORRADOR];
+function getBadgeColor(status) {
+    const colors = {
+        [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200',
+        [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200',
+        [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900',
+        [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200'
+    };
+    return colors[status] || colors[STATUS.BORRADOR];
 }
-function getTypeColorClass(t) { return CHART_COLORS[t] ? `bg-[${CHART_COLORS[t]}]/10 text-[${CHART_COLORS[t]}]` : 'bg-gray-100 text-gray-800'; }
+
+function getTypeColorClass(type) {
+    const colors = {
+        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800', 'Acta': 'bg-orange-100 text-orange-800',
+        'Informe': 'bg-blue-100 text-blue-800', 'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800',
+        'Actuacion': 'bg-indigo-100 text-indigo-800', 'expediente': 'bg-purple-100 text-purple-800'
+    };
+    return colors[type] || 'bg-gray-100 text-gray-800';
+}
+
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
-    const lastTransfer = [...item.history].reverse().find(h => ['Derivar', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'].includes(h.action));
+    const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
+    const lastTransfer = [...item.history].reverse().find(h => transferActions.some(act => h.action.includes(act)));
     return lastTransfer ? getUserName(lastTransfer.userId) : getUserName(item.creatorId);
 }
+
 function canViewExpediente(exp, user) {
     if (exp.isPublic || exp.creatorId === user.id || exp.currentOwnerId === user.id || exp.currentOwnerId === user.areaId) return true;
     if (exp.authUsers?.includes(user.id) || exp.authAreas?.includes(user.areaId)) return true; return false;
 }
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
-    if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id; return d.owners?.includes(user.id);
+    if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id;
+    return d.owners?.includes(user.id);
 }
-function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) && d.owners?.includes(user.areaId); }
+function isAreaDoc(d, user) {
+    if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return false;
+    return d.owners?.includes(user.areaId);
+}
 function isPersonalExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.id; }
 function isAreaExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.areaId; }
-function getDerivationsCount(item) { return item.history.filter(h => h.action === 'Derivar').length; }
+function getDerivationsCount(item) { return item.history.filter(h => h.action.includes('Derivad')).length; }
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
 
 // ==========================================
-// 3. EXPORTACIÓN Y TABLAS
+// 3. EXPORTACIÓN CSV Y TABLAS
 // ==========================================
 function exportToCSV(filename, rows) {
     const processRow = row => row.map(val => `"${(val === null || val === undefined ? '' : val.toString()).replace(/"/g, '""')}"`).join(',');
-    const blob = new Blob([rows.map(processRow).join('\n')], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a");
-    if (link.download !== undefined) { link.setAttribute("href", URL.createObjectURL(blob)); link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link); }
+    const blob = new Blob([rows.map(processRow).join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        link.setAttribute("href", URL.createObjectURL(blob)); link.setAttribute("download", filename);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
 }
 
 function handleExport(model) {
@@ -162,14 +232,16 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                             <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${item.type === 'expediente' ? (item.linkedDocs?.length || 0) : '-'}</td>` : ''}
                             ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
-                        </tr>`).join('')}
+                        </tr>
+                    `).join('')}
                 </tbody>
             </table>
-        </div>`;
+        </div>
+    `;
 }
 
 // ==========================================
-// 4. ESTADÍSTICAS Y GRÁFICOS
+// 4. ESTADÍSTICAS Y GRÁFICOS CON DATALABELS
 // ==========================================
 function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
     const o = state.statsOpts;
@@ -194,15 +266,17 @@ function getAggregatedStats() {
 
     state.db.documents.forEach(d => {
         let relationsCounted = false;
-        if (d.relatedDocs && d.relatedDocs.length > 0 && checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
-            const u = state.db.users.find(x=>x.id===d.creatorId);
-            if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
+        if (d.relatedDocs && d.relatedDocs.length > 0) {
+            if (checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
+                const u = state.db.users.find(x=>x.id===d.creatorId);
+                if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
+            }
         }
         d.history.forEach(h => {
             const u = state.db.users.find(x=>x.id===h.userId); if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
             const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
             if (h.action.includes('Firma')) { totals.firmados++; inc('firmados'); }
-            if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
+            if (h.action.includes('Derivad')) { totals.derivaciones++; inc('derivaciones'); }
             if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archD++; inc('archDesarchD'); }
             if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
             if (h.action === 'Rechazado') { inc('rechazados'); }
@@ -215,7 +289,7 @@ function getAggregatedStats() {
             const u = state.db.users.find(x=>x.id===h.userId); if (!u || !checkStatsFilters(h.date, h.userId, 'expediente')) return;
             const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
             if (h.action === 'Apertura') { totals.expsCreados++; inc('creados'); }
-            if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
+            if (h.action.includes('Derivad')) { totals.derivaciones++; inc('derivaciones'); }
             if (h.action.includes('Vinculad') || h.action.includes('Desvinculad')) { totals.vinculaciones++; inc('vinculaciones'); }
             if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archE++; inc('archDesarchE'); }
             if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
@@ -233,8 +307,12 @@ function renderStats() {
     const o = state.statsOpts; const tab = o.tab; const allTypes = [...DOC_TYPES.CON_DEST, ...DOC_TYPES.SIN_DEST, 'expediente'];
     const renderMultiSelect = (key, label, optionsArr, isObj) => {
         const isAll = o[key].includes('all');
-        return `<div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label><select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
+        return `
+            <div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
+            <select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>
+            ${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
     };
+
     return `
         <div class="max-w-7xl mx-auto space-y-6">
             <div class="flex gap-2 border-b border-gray-200">
@@ -278,7 +356,7 @@ function drawCharts() {
             return { l: Object.keys(c), d: Object.values(c), c: Object.keys(c).map(t=>CHART_COLORS[t]||CHART_COLORS.default) };
         };
 
-        const signedDocs = docs.filter(d => (d.signedBy && d.signedBy.length > 0) || d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO);
+        const signedDocs = docs.filter(d => d.history.some(h=>h.action.includes('Firma')));
         let fD = countByType(signedDocs); addChartContainer('c-firm', 'Total Docs Firmados por Tipo', 2);
         let cE = countByType(exps); addChartContainer('c-exp', 'Expedientes Creados', 2);
         let arD = countByType(docs.filter(d=>d.status===STATUS.ARCHIVADO)), arE = countByType(exps.filter(e=>e.status===STATUS.ARCHIVADO)); addChartContainer('c-arch', 'Archivados', 2);
@@ -294,11 +372,10 @@ function drawCharts() {
         if(arD.l.length || arE.l.length) build('c-arch', [...arD.l,...arE.l], [...arD.d,...arE.d], [...arD.c,...arE.c]);
         if(anD.l.length || anE.l.length) build('c-anul', [...anD.l,...anE.l], [...anD.d,...anE.d], [...anD.c,...anE.c]);
 
-        const allDocs = state.db.documents.filter(doc => checkStatsFilters(doc.createdAt, doc.creatorId, doc.docType));
-        const topDerivD = [...allDocs].sort((a,b) => getDerivationsCount(b) - getDerivationsCount(a)).filter(d=>getDerivationsCount(d)>0).slice(0,10);
+        const topDerivD = [...docs].sort((a,b) => getDerivationsCount(b) - getDerivationsCount(a)).filter(d=>getDerivationsCount(d)>0).slice(0,10);
         const topVincE = [...exps].sort((a,b) => (b.linkedDocs?.length||0) - (a.linkedDocs?.length||0)).filter(e=>(e.linkedDocs?.length||0)>0).slice(0,10);
-        const topRelD = [...allDocs].sort((a,b) => (b.relatedDocs?.length||0) - (a.relatedDocs?.length||0)).filter(d=>(d.relatedDocs?.length||0)>0).slice(0,10);
-        const topRechD = [...allDocs].sort((a,b) => getRejectionsCount(b) - getRejectionsCount(a)).filter(d=>getRejectionsCount(d)>0).slice(0,10);
+        const topRelD = [...docs].sort((a,b) => (b.relatedDocs?.length||0) - (a.relatedDocs?.length||0)).filter(d=>(d.relatedDocs?.length||0)>0).slice(0,10);
+        const topRechD = [...docs].sort((a,b) => getRejectionsCount(b) - getRejectionsCount(a)).filter(d=>getRejectionsCount(d)>0).slice(0,10);
         
         const tc = t => CHART_COLORS[t] || CHART_COLORS['default'];
         if(topDerivD.length) build('c-top-deriv-doc', topDerivD.map(d=>d.number), topDerivD.map(getDerivationsCount), topDerivD.map(d=>tc(d.docType)));
@@ -313,6 +390,7 @@ function drawCharts() {
             { key: 'vinculaciones', title: 'Más Vinculaciones' }, { key: 'relaciones', title: 'Más Relacionados' }, { key: 'rechazados', title: 'Más Rechazados' },
             { key: 'anulaciones', title: 'Más Anulaciones' }, { key: 'archD', title: 'Más Arch. Docs' }, { key: 'archE', title: 'Más Arch. Exps' }
         ];
+
         chartsToRender.forEach(c => addChartContainer(`c-top-${c.key}`, c.title, 2));
         container.innerHTML = html; if (window.lucide) lucide.createIcons();
         const buildTop = (id, key) => { const arr = d.top[pfx+key]; if(arr && arr.length > 0) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType); };
@@ -323,7 +401,7 @@ function drawCharts() {
 
 function buildChart(id, labels, data, bgColors, cType) {
     const ctx = document.getElementById(id); if(!ctx) return;
-    let options = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: cType==='pie', position: 'right' } } };
+    let options = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: cType==='pie', position: 'right' }, datalabels: { color: cType==='pie'?'#fff':'#475569', font: {weight: 'bold'}, formatter: (v) => v > 0 ? v : '' } } };
     if (cType === 'bar') options.scales = { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } };
     chartInstances[id] = new Chart(ctx, { type: cType, data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] }, options: options });
 }
@@ -409,7 +487,9 @@ function renderSearcher() {
 }
 
 function renderCreateDocument() {
-    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none"><optgroup label="Con Destinatario">${DOC_TYPES.CON_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup><optgroup label="Sin Destinatario">${DOC_TYPES.SIN_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup></select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div><div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
+    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none"><optgroup label="Con Destinatario">${DOC_TYPES.CON_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup><optgroup label="Sin Destinatario">${DOC_TYPES.SIN_DEST.map(t => `<option value="${t}">${t}</option>`).join('')}</optgroup></select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
+    <div id="dest-container"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a=>({id:a.id, name:`[Área] ${a.name}`})), ...state.db.users.filter(u=>u.id!==state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
+    <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
 
 function renderCreateExpediente() {
@@ -417,7 +497,8 @@ function renderCreateExpediente() {
 }
 
 function renderDocumentDetail() {
-    const doc = state.selectedItem; const isOwner = doc.currentOwnerId === state.currentUser.id; const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
+    const doc = state.selectedItem;
+    const isOwner = doc.currentOwnerId === state.currentUser.id; const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
     const isBorradorOrRechazado = (doc.status === STATUS.BORRADOR || doc.status === STATUS.RECHAZADO) && isOwner; const canEdit = isBorradorOrRechazado || isMyTurnToSign;
     const isConDestinatario = DOC_TYPES.CON_DEST.includes(doc.docType); const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
     const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id)); const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
@@ -509,9 +590,6 @@ function renderExpedienteDetail() {
     `;
 }
 
-// ==========================================
-// 6. SISTEMA DE MODALES
-// ==========================================
 function renderModalOverlay() {
     if (!state.modal) return '';
     const m = state.modal; let title = '', content = ''; const term = (m.search || '').toLowerCase();
@@ -541,7 +619,8 @@ function renderModalOverlay() {
         `;
     } 
     else if (m.type === 'derivar_doc' || m.type === 'enviar_firmar' || m.type === 'destinatarios') {
-        const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' }; title = titles[m.type];
+        const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' };
+        title = titles[m.type];
         const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
@@ -566,7 +645,9 @@ function renderModalOverlay() {
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar documento firmado..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-60 overflow-y-auto bg-gray-50 p-1">
-                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>`).join('')}
+                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `
+                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>
+                `).join('')}
             </div>
         `;
     }
@@ -586,47 +667,99 @@ function renderModalOverlay() {
 }
 
 // ==========================================
-// 7. EVENTOS GLOBALES (DELEGACIÓN)
+// 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 document.addEventListener('input', (e) => {
-    if (e.target.hasAttribute('data-search-model')) { const model = e.target.getAttribute('data-search-model'); state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp(); }
-    if (e.target.hasAttribute('data-modal-input')) { const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value; if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); } }
+    if (e.target.hasAttribute('data-search-model')) {
+        const model = e.target.getAttribute('data-search-model'); state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp();
+    }
+    if (e.target.hasAttribute('data-modal-input')) {
+        const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value;
+        if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); }
+    }
+    if (e.target.hasAttribute('data-local-search')) {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.dest-item').forEach(lbl => {
+            const text = lbl.querySelector('.dest-text').textContent.toLowerCase();
+            lbl.style.display = text.includes(term) ? 'flex' : 'none';
+        });
+    }
 });
 
 document.addEventListener('change', (e) => {
-    if (e.target.hasAttribute('data-modal-toggle')) { const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value; if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val); }
+    if (e.target.hasAttribute('data-modal-toggle')) {
+        const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value;
+        if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val);
+    }
     if (e.target.hasAttribute('data-modal-input')) { state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; }
-    if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
+    if (e.target.hasAttribute('data-stats-filter-multi')) {
+        const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value);
+        state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all');
+        if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp();
+    }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
+    
+    if (e.target.id === 'create-doc-type') {
+        const isConDest = DOC_TYPES.CON_DEST.includes(e.target.value);
+        const destContainer = document.getElementById('dest-container');
+        if (destContainer) destContainer.style.display = isConDest ? 'block' : 'none';
+    }
 });
 
 document.addEventListener('submit', (e) => {
     if (e.target.id === 'form-login') {
         e.preventDefault();
         const user = state.db.users.find(u => u.email === document.getElementById('login-email').value && u.password === document.getElementById('login-password').value);
-        if (user) setState({ currentUser: user, currentView: 'inbox', selectedItem: null }); else document.getElementById('login-error').classList.remove('hide');
-    } else if (e.target.id === 'form-create-doc') {
+        if (user) setState({ currentUser: user, currentView: 'inbox', selectedItem: null });
+        else document.getElementById('login-error').classList.remove('hide');
+    }
+    else if (e.target.id === 'form-create-doc') {
         e.preventDefault();
+        const type = document.getElementById('create-doc-type').value;
+        const dests = DOC_TYPES.CON_DEST.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
         state.db.documents.push({
-            id: `doc_${Date.now()}`, type: 'documento', docType: document.getElementById('create-doc-type').value, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
-            signatories: [], recipients: [], relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
-        }); setState({ currentView: 'drafts' });
-    } else if (e.target.id === 'form-create-exp') {
-        e.preventDefault(); const isPublic = document.getElementById('create-exp-public').checked; const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+            id: `doc_${Date.now()}`, type: 'documento', docType: type,
+            subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id],
+            status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
+            signatories: [], recipients: dests, relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+        });
+        setState({ currentView: 'drafts' });
+    }
+    else if (e.target.id === 'form-create-exp') {
+        e.preventDefault();
+        const isPublic = document.getElementById('create-exp-public').checked;
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value);
+        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
         state.db.expedientes.push({
-            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)), subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
-            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
-        }); setState({ currentView: 'inbox' });
-    } else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
+            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)),
+            subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
+            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(),
+            history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
+        });
+        setState({ currentView: 'inbox' });
+    }
+    else if (e.target.id === 'form-admin-area') {
+        e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({});
+    }
     else if (e.target.id === 'form-admin-user') {
-        e.preventDefault(); state.db.users.push({ id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }); setState({});
+        e.preventDefault();
+        state.db.users.push({
+            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, 
+            areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value
+        });
+        setState({});
     }
 });
 
 document.addEventListener('click', (e) => {
     const thSort = e.target.closest('th[data-sort]');
-    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } return renderApp(); }
+    if (thSort) {
+        const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field');
+        if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc';
+        else { state.sort[model].field = field; state.sort[model].order = 'asc'; }
+        return renderApp();
+    }
 
     const navBtn = e.target.closest('[data-target-view]');
     if (navBtn) return setState({ currentView: navBtn.getAttribute('data-target-view'), selectedItem: null, modal: null });
@@ -640,6 +773,7 @@ document.addEventListener('click', (e) => {
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
+        
         if (action === 'close-detail') {
             if (state.selectedItem && state.selectedItem.parentId) {
                 const parentColl = state.selectedItem.parentType === 'expediente' ? state.db.expedientes : state.db.documents;
@@ -648,15 +782,24 @@ document.addEventListener('click', (e) => {
             }
             return setState({ selectedItem: null });
         }
+        
         if (action === 'view-item') {
-            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            const type = actionBtn.getAttribute('data-type');
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
             if (item) return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
         }
+        
         if (action === 'acquire-item') {
-            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
-            if (item) { if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({}); } return;
+            const type = actionBtn.getAttribute('data-type');
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            if (item) {
+                if (type === 'expediente') item.currentOwnerId = state.currentUser.id;
+                else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); }
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({});
+            } return;
         }
+
         if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         
@@ -668,12 +811,20 @@ document.addEventListener('click', (e) => {
         };
 
         if (action === 'open-modal') {
-            saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+            saveEdits();
+            const type = actionBtn.getAttribute('data-modal-type');
+            let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role; }
+            
+            if (type === 'editar_usuario') {
+                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id'));
+                mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role;
+            }
             return setState({ modal: mState });
         }
+
         if (action === 'close-modal') return setState({ modal: null });
 
         if (action === 'confirm-modal') {
@@ -696,36 +847,51 @@ document.addEventListener('click', (e) => {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.currentOwnerId = m.selectedId;
                 if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+                
+                const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
+                let hAction = m.type === 'revisar' ? 'Enviado a Revisar' : `Derivado a ${destName}`;
+                
                 if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
-                item.history.push(createHistoryEntry(state.currentUser.id, m.type === 'revisar' ? 'Enviado a Revisar' : 'Derivar', m.note)); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
+                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Enviado a firmar', m.note)); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Enviado a firmar', m.note));
+                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
             if (m.type === 'derivar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Derivar', m.note)); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ');
+                item.history.push(createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note));
+                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
             if (m.type === 'vincular_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 m.selectionArr.forEach(docId => {
                     const doc = state.db.documents.find(d => d.id === docId);
-                    if (!item.linkedDocs.includes(doc.id)) { item.linkedDocs.push(doc.id); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`)); }
-                }); state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
+                    if (!item.linkedDocs.includes(doc.id)) {
+                        item.linkedDocs.push(doc.id);
+                        item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
+                        doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`));
+                    }
+                });
+                state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
             }
 
             if (m.type === 'relacionar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 m.selectionArr.forEach(docId => {
                     const doc2 = state.db.documents.find(d => d.id === docId);
-                    if (!item.relatedDocs) item.relatedDocs = []; if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
-                }); state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
+                    if (!item.relatedDocs) item.relatedDocs = [];
+                    if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
+                });
+                state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
             }
 
             if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
@@ -747,18 +913,22 @@ document.addEventListener('click', (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                saveEdits(); const isConDest = DOC_TYPES.CON_DEST.includes(item.docType);
+                saveEdits();
+                const isConDest = DOC_TYPES.CON_DEST.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
+                
                 if (!item.signedBy) item.signedBy = [];
                 item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
 
                 if (action === 'doc-sign-pending') {
                     item.signatories = item.signatories.filter(id => id !== state.currentUser.id);
                     if (item.signatories.length > 0) {
-                        item.currentOwnerId = item.signatories[0]; item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
+                        item.currentOwnerId = item.signatories[0];
+                        item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
                         return setState({ selectedItem: null, currentView: 'inbox' });
                     }
                 }
+
                 item.status = STATUS.FIRMADO;
                 if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
@@ -768,20 +938,42 @@ document.addEventListener('click', (e) => {
                         if (targetDoc) { if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); }
                     });
                 }
+
                 if (isConDest) {
-                    let fU = new Set(); item.recipients.forEach(r => { if (r.startsWith('u')) fU.add(r); if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); });
+                    let fU = new Set();
+                    item.recipients.forEach(r => {
+                        if (r.startsWith('u')) fU.add(r);
+                        if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id));
+                    });
                     item.owners = Array.from(fU);
                 } else { item.owners = [item.creatorId]; }
 
                 item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
                 setState({ selectedItem: null, currentView: 'inbox' });
             }
-            else if (action === 'doc-delete') { if (!confirm('¿Eliminar este borrador permanentemente?')) return; item.status = STATUS.ELIMINADO; item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente')); setState({ selectedItem: null, currentView: 'drafts' }); }
-            else if (action === 'doc-unrelate') { if (!confirm('¿Seguro que desea eliminar esta relación?')) return; const docId = actionBtn.getAttribute('data-id'); item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({}); }
-            else if (action === 'exp-desarchivar') { item.status = 'En Tramite'; item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite')); setState({ selectedItem: null, currentView: 'archive' }); }
+            else if (action === 'doc-delete') {
+                if (!confirm('¿Eliminar este borrador permanentemente?')) return;
+                item.status = STATUS.ELIMINADO;
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente'));
+                setState({ selectedItem: null, currentView: 'drafts' });
+            }
+            else if (action === 'doc-unrelate') {
+                if (!confirm('¿Seguro que desea eliminar esta relación?')) return;
+                const docId = actionBtn.getAttribute('data-id');
+                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({});
+            }
+            else if (action === 'exp-desarchivar') {
+                item.status = 'En Tramite';
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite'));
+                setState({ selectedItem: null, currentView: 'archive' });
+            }
             else if (action === 'exp-unlink') {
-                const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
-                const doc = state.db.documents.find(d => d.id === docId); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`)); setState({});
+                const docId = actionBtn.getAttribute('data-id');
+                item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
+                const doc = state.db.documents.find(d => d.id === docId);
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`));
+                doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`));
+                setState({});
             }
         }
         return;
@@ -795,4 +987,5 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Arrancar App
 renderApp();

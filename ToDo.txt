@@ -2,21 +2,7 @@
 - Base de datos
 - Separar en módulos
 
-
-Agrega los datos a los graficos.
-
-En el Historial, cuando se deriva, tambien debe decir quien lo recibe, ahora solo dice quien lo envia
-
-Para generar el numero de los documentos y expedientes, usa estos códigos:
-Memo -> ME
-Nota -> NO
-Informe -> IF
-Acta - ACTA
-Resolución -> RESOL
-Disposición ->DISP
-Actuación- > ACTU
-
-Debe haber un buscador cuando estoy creando un Documento
+Debe haber un buscador de documentos cuando estoy creando un Documento
 
 Agrega nuevos documentos sin destinatario: 
 - Dictamen -> DICT
