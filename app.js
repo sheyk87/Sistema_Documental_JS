@@ -347,7 +347,7 @@ function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
 }
 
 function getAggregatedStats() {
-    let totals = { firmados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, expsCreados: 0, archivados: 0, anulados: 0, usuarios: state.db.users.length, areas: state.db.areas.length };
+    let totals = { firmados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, expsCreados: 0, archD: 0, archE: 0, anulados: 0, usuarios: state.db.users.length, areas: state.db.areas.length };
     let usersMap = {}, areasMap = {};
     const initMap = (map, id, label) => { if(!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
 
@@ -369,7 +369,7 @@ function getAggregatedStats() {
 
             if (h.action.includes('Firma')) { totals.firmados++; inc('firmados'); }
             if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
-            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archivados++; inc('archDesarchD'); }
+            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archD++; inc('archDesarchD'); }
             if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
             if (h.action === 'Rechazado') { inc('rechazados'); }
             if (h.action.includes('Firma') && !relationsCounted) { totals.relaciones += (d.relatedDocs?.length || 0); relationsCounted = true; }
@@ -385,7 +385,7 @@ function getAggregatedStats() {
             if (h.action === 'Apertura') { totals.expsCreados++; inc('creados'); }
             if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
             if (h.action.includes('Vinculad') || h.action.includes('Desvinculad')) { totals.vinculaciones++; inc('vinculaciones'); }
-            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archivados++; inc('archDesarchE'); }
+            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archE++; inc('archDesarchE'); }
             if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
         });
     });
@@ -442,8 +442,7 @@ function renderStats() {
 
 function drawCharts() {
     if (!window.Chart) return;
-    Object.values(chartInstances).forEach(c => c.destroy());
-    chartInstances = {};
+    Object.values(chartInstances).forEach(c => c.destroy()); chartInstances = {};
 
     const container = document.getElementById('stats-canvas-container');
     if(!container) return;
@@ -464,12 +463,15 @@ function drawCharts() {
 
     if (tab === 'generales') {
         addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald');
-        addKPI('Expedientes Creados', d.totals.expsCreados, 'folder-plus', 'purple');
-        addKPI('Derivaciones Totales', d.totals.derivaciones, 'share', 'indigo');
-        addKPI('Fojas Vinculadas', d.totals.vinculaciones, 'link', 'blue');
-        addKPI('Docs Relacionados', d.totals.relaciones, 'network', 'amber');
-        addKPI('Usuarios Activos', d.totals.usuarios, 'users', 'slate');
-        addKPI('Áreas Activas', d.totals.areas, 'building', 'slate');
+        addKPI('Exps Creados', d.totals.expsCreados, 'folder-plus', 'purple');
+        addKPI('Derivaciones', d.totals.derivaciones, 'share', 'indigo');
+        addKPI('Vinculaciones', d.totals.vinculaciones, 'link', 'blue');
+        addKPI('Relaciones', d.totals.relaciones, 'network', 'amber');
+        addKPI('Anulaciones', d.totals.anulados, 'ban', 'red');
+        addKPI('Docs Archivados', d.totals.archD, 'archive', 'stone');
+        addKPI('Exps Archivados', d.totals.archE, 'archive', 'stone');
+        addKPI('Usuarios', d.totals.usuarios, 'users', 'slate');
+        addKPI('Áreas', d.totals.areas, 'building', 'slate');
         
         container.innerHTML = html;
         if (window.lucide) lucide.createIcons();
@@ -518,25 +520,31 @@ function drawCharts() {
         const pfx = tab === 'usuarios' ? 'u_' : 'a_';
         const color = tab === 'usuarios' ? CHART_COLORS.Actuacion : CHART_COLORS.Informe;
         
-        addChartContainer('c-top-firmados', 'Más Firmas', 2);
-        addChartContainer('c-top-creados', 'Más Exps Creados', 2);
-        addChartContainer('c-top-deriv', 'Más Derivaciones', 2);
-        addChartContainer('c-top-vinc', 'Más Vinculaciones', 2);
-        addChartContainer('c-top-rel', 'Más Relacionados', 2);
-        addChartContainer('c-top-rech', 'Más Rechazados', 2);
-        addChartContainer('c-top-anul', 'Más Anulaciones', 2);
-        addChartContainer('c-top-archD', 'Más Arch. Docs', 2);
-        addChartContainer('c-top-archE', 'Más Arch. Exps', 2);
+        const chartsToRender = [
+            { key: 'firmados', title: 'Más Firmas' },
+            { key: 'creados', title: 'Más Exps Creados' },
+            { key: 'derivaciones', title: 'Más Derivaciones' },
+            { key: 'vinculaciones', title: 'Más Vinculaciones' },
+            { key: 'relaciones', title: 'Más Relacionados' },
+            { key: 'rechazados', title: 'Más Rechazados' },
+            { key: 'anulaciones', title: 'Más Anulaciones' },
+            { key: 'archD', title: 'Más Arch. Docs' },
+            { key: 'archE', title: 'Más Arch. Exps' }
+        ];
+
+        chartsToRender.forEach(c => addChartContainer(`c-top-${c.key}`, c.title, 2));
 
         container.innerHTML = html;
         if (window.lucide) lucide.createIcons();
         
         const buildTop = (id, key) => {
             const arr = d.top[pfx+key];
-            if(arr && arr.length) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType);
+            if(arr && arr.length > 0) {
+                buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType);
+            }
         };
 
-        ['firmados', 'creados', 'derivaciones', 'vinculaciones', 'relaciones', 'rechazados', 'anulaciones', 'archD', 'archE'].forEach(k => buildTop(`c-top-${k}`, k));
+        chartsToRender.forEach(c => buildTop(`c-top-${c.key}`, c.key));
         return;
     }
 }
@@ -545,19 +553,11 @@ function buildChart(id, labels, data, bgColors, cType) {
     const ctx = document.getElementById(id);
     if(!ctx) return;
     
-    // Configuración para evitar el crash de "scales" en torta
-    let options = {
-        responsive: true, maintainAspectRatio: false, 
-        plugins: { legend: { display: cType==='pie', position: 'right' } }
-    };
-    
-    if (cType === 'bar') {
-        options.scales = { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } };
-    }
+    let options = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: cType==='pie', position: 'right' } } };
+    if (cType === 'bar') options.scales = { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } };
 
     chartInstances[id] = new Chart(ctx, {
-        type: cType,
-        data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
+        type: cType, data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
         options: options
     });
 }
