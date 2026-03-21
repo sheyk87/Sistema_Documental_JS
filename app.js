@@ -424,24 +424,37 @@ function renderSearcher() {
 
 function renderAdminUsers() {
     return `
-        <div class="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <h3 class="font-bold text-lg mb-4">ABM de Usuarios</h3>
-            <form id="form-admin-user" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
-                <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 px-3 py-2 border rounded outline-none" />
-                <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 px-3 py-2 border rounded outline-none" />
-                <select id="admin-u-area" class="px-3 py-2 border rounded outline-none">
+            <form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
+                <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
+                <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
+                <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" />
+                <select id="admin-u-area" class="w-48 px-3 py-2 border rounded outline-none">
                     ${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
                 </select>
-                <select id="admin-u-role" class="px-3 py-2 border rounded outline-none">
-                    <option value="user">Usuario normal</option>
-                    <option value="admin">Administrador</option>
+                <select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none">
+                    <option value="user">Usuario</option>
+                    <option value="admin">Admin</option>
                 </select>
                 <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Crear</button>
             </form>
             <table class="w-full text-left text-sm border-collapse">
                 <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead>
                 <tbody class="divide-y">
-                    ${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold">Eliminar</button></td></tr>`).join('')}
+                    ${state.db.users.map(u => `
+                        <tr>
+                            <td class="p-2 text-xs text-gray-500">${u.id}</td>
+                            <td class="p-2 font-medium">${u.name}</td>
+                            <td class="p-2">${u.email}</td>
+                            <td class="p-2">${getAreaName(u.areaId)}</td>
+                            <td class="p-2 uppercase text-xs">${u.role}</td>
+                            <td class="p-2">
+                                <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3">Editar</button>
+                                <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold">Eliminar</button>
+                            </td>
+                        </tr>
+                    `).join('')}
                 </tbody>
             </table>
         </div>
@@ -777,7 +790,28 @@ function renderModalOverlay() {
     const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
     const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && ((d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
 
-    if (m.type === 'revisar' || m.type === 'derivar_exp') {
+    if (m.type === 'editar_usuario') {
+        title = 'Editar Usuario';
+        content = `
+            <div class="space-y-3 mb-4">
+                <div><label class="text-xs font-bold text-gray-600">Nombre</label><input type="text" data-modal-input="editUName" value="${m.editUName}" class="w-full p-2 border rounded text-sm outline-none" /></div>
+                <div><label class="text-xs font-bold text-gray-600">Email</label><input type="email" data-modal-input="editUEmail" value="${m.editUEmail}" class="w-full p-2 border rounded text-sm outline-none" /></div>
+                <div><label class="text-xs font-bold text-gray-600">Contraseña</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" class="w-full p-2 border rounded text-sm outline-none" /></div>
+                <div><label class="text-xs font-bold text-gray-600">Área</label>
+                    <select data-modal-input="editUArea" class="w-full p-2 border rounded text-sm outline-none">
+                        ${state.db.areas.map(a => `<option value="${a.id}" ${m.editUArea === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div><label class="text-xs font-bold text-gray-600">Rol</label>
+                    <select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none">
+                        <option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario normal</option>
+                        <option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Administrador</option>
+                    </select>
+                </div>
+            </div>
+        `;
+    }
+    else if (m.type === 'revisar' || m.type === 'derivar_exp') {
         title = m.type === 'revisar' ? 'Enviar a Revisar' : 'Derivar Expediente';
         const list = m.type === 'derivar_exp' ? mixedList : usersList;
         
@@ -891,6 +925,11 @@ document.addEventListener('change', (e) => {
         if (e.target.checked) state.modal[key].push(val);
         else state.modal[key] = state.modal[key].filter(v => v !== val);
     }
+    // Para selects dentro del modal
+    if (e.target.hasAttribute('data-modal-input')) {
+        const key = e.target.getAttribute('data-modal-input');
+        state.modal[key] = e.target.value;
+    }
 });
 
 document.addEventListener('submit', (e) => {
@@ -934,8 +973,8 @@ document.addEventListener('submit', (e) => {
         e.preventDefault();
         state.db.users.push({
             id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value,
-            email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, 
-            role: document.getElementById('admin-u-role').value, password: '123'
+            email: document.getElementById('admin-u-email').value, password: document.getElementById('admin-u-pass').value,
+            areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value
         });
         setState({});
     }
@@ -1020,15 +1059,43 @@ document.addEventListener('click', (e) => {
         if (action === 'open-modal') {
             saveEdits();
             const type = actionBtn.getAttribute('data-modal-type');
-            let initialSelection = [];
-            if (type === 'destinatarios') initialSelection = [...state.selectedItem.recipients];
-            if (type === 'editar_permisos_exp') initialSelection = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            return setState({ modal: { type, search: '', selectedId: null, selectionArr: initialSelection, note: '' } });
+            let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+
+            if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
+            if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
+            
+            if (type === 'editar_usuario') {
+                const uId = actionBtn.getAttribute('data-id');
+                const u = state.db.users.find(x => x.id === uId);
+                mState.editUId = u.id;
+                mState.editUName = u.name;
+                mState.editUEmail = u.email;
+                mState.editUPass = u.password;
+                mState.editUArea = u.areaId;
+                mState.editURole = u.role;
+            }
+
+            return setState({ modal: mState });
         }
+
         if (action === 'close-modal') return setState({ modal: null });
 
         if (action === 'confirm-modal') {
             const m = state.modal;
+
+            if (m.type === 'editar_usuario') {
+                if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
+                const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
+                if (uIdx > -1) {
+                    state.db.users[uIdx].name = m.editUName;
+                    state.db.users[uIdx].email = m.editUEmail;
+                    state.db.users[uIdx].password = m.editUPass;
+                    state.db.users[uIdx].areaId = m.editUArea;
+                    state.db.users[uIdx].role = m.editURole;
+                }
+                return setState({ modal: null });
+            }
+
             const isExp = state.selectedItem.type === 'expediente';
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
