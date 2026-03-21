@@ -1,7 +1,6 @@
 // ==========================================
-// 1. DATOS INICIALES Y ESTADO
+// 1. DATOS INICIALES Y ESTADO GLOBAL
 // ==========================================
-
 const INITIAL_AREAS = [
     { id: 'a1', name: 'Dirección General' },
     { id: 'a2', name: 'Recursos Humanos' },
@@ -45,15 +44,17 @@ let state = {
         archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
     },
-    menus: { trabajo: true, nuevo: true, consultas: true, admin: true },
-    statsOpts: { type: 'all', area: 'all', user: 'all', dateFrom: '', dateTo: '', chartType: 'pie' },
+    menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
+    statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     modal: null 
 };
 
 let chartInstances = {};
+let currentStatsData = {};
+let activeInputSelector = null;
 const appRoot = document.getElementById('app-root');
 
-// Inyectar Chart.js dinámicamente
+// Inyección de Chart.js
 if (!window.Chart) {
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
@@ -64,6 +65,17 @@ if (!window.Chart) {
 // ==========================================
 // 2. FUNCIONES AUXILIARES GLOBALES
 // ==========================================
+function restoreInputFocus() {
+    if (activeInputSelector) {
+        const input = document.querySelector(activeInputSelector);
+        if (input) {
+            input.focus();
+            const val = input.value;
+            input.value = '';
+            input.value = val;
+        }
+    }
+}
 
 const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().toISOString(), userId, action, notes });
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
@@ -151,13 +163,11 @@ function getDerivationsCount(item) {
 // ==========================================
 // 3. EXPORTACIÓN CSV
 // ==========================================
-
 function exportToCSV(filename, rows) {
     const processRow = function (row) {
         return row.map(val => {
             let finalVal = val === null || val === undefined ? '' : val.toString();
-            finalVal = finalVal.replace(/"/g, '""');
-            return `"${finalVal}"`;
+            return `"${finalVal.replace(/"/g, '""')}"`;
         }).join(',');
     };
     const csvFile = rows.map(processRow).join('\n');
@@ -176,13 +186,15 @@ function exportToCSV(filename, rows) {
 
 function handleExport(model) {
     let items = [], headers = [], rows = [];
-    
     if (model === 'admin_users') {
         headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol'];
         rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])];
     } else if (model === 'admin_areas') {
         headers = ['ID', 'Nombre', 'Usuarios'];
         rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u=>u.areaId===a.id).length])];
+    } else if (model === 'stats') {
+        exportStatsCSV();
+        return;
     } else {
         headers = ['Número', 'Tipo', 'Asunto', 'Estado', 'Enviado Por', 'Fecha', 'Fojas'];
         items = sortItems([...getFilteredItemsForModel(model)], model);
@@ -192,6 +204,26 @@ function handleExport(model) {
         ])];
     }
     exportToCSV(`${model}_export.csv`, rows);
+}
+
+function exportStatsCSV() {
+    let rows = [];
+    rows.push(['--- ESTADISTICAS EXPORTADAS ---']);
+    if (currentStatsData.totals) {
+        rows.push(['', '']);
+        rows.push(['TOTALES GENERALES']);
+        Object.entries(currentStatsData.totals).forEach(([k, v]) => rows.push([k, v]));
+    }
+    if (currentStatsData.top) {
+        rows.push(['', '']);
+        Object.entries(currentStatsData.top).forEach(([title, list]) => {
+            rows.push([title.toUpperCase()]);
+            rows.push(['Elemento', 'Cantidad']);
+            list.forEach(i => rows.push([i.label, i.count]));
+            rows.push(['', '']);
+        });
+    }
+    exportToCSV(`Estadisticas_GDE.csv`, rows);
 }
 
 function getFilteredItemsForModel(model) {
@@ -215,15 +247,19 @@ function getFilteredItemsForModel(model) {
 }
 
 // ==========================================
-// 4. SISTEMA DE TABLAS
+// 4. TABLAS Y FILTROS
 // ==========================================
-
 function filterItem(item, term) {
     if (!term) return true;
     const t = term.toLowerCase();
-    return ((item.number || '').toLowerCase().includes(t) || (item.docType || item.type).toLowerCase().includes(t) || 
-            item.subject.toLowerCase().includes(t) || item.status.toLowerCase().includes(t) || 
-            getSender(item).toLowerCase().includes(t) || formatDateOnly(item.createdAt).includes(t));
+    const sender = getSender(item).toLowerCase();
+    const date = formatDateOnly(item.createdAt);
+    return ((item.number || '').toLowerCase().includes(t) || 
+            (item.docType || item.type).toLowerCase().includes(t) || 
+            item.subject.toLowerCase().includes(t) || 
+            item.status.toLowerCase().includes(t) || 
+            sender.includes(t) || 
+            date.includes(t));
 }
 
 function sortItems(items, model) {
@@ -296,14 +332,216 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
 }
 
 // ==========================================
-// 5. RENDERIZADO PRINCIPAL Y VISTAS
+// 5. ESTADISTICAS Y GRAFICOS
+// ==========================================
+function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
+    const o = state.statsOpts;
+    if (o.types && !o.types.includes('all') && !o.types.includes(entryDocType)) return false;
+    const uArea = state.db.users.find(u=>u.id===entryUserId)?.areaId;
+    if (o.areas && !o.areas.includes('all') && !o.areas.includes(uArea)) return false;
+    if (o.users && !o.users.includes('all') && !o.users.includes(entryUserId)) return false;
+    if (entryDateStr) {
+        const dTime = new Date(entryDateStr).getTime();
+        if (o.dateFrom && dTime < new Date(o.dateFrom).getTime()) return false;
+        if (o.dateTo && dTime > new Date(o.dateTo).setHours(23,59,59)) return false;
+    }
+    return true;
+}
+
+function getAggregatedStats() {
+    let totals = { firmados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, expsCreados: 0, archivados: 0, anulados: 0, usuarios: state.db.users.length, areas: state.db.areas.length };
+    let usersMap = {}, areasMap = {};
+    const initMap = (map, id, label) => { if(!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
+
+    state.db.users.forEach(u => initMap(usersMap, u.id, u.name));
+    state.db.areas.forEach(a => initMap(areasMap, a.id, a.name));
+
+    state.db.documents.forEach(d => {
+        let relationsCounted = false;
+        d.history.forEach(h => {
+            const u = state.db.users.find(x=>x.id===h.userId);
+            if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
+            const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
+
+            if (h.action.includes('Firma')) { totals.firmados++; inc('firmados'); }
+            if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
+            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archivados++; inc('archDesarchD'); }
+            if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
+            if (h.action === 'Rechazado') { inc('rechazados'); }
+            if (h.action.includes('Firma') && !relationsCounted) { totals.relaciones += (d.relatedDocs?.length || 0); relationsCounted = true; }
+        });
+    });
+
+    state.db.expedientes.forEach(e => {
+        e.history.forEach(h => {
+            const u = state.db.users.find(x=>x.id===h.userId);
+            if (!u || !checkStatsFilters(h.date, h.userId, 'expediente')) return;
+            const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
+
+            if (h.action === 'Apertura') { totals.expsCreados++; inc('creados'); }
+            if (h.action === 'Derivar') { totals.derivaciones++; inc('derivaciones'); }
+            if (h.action.includes('Vinculad') || h.action.includes('Desvinculad')) { totals.vinculaciones++; inc('vinculaciones'); }
+            if (h.action.includes('Archivado') || h.action.includes('Desarchivado')) { totals.archivados++; inc('archDesarchE'); }
+            if (h.action === 'Anulado') { totals.anulados++; inc('anulaciones'); }
+        });
+    });
+
+    const getTop = (map, key) => Object.values(map).sort((a,b)=>b[key]-a[key]).slice(0,10).map(x=>({label: x.label, count: x[key]})).filter(x=>x.count>0);
+    return { totals, usersMap, areasMap, top: {
+        u_firmados: getTop(usersMap, 'firmados'), u_creados: getTop(usersMap, 'creados'), u_derivaciones: getTop(usersMap, 'derivaciones'), u_vinculaciones: getTop(usersMap, 'vinculaciones'), u_anulaciones: getTop(usersMap, 'anulaciones'), u_archD: getTop(usersMap, 'archDesarchD'), u_archE: getTop(usersMap, 'archDesarchE'), u_rechazados: getTop(usersMap, 'rechazados'),
+        a_firmados: getTop(areasMap, 'firmados'), a_creados: getTop(areasMap, 'creados'), a_derivaciones: getTop(areasMap, 'derivaciones'), a_vinculaciones: getTop(areasMap, 'vinculaciones'), a_anulaciones: getTop(areasMap, 'anulaciones'), a_archD: getTop(areasMap, 'archDesarchD'), a_archE: getTop(areasMap, 'archDesarchE'), a_rechazados: getTop(areasMap, 'rechazados')
+    }};
+}
+
+function renderStats() {
+    const o = state.statsOpts; const tab = o.tab;
+    const allTypes = [...DOC_TYPES.CON_DEST, ...DOC_TYPES.SIN_DEST, 'expediente'];
+
+    const renderMultiSelect = (key, label, optionsArr, isObj) => {
+        const isAll = o[key].includes('all');
+        return `
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
+                <select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none">
+                    <option value="all" ${isAll ? 'selected' : ''}>Todos</option>
+                    ${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}
+                </select>
+            </div>
+        `;
+    };
+
+    return `
+        <div class="max-w-7xl mx-auto space-y-6">
+            <div class="flex gap-2 border-b border-gray-200">
+                ${['generales', 'docs', 'usuarios', 'areas'].map(t => `<button data-action="set-stats-tab" data-tab="${t}" class="px-6 py-3 text-sm font-bold border-b-2 outline-none ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}">${t.toUpperCase()}</button>`).join('')}
+                <div class="ml-auto pb-2"><button data-action="export-csv" data-model="stats" class="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Exportar CSV</button></div>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-start">
+                ${renderMultiSelect('types', 'Tipo Documento', allTypes, false)}
+                ${renderMultiSelect('areas', 'Área', state.db.areas, true)}
+                ${renderMultiSelect('users', 'Usuario', state.db.users, true)}
+                <div class="flex flex-col gap-2">
+                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" data-stats-filter="dateFrom" value="${o.dateFrom}" class="p-2 border rounded text-xs w-32 outline-none"/></div>
+                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" data-stats-filter="dateTo" value="${o.dateTo}" class="p-2 border rounded text-xs w-32 outline-none"/></div>
+                </div>
+                <div class="ml-auto mt-auto flex bg-gray-100 p-1 rounded-lg border">
+                    <button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType==='pie'?'bg-white shadow text-blue-600':'text-gray-500'}">Torta</button>
+                    <button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType==='bar'?'bg-white shadow text-blue-600':'text-gray-500'}">Barras</button>
+                </div>
+            </div>
+
+            <div id="stats-canvas-container" class="grid grid-cols-2 lg:grid-cols-4 gap-6"></div>
+        </div>
+    `;
+}
+
+function drawCharts() {
+    if (!window.Chart) return;
+    Object.values(chartInstances).forEach(c => c.destroy());
+    chartInstances = {};
+
+    const container = document.getElementById('stats-canvas-container');
+    if(!container) return;
+
+    currentStatsData = getAggregatedStats();
+    const d = currentStatsData;
+    const tab = state.statsOpts.tab;
+    const cType = state.statsOpts.chartType;
+
+    let html = '';
+    const addChartContainer = (id, title, span=1) => {
+        html += `<div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-${span}"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">${title}</h4><div class="relative h-64 w-full"><canvas id="${id}"></canvas></div></div>`;
+    };
+    
+    const addKPI = (title, val, icon, color) => {
+        html += `<div class="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-l-${color}-500 flex items-center justify-between col-span-2 lg:col-span-1"><div><p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p><p class="text-3xl font-black text-gray-800">${val}</p></div><i data-lucide="${icon}" class="w-10 h-10 text-${color}-200"></i></div>`;
+    };
+
+    if (tab === 'generales') {
+        addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald');
+        addKPI('Expedientes Creados', d.totals.expsCreados, 'folder-plus', 'purple');
+        addKPI('Derivaciones Totales', d.totals.derivaciones, 'share', 'indigo');
+        addKPI('Fojas Vinculadas', d.totals.vinculaciones, 'link', 'blue');
+        addKPI('Docs Relacionados', d.totals.relaciones, 'network', 'amber');
+        addKPI('Usuarios Activos', d.totals.usuarios, 'users', 'slate');
+        addKPI('Áreas Activas', d.totals.areas, 'building', 'slate');
+    } else if (tab === 'docs') {
+        const docs = state.db.documents.filter(doc => checkStatsFilters(doc.createdAt, doc.creatorId, doc.docType));
+        const exps = state.db.expedientes.filter(exp => checkStatsFilters(exp.createdAt, exp.creatorId, 'expediente'));
+        
+        const countByType = (items, status) => {
+            let c = {}; items.forEach(i => { if(!status || i.status===status) c[i.docType||i.type] = (c[i.docType||i.type]||0)+1; });
+            return { l: Object.keys(c), d: Object.values(c), c: Object.keys(c).map(t=>CHART_COLORS[t]||CHART_COLORS.default) };
+        };
+
+        let fD = countByType(docs, STATUS.FIRMADO); addChartContainer('c-firm', 'Docs Firmados por Tipo', 2);
+        let cE = countByType(exps, null); addChartContainer('c-exp', 'Expedientes Creados', 2);
+        let arD = countByType(docs, STATUS.ARCHIVADO), arE = countByType(exps, STATUS.ARCHIVADO); addChartContainer('c-arch', 'Archivados', 2);
+        let anD = countByType(docs, STATUS.ANULADO), anE = countByType(exps, STATUS.ANULADO); addChartContainer('c-anul', 'Anulados', 2);
+
+        container.innerHTML = html;
+        if (window.lucide) lucide.createIcons();
+        
+        const build = (id, l, dat, c) => buildChart(id, l, dat, c, cType);
+        
+        if(fD.l.length) build('c-firm', fD.l, fD.d, fD.c);
+        if(cE.l.length) build('c-exp', cE.l, cE.d, cE.c);
+        if(arD.l.length || arE.l.length) build('c-arch', [...arD.l,...arE.l], [...arD.d,...arE.d], [...arD.c,...arE.c]);
+        if(anD.l.length || anE.l.length) build('c-anul', [...anD.l,...anE.l], [...anD.d,...anE.d], [...anD.c,...anE.c]);
+        return;
+    } else {
+        const pfx = tab === 'usuarios' ? 'u_' : 'a_';
+        const color = tab === 'usuarios' ? CHART_COLORS.Actuacion : CHART_COLORS.Informe;
+        
+        addChartContainer('c-top-firmados', 'Más Firmas', 2);
+        addChartContainer('c-top-creados', 'Más Exps Creados', 2);
+        addChartContainer('c-top-deriv', 'Más Derivaciones', 2);
+        addChartContainer('c-top-vinc', 'Más Vinculaciones', 2);
+        addChartContainer('c-top-rech', 'Más Rechazados', 2);
+        addChartContainer('c-top-anul', 'Más Anulaciones', 2);
+        addChartContainer('c-top-archD', 'Más Arch. Docs', 2);
+        addChartContainer('c-top-archE', 'Más Arch. Exps', 2);
+
+        container.innerHTML = html;
+        if (window.lucide) lucide.createIcons();
+        
+        const buildTop = (id, key) => {
+            const arr = d.top[pfx+key];
+            if(arr.length) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType);
+        };
+
+        ['firmados', 'creados', 'derivaciones', 'vinculaciones', 'rechazados', 'anulaciones', 'archD', 'archE'].forEach(k => buildTop(`c-top-${k}`, k));
+        return;
+    }
+
+    container.innerHTML = html;
+    if (window.lucide) lucide.createIcons();
+}
+
+function buildChart(id, labels, data, bgColors, cType) {
+    const ctx = document.getElementById(id);
+    if(!ctx) return;
+    chartInstances[id] = new Chart(ctx, {
+        type: cType,
+        data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
+        options: { 
+            responsive: true, maintainAspectRatio: false, 
+            plugins: { legend: { display: cType==='pie', position: 'right' } },
+            scales: cType === 'bar' ? { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } } : {}
+        }
+    });
+}
+
+// ==========================================
+// 6. RENDERIZADO PRINCIPAL Y VISTAS
 // ==========================================
 
 function renderApp() {
     if (!state.currentUser) appRoot.innerHTML = renderLogin();
     else appRoot.innerHTML = renderMainLayout();
     restoreInputFocus(); 
-    lucide.createIcons();
+    if (window.lucide) lucide.createIcons();
     if (state.currentView === 'stats') drawCharts();
 }
 
@@ -332,10 +570,12 @@ function renderMainLayout() {
                     ${renderMenuSection('trabajo', 'Mi Trabajo', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
-                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')) : ''}
+                    ${state.currentUser.role === 'admin' ? 
+                        renderMenuSection('admin', 'Administración', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas'))
+                    : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
-                    <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors"><i data-lucide="log-out"></i> Cerrar Sesión</button>
+                    <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
                 </div>
             </div>
             <div class="flex-1 flex flex-col overflow-hidden relative">
@@ -373,12 +613,39 @@ function getViewContent() {
     }
 }
 
+// ==========================================
+// 7. VISTAS ESPECIFICAS
+// ==========================================
+
+function renderLogin() {
+    return `
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+                <div class="text-center">
+                    <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4"><i data-lucide="building" class="text-blue-600 w-8 h-8"></i></div>
+                    <h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2>
+                </div>
+                <div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide"></div>
+                <form id="form-login" class="space-y-4">
+                    <input type="email" id="login-email" value="admin@gde.com" class="w-full px-4 py-2 border rounded-lg outline-none" />
+                    <input type="password" id="login-password" value="123" class="w-full px-4 py-2 border rounded-lg outline-none" />
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema</button>
+                </form>
+            </div>
+        </div>
+    `;
+}
+
 function renderInbox() {
     const term = state.searchTerms.inbox;
+    
     const myDocs = state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
     const myExps = state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
     const areaDocs = state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
     const areaExps = state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
+
+    const isOpenPersonal = state.menus.inboxPersonal;
+    const isOpenArea = state.menus.inboxArea;
 
     return `
         <div class="space-y-6">
@@ -387,22 +654,37 @@ function renderInbox() {
             </div>
 
             <div class="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-blue-200 bg-blue-50"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-4 h-4"></i> Documentos - Bandeja Personal (${myDocs.length})</h3></div>
-                ${renderTable(myDocs, 'inboxDoc', 'No tienes documentos pendientes en tu bandeja personal.')}
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-purple-200 bg-purple-50"><h3 class="font-semibold text-purple-900 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal (${myExps.length})</h3></div>
-                ${renderTable(myExps, 'inboxExp', 'No tienes expedientes asignados a ti.', true)}
+                <button data-action="toggle-menu" data-menu="inboxPersonal" class="w-full px-6 py-4 border-b border-blue-200 bg-blue-50 hover:bg-blue-100 flex justify-between items-center transition-colors outline-none">
+                    <h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Mis Trámites (${myDocs.length + myExps.length})</h3>
+                    <i data-lucide="${isOpenPersonal ? 'chevron-down' : 'chevron-right'}" class="text-blue-900"></i>
+                </button>
+                <div class="${isOpenPersonal ? 'block' : 'hidden'} p-4 space-y-6">
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos - Bandeja Personal</h4>
+                        ${renderTable(myDocs, 'inboxDoc', 'No tienes documentos pendientes en tu bandeja personal.')}
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal</h4>
+                        ${renderTable(myExps, 'inboxExp', 'No tienes expedientes asignados a ti.', true)}
+                    </div>
+                </div>
             </div>
 
-            <h3 class="text-lg font-bold text-gray-700 mt-8 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área</h3>
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área (${areaDocs.length})</h3></div>
-                ${renderTable(areaDocs, 'areaDoc', 'No hay documentos pendientes de adquirir en el área.', false, true)}
-            </div>
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área (${areaExps.length})</h3></div>
-                ${renderTable(areaExps, 'areaExp', 'No hay expedientes pendientes de adquirir en el área.', true, true)}
+                <button data-action="toggle-menu" data-menu="inboxArea" class="w-full px-6 py-4 border-b border-slate-200 bg-slate-100 hover:bg-slate-200 flex justify-between items-center transition-colors outline-none">
+                    <h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área (${areaDocs.length + areaExps.length})</h3>
+                    <i data-lucide="${isOpenArea ? 'chevron-down' : 'chevron-right'}" class="text-slate-800"></i>
+                </button>
+                <div class="${isOpenArea ? 'block' : 'hidden'} p-4 space-y-6">
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área</h4>
+                        ${renderTable(areaDocs, 'areaDoc', 'No hay documentos pendientes de adquirir en el área.', false, true)}
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área</h4>
+                        ${renderTable(areaExps, 'areaExp', 'No hay expedientes pendientes de adquirir en el área.', true, true)}
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -448,7 +730,7 @@ function renderArchive() {
 function renderAnulados() {
     const term = state.searchTerms.anulados;
     const docs = state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
-    const exps = state.db.expedientes.filter(e => e.status === STATUS.ANULADO).filter(e => filterItem(e, term));
+    const exps = state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
     return `
         <div class="space-y-6">
             <div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200">
@@ -577,124 +859,6 @@ function renderAdminAreas() {
     `;
 }
 
-// --- ESTADISTICAS ---
-function renderStats() {
-    const o = state.statsOpts;
-    return `
-        <div class="max-w-7xl mx-auto space-y-6">
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-end">
-                <div><label class="block text-xs font-bold text-gray-500 mb-1">Tipo</label><select data-stats-filter="type" class="p-2 border rounded text-sm"><option value="all">Todos</option><option value="doc" ${o.type==='doc'?'selected':''}>Documentos</option><option value="exp" ${o.type==='exp'?'selected':''}>Expedientes</option></select></div>
-                <div><label class="block text-xs font-bold text-gray-500 mb-1">Área Creadora</label><select data-stats-filter="area" class="p-2 border rounded text-sm"><option value="all">Todas</option>${state.db.areas.map(a=>`<option value="${a.id}" ${o.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-                <div><label class="block text-xs font-bold text-gray-500 mb-1">Usuario Creador</label><select data-stats-filter="user" class="p-2 border rounded text-sm"><option value="all">Todos</option>${state.db.users.map(u=>`<option value="${u.id}" ${o.user===u.id?'selected':''}>${u.name}</option>`).join('')}</select></div>
-                <div><label class="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" data-stats-filter="dateFrom" value="${o.dateFrom}" class="p-2 border rounded text-sm"/></div>
-                <div><label class="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" data-stats-filter="dateTo" value="${o.dateTo}" class="p-2 border rounded text-sm"/></div>
-                <div class="ml-auto flex bg-gray-100 p-1 rounded-lg border">
-                    <button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded ${o.chartType==='pie'?'bg-white shadow text-blue-600':'text-gray-500'}">Torta</button>
-                    <button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded ${o.chartType==='bar'?'bg-white shadow text-blue-600':'text-gray-500'}">Barras</button>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 lg:grid-cols-3 gap-6">
-                ${['Firmados', 'Creados (Exp)', 'Archivados', 'Anulados'].map(t => `<div class="bg-white p-4 rounded-xl shadow-sm border"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Total ${t}</h4><div class="relative h-48"><canvas id="chart-tot-${t.split(' ')[0]}"></canvas></div></div>`).join('')}
-                
-                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Expedientes con más Fojas</h4><div class="relative h-48"><canvas id="chart-top-vinculaciones"></canvas></div></div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs más Relacionados</h4><div class="relative h-48"><canvas id="chart-top-relaciones"></canvas></div></div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs con más Firmantes</h4><div class="relative h-48"><canvas id="chart-top-firmantes"></canvas></div></div>
-                
-                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Docs más Derivados</h4><div class="relative h-48"><canvas id="chart-top-deriv-doc"></canvas></div></div>
-                <div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-1"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">Top 10 Exps más Derivados</h4><div class="relative h-48"><canvas id="chart-top-deriv-exp"></canvas></div></div>
-            </div>
-        </div>
-    `;
-}
-
-function checkStatsFilters(item) {
-    const o = state.statsOpts;
-    if (o.type === 'doc' && item.type !== 'documento') return false;
-    if (o.type === 'exp' && item.type !== 'expediente') return false;
-    if (o.user !== 'all' && item.creatorId !== o.user) return false;
-    if (o.area !== 'all' && state.db.users.find(u=>u.id===item.creatorId)?.areaId !== o.area) return false;
-    const dTime = new Date(item.createdAt).getTime();
-    if (o.dateFrom && dTime < new Date(o.dateFrom).getTime()) return false;
-    if (o.dateTo && dTime > new Date(o.dateTo).setHours(23,59,59)) return false;
-    return true;
-}
-
-function drawCharts() {
-    if (!window.Chart) return;
-    Object.values(chartInstances).forEach(c => c.destroy());
-    chartInstances = {};
-
-    const docs = state.db.documents.filter(checkStatsFilters);
-    const exps = state.db.expedientes.filter(checkStatsFilters);
-
-    const typeColors = t => CHART_COLORS[t] || CHART_COLORS['default'];
-    const buildChart = (id, labels, data, bgColors) => {
-        const ctx = document.getElementById(id);
-        if(!ctx) return;
-        chartInstances[id] = new Chart(ctx, {
-            type: state.statsOpts.chartType,
-            data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: state.statsOpts.chartType==='pie', position: 'right' } } }
-        });
-    };
-
-    // Totales
-    const countByType = (items, validStatus) => {
-        let counts = {};
-        items.forEach(i => {
-            if(validStatus && i.status !== validStatus) return;
-            const t = i.docType || i.type;
-            counts[t] = (counts[t]||0) + 1;
-        });
-        return { labels: Object.keys(counts), data: Object.values(counts), colors: Object.keys(counts).map(typeColors) };
-    };
-
-    let firmados = countByType(docs, STATUS.FIRMADO); buildChart('chart-tot-Firmados', firmados.labels, firmados.data, firmados.colors);
-    let creadosExp = countByType(exps, null); buildChart('chart-tot-Creados', creadosExp.labels, creadosExp.data, creadosExp.colors);
-    
-    let arcD = countByType(docs, STATUS.ARCHIVADO), arcE = countByType(exps, STATUS.ARCHIVADO);
-    buildChart('chart-tot-Archivados', [...arcD.labels, ...arcE.labels], [...arcD.data, ...arcE.data], [...arcD.colors, ...arcE.colors]);
-    
-    let anuD = countByType(docs, STATUS.ANULADO), anuE = countByType(exps, STATUS.ANULADO);
-    buildChart('chart-tot-Anulados', [...anuD.labels, ...anuE.labels], [...anuD.data, ...anuE.data], [...anuD.colors, ...anuE.colors]);
-
-    // Top 10s
-    const topVinc = [...exps].sort((a,b)=>(b.linkedDocs?.length||0)-(a.linkedDocs?.length||0)).slice(0,10);
-    buildChart('chart-top-vinculaciones', topVinc.map(e=>e.number), topVinc.map(e=>e.linkedDocs?.length||0), topVinc.map(()=>CHART_COLORS['expediente']));
-
-    const topRel = [...docs].sort((a,b)=>(b.relatedDocs?.length||0)-(a.relatedDocs?.length||0)).slice(0,10);
-    buildChart('chart-top-relaciones', topRel.map(d=>d.number), topRel.map(d=>d.relatedDocs?.length||0), topRel.map(d=>typeColors(d.docType)));
-
-    const topFir = [...docs].sort((a,b)=>(b.signedBy?.length||0)-(a.signedBy?.length||0)).slice(0,10);
-    buildChart('chart-top-firmantes', topFir.map(d=>d.number), topFir.map(d=>d.signedBy?.length||0), topFir.map(d=>typeColors(d.docType)));
-
-    const topDerD = [...docs].sort((a,b)=>getDerivationsCount(b)-getDerivationsCount(a)).slice(0,10);
-    buildChart('chart-top-deriv-doc', topDerD.map(d=>d.number), topDerD.map(getDerivationsCount), topDerD.map(d=>typeColors(d.docType)));
-
-    const topDerE = [...exps].sort((a,b)=>getDerivationsCount(b)-getDerivationsCount(a)).slice(0,10);
-    buildChart('chart-top-deriv-exp', topDerE.map(e=>e.number), topDerE.map(getDerivationsCount), topDerE.map(()=>CHART_COLORS['expediente']));
-}
-
-function renderLogin() {
-    return `
-        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
-                <div class="text-center">
-                    <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4"><i data-lucide="building" class="text-blue-600 w-8 h-8"></i></div>
-                    <h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2>
-                </div>
-                <div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide"></div>
-                <form id="form-login" class="space-y-4">
-                    <input type="email" id="login-email" value="admin@gde.com" class="w-full px-4 py-2 border rounded-lg outline-none" />
-                    <input type="password" id="login-password" value="123" class="w-full px-4 py-2 border rounded-lg outline-none" />
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema</button>
-                </form>
-            </div>
-        </div>
-    `;
-}
-
 function renderCreateDocument() {
     return `
         <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -753,15 +917,12 @@ function renderCreateExpediente() {
     `;
 }
 
-// --- DETALLE DE DOCUMENTO ---
 function renderDocumentDetail() {
     const doc = state.selectedItem;
-    
     const isOwner = doc.currentOwnerId === state.currentUser.id;
     const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
     const isBorradorOrRechazado = (doc.status === STATUS.BORRADOR || doc.status === STATUS.RECHAZADO) && isOwner;
     const canEdit = isBorradorOrRechazado || isMyTurnToSign;
-    
     const isConDestinatario = DOC_TYPES.CON_DEST.includes(doc.docType);
     const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
 
@@ -788,9 +949,7 @@ function renderDocumentDetail() {
                                 <p><strong>TIPO:</strong> ${doc.docType.toUpperCase()}</p>
                                 <p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
                             </div>
-                            
                             ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
-                            
                             <div class="mt-4 flex items-center gap-2">
                                 <label class="font-bold">ASUNTO:</label>
                                 ${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="flex-1 p-2 border font-medium outline-none rounded" />` : `<span class="text-lg">${doc.subject}</span>`}
@@ -839,12 +998,12 @@ function renderDocumentDetail() {
 
                 ${(isOwner || isSignedOrArchived) && doc.status !== STATUS.ANULADO ? `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Acciones</h3>
+                    <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
                     <div class="space-y-2">
                         ${isBorradorOrRechazado ? `
                             ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}
                             <button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>
-                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="file-signature" class="w-4 h-4"></i> Enviar a Firmar</button>
+                            <button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button>
                             <button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button>
                             <button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>
                         ` : ''}
@@ -881,13 +1040,11 @@ function renderDocumentDetail() {
     `;
 }
 
-// --- DETALLE DE EXPEDIENTE ---
 function renderExpedienteDetail() {
     const exp = state.selectedItem;
     const isArchived = exp.status === STATUS.ARCHIVADO;
     const isAnulado = exp.status === STATUS.ANULADO;
     const isActive = !isArchived && !isAnulado;
-    
     const isOwnerUser = exp.currentOwnerId === state.currentUser.id; 
     
     const term = state.searchTerms.expDetail.toLowerCase();
@@ -968,15 +1125,10 @@ function renderExpedienteDetail() {
     `;
 }
 
-// ==========================================
-// 5. SISTEMA DE MODALES
-// ==========================================
-
 function renderModalOverlay() {
     if (!state.modal) return '';
     const m = state.modal;
     let title = '', content = '';
-
     const term = (m.search || '').toLowerCase();
     
     const mixedList = [
@@ -1001,8 +1153,8 @@ function renderModalOverlay() {
                 </div>
                 <div><label class="text-xs font-bold text-gray-600">Rol</label>
                     <select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none">
-                        <option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario normal</option>
-                        <option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Administrador</option>
+                        <option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option>
+                        <option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option>
                     </select>
                 </div>
             </div>
@@ -1011,7 +1163,6 @@ function renderModalOverlay() {
     else if (m.type === 'revisar' || m.type === 'derivar_exp') {
         title = m.type === 'revisar' ? 'Enviar a Revisar' : 'Derivar Expediente';
         const list = m.type === 'derivar_exp' ? mixedList : usersList;
-        
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar destino único..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">
@@ -1024,7 +1175,6 @@ function renderModalOverlay() {
         const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' };
         title = titles[m.type];
         const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
-        
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">
@@ -1063,10 +1213,7 @@ function renderModalOverlay() {
     else if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
         const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' };
         title = titles[m.type];
-        content = `
-            <p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p>
-            <textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>
-        `;
+        content = `<p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p><textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>`;
     }
 
     return `
@@ -1084,58 +1231,34 @@ function renderModalOverlay() {
 }
 
 // ==========================================
-// 6. EVENTOS GLOBALES (DELEGACIÓN)
+// 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
-
-let activeInputSelector = null;
-function restoreInputFocus() {
-    if (activeInputSelector) {
-        const input = document.querySelector(activeInputSelector);
-        if (input) {
-            input.focus();
-            const val = input.value; input.value = ''; input.value = val;
-        }
-    }
-}
 
 document.addEventListener('input', (e) => {
     if (e.target.hasAttribute('data-search-model')) {
         const model = e.target.getAttribute('data-search-model');
-        state.searchTerms[model] = e.target.value;
-        activeInputSelector = `[data-search-model="${model}"]`;
-        renderApp();
+        state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp();
     }
     if (e.target.hasAttribute('data-modal-input')) {
         const key = e.target.getAttribute('data-modal-input');
         state.modal[key] = e.target.value;
-        if (key === 'search') {
-            activeInputSelector = `[data-modal-input="search"]`;
-            renderApp();
-        }
-    }
-    if (e.target.hasAttribute('data-stats-filter')) {
-        const key = e.target.getAttribute('data-stats-filter');
-        state.statsOpts[key] = e.target.value;
-        renderApp();
+        if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); }
     }
 });
 
 document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-modal-toggle')) {
-        const key = e.target.getAttribute('data-modal-toggle');
-        const val = e.target.value;
-        if (e.target.checked) state.modal[key].push(val);
-        else state.modal[key] = state.modal[key].filter(v => v !== val);
+        const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value;
+        if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val);
     }
-    if (e.target.hasAttribute('data-modal-input')) {
-        const key = e.target.getAttribute('data-modal-input');
-        state.modal[key] = e.target.value;
+    if (e.target.hasAttribute('data-modal-input')) { state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; }
+    if (e.target.hasAttribute('data-stats-filter-multi')) {
+        const key = e.target.getAttribute('data-stats-filter-multi');
+        const values = Array.from(e.target.selectedOptions).map(o => o.value);
+        state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all');
+        if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp();
     }
-    if (e.target.hasAttribute('data-stats-filter')) {
-        const key = e.target.getAttribute('data-stats-filter');
-        state.statsOpts[key] = e.target.value;
-        renderApp();
-    }
+    if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
 });
 
 document.addEventListener('submit', (e) => {
@@ -1171,16 +1294,13 @@ document.addEventListener('submit', (e) => {
         setState({ currentView: 'inbox' });
     }
     else if (e.target.id === 'form-admin-area') {
-        e.preventDefault();
-        state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value });
-        setState({});
+        e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({});
     }
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault();
         state.db.users.push({
-            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value,
-            email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, 
-            role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value
+            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, 
+            areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value
         });
         setState({});
     }
@@ -1189,14 +1309,9 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('click', (e) => {
     const thSort = e.target.closest('th[data-sort]');
     if (thSort) {
-        const model = thSort.getAttribute('data-sort');
-        const field = thSort.getAttribute('data-field');
-        if (state.sort[model].field === field) {
-            state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc';
-        } else {
-            state.sort[model].field = field;
-            state.sort[model].order = 'asc';
-        }
+        const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field');
+        if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc';
+        else { state.sort[model].field = field; state.sort[model].order = 'asc'; }
         return renderApp();
     }
 
@@ -1207,74 +1322,37 @@ document.addEventListener('click', (e) => {
     if (actionBtn) {
         const action = actionBtn.getAttribute('data-action');
         
-        if (action === 'set-chart-type') {
-            state.statsOpts.chartType = actionBtn.getAttribute('data-type');
-            return renderApp();
-        }
-
-        if (action === 'export-csv') {
-            handleExport(actionBtn.getAttribute('data-model'));
-            return;
-        }
-
-        if (action === 'toggle-menu') {
-            const menu = actionBtn.getAttribute('data-menu');
-            state.menus[menu] = !state.menus[menu];
-            return setState({});
-        }
-
+        if (action === 'set-stats-tab') { state.statsOpts.tab = actionBtn.getAttribute('data-tab'); return renderApp(); }
+        if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
+        if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
+        if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
         if (action === 'close-detail') return setState({ selectedItem: state.selectedItem.fromExpediente ? { ...state.db.expedientes.find(exp => exp.id === state.selectedItem.fromExpediente), type: 'expediente' } : null });
         if (action === 'view-item') {
-            const id = actionBtn.getAttribute('data-id');
             const type = actionBtn.getAttribute('data-type');
-            const coll = type === 'expediente' ? state.db.expedientes : state.db.documents;
-            const item = coll.find(i => i.id === id);
-            
-            if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) {
-                return alert("Acceso denegado. Este expediente es reservado y usted no tiene permisos para visualizarlo.");
-            }
-            if (item) return setState({ selectedItem: { ...item, type, fromExpediente: state.selectedItem.id } });
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
+            if (item) return setState({ selectedItem: { ...item, type, fromExpediente: state.selectedItem?.id } });
         }
-        
         if (action === 'acquire-item') {
-            const id = actionBtn.getAttribute('data-id');
             const type = actionBtn.getAttribute('data-type');
-            const coll = type === 'expediente' ? state.db.expedientes : state.db.documents;
-            const item = coll.find(i => i.id === id);
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
             if (item) {
-                if (type === 'expediente') {
-                    item.currentOwnerId = state.currentUser.id;
-                } else {
-                    item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId);
-                    item.owners.push(state.currentUser.id);
-                }
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área'));
-                setState({});
-            }
-            return;
+                if (type === 'expediente') item.currentOwnerId = state.currentUser.id;
+                else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); }
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({});
+            } return;
         }
-
-        if (action === 'admin-del-user') {
-            if(confirm('¿Eliminar usuario?')) {
-                state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id'));
-                setState({});
-            }
-            return;
-        }
-        if (action === 'admin-del-area') {
-            if(confirm('¿Eliminar área?')) {
-                state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id'));
-                setState({});
-            }
-            return;
-        }
+        if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
+        if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         
         const saveEdits = () => {
             if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
                 const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
-                state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value;
-                state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value;
+                if (docIdx > -1) {
+                    state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value;
+                    state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value;
+                }
             }
         };
 
@@ -1287,14 +1365,8 @@ document.addEventListener('click', (e) => {
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
             
             if (type === 'editar_usuario') {
-                const uId = actionBtn.getAttribute('data-id');
-                const u = state.db.users.find(x => x.id === uId);
-                mState.editUId = u.id;
-                mState.editUName = u.name;
-                mState.editUEmail = u.email;
-                mState.editUPass = u.password;
-                mState.editUArea = u.areaId;
-                mState.editURole = u.role;
+                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id'));
+                mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role;
             }
 
             return setState({ modal: mState });
@@ -1308,13 +1380,7 @@ document.addEventListener('click', (e) => {
             if (m.type === 'editar_usuario') {
                 if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
                 const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
-                if (uIdx > -1) {
-                    state.db.users[uIdx].name = m.editUName;
-                    state.db.users[uIdx].email = m.editUEmail;
-                    state.db.users[uIdx].password = m.editUPass;
-                    state.db.users[uIdx].areaId = m.editUArea;
-                    state.db.users[uIdx].role = m.editURole;
-                }
+                if (uIdx > -1) { state.db.users[uIdx].name = m.editUName; state.db.users[uIdx].email = m.editUEmail; state.db.users[uIdx].password = m.editUPass; state.db.users[uIdx].areaId = m.editUArea; state.db.users[uIdx].role = m.editURole; }
                 return setState({ modal: null });
             }
 
@@ -1323,58 +1389,37 @@ document.addEventListener('click', (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (m.type === 'destinatarios') {
-                item.recipients = [...m.selectionArr];
-                state.selectedItem.recipients = [...m.selectionArr]; 
-                return setState({ modal: null });
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null });
             }
-            
             if (m.type === 'editar_permisos_exp') {
-                item.authAreas = m.selectionArr.filter(id => id.startsWith('a'));
-                item.authUsers = m.selectionArr.filter(id => id.startsWith('u'));
-                return setState({ modal: null });
+                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null });
             }
 
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
-                if (!m.selectedId) return alert("Debe seleccionar un destino.");
-                if (!m.note.trim()) return alert("Debe ingresar un motivo.");
-                
+                if (!m.selectedId) return alert("Debe seleccionar un destino."); if (!m.note.trim()) return alert("Debe ingresar un motivo.");
                 item.currentOwnerId = m.selectedId;
-                if (m.type === 'revisar') {
-                    item.status = STATUS.BORRADOR;
-                }
-                
-                let hAction = m.type === 'revisar' ? 'Enviado a Revisar' : 'Derivar';
-                
-                if (m.type === 'derivar_exp') {
-                    item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
-                }
-
-                item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
+                if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+                if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                item.history.push(createHistoryEntry(state.currentUser.id, m.type === 'revisar' ? 'Enviado a Revisar' : 'Derivar', m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
             if (m.type === 'enviar_firmar') {
-                if (m.selectionArr.length === 0) return alert("Debe seleccionar al menos un firmante.");
-                if (!m.note.trim()) return alert("Debe ingresar un motivo.");
-                
-                item.signatories = m.selectionArr;
-                item.status = STATUS.FIRMANDOSE;
-                item.currentOwnerId = item.signatories[0];
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+                item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
                 item.history.push(createHistoryEntry(state.currentUser.id, 'Enviado a firmar', m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
             if (m.type === 'derivar_doc') {
-                if (m.selectionArr.length === 0) return alert("Debe seleccionar al menos un destino.");
-                if (!m.note.trim()) return alert("Debe ingresar un motivo.");
-                
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                 item.history.push(createHistoryEntry(state.currentUser.id, 'Derivar', m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
             if (m.type === 'vincular_doc') {
-                if (m.selectionArr.length === 0) return alert("Debe seleccionar al menos un documento.");
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 m.selectionArr.forEach(docId => {
                     const doc = state.db.documents.find(d => d.id === docId);
                     if (!item.linkedDocs.includes(doc.id)) {
@@ -1383,33 +1428,25 @@ document.addEventListener('click', (e) => {
                         doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`));
                     }
                 });
-                state.selectedItem.linkedDocs = item.linkedDocs;
-                return setState({ modal: null });
+                state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
             }
 
             if (m.type === 'relacionar_doc') {
-                if (m.selectionArr.length === 0) return alert("Debe seleccionar al menos un documento.");
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 m.selectionArr.forEach(docId => {
                     const doc2 = state.db.documents.find(d => d.id === docId);
                     if (!item.relatedDocs) item.relatedDocs = [];
-                    if (!item.relatedDocs.includes(doc2.id)) {
-                        item.relatedDocs.push(doc2.id);
-                    }
+                    if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
                 });
-                state.selectedItem.relatedDocs = item.relatedDocs;
-                return setState({ modal: null });
+                state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
             }
 
             if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
-                if (!m.note.trim()) return alert("Debe ingresar un motivo obligatorio.");
+                if (!m.note.trim()) return alert("Ingrese un motivo obligatorio.");
                 let newStatus = ''; let actionName = '';
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
-                if (m.type === 'rechazar_doc') { 
-                    newStatus = STATUS.RECHAZADO; 
-                    actionName = 'Rechazado'; 
-                    item.currentOwnerId = item.creatorId; 
-                }
+                if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
                 
                 item.status = newStatus;
                 if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
@@ -1427,7 +1464,7 @@ document.addEventListener('click', (e) => {
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
                 saveEdits();
                 const isConDest = DOC_TYPES.CON_DEST.includes(item.docType);
-                if (isConDest && item.recipients.length === 0) return alert("Debe añadir al menos un destinatario.");
+                if (isConDest && item.recipients.length === 0) return alert("Añada al menos un destinatario.");
                 
                 if (!item.signedBy) item.signedBy = [];
                 item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
@@ -1444,38 +1481,27 @@ document.addEventListener('click', (e) => {
                 item.status = STATUS.FIRMADO;
                 if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
-                // Consolidación de relaciones
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
                     item.relatedDocs.forEach(relId => {
-                        const targetDoc = state.db.documents.find(d => d.id === relId);
-                        if (targetDoc) {
-                            if (!targetDoc.relatedDocs) targetDoc.relatedDocs = [];
-                            if (!targetDoc.relatedDocs.includes(item.id)) {
-                                targetDoc.relatedDocs.push(item.id);
-                            }
-                        }
+                        const tDoc = state.db.documents.find(d => d.id === relId);
+                        if (tDoc) { if (!tDoc.relatedDocs) tDoc.relatedDocs = []; if (!tDoc.relatedDocs.includes(item.id)) tDoc.relatedDocs.push(item.id); }
                     });
                 }
 
-                // Transformar las áreas seleccionadas como destinatarios en usuarios individuales (Deduplicación)
                 if (isConDest) {
-                    let finalUsers = new Set();
+                    let fU = new Set();
                     item.recipients.forEach(r => {
-                        if (r.startsWith('u')) finalUsers.add(r);
-                        if (r.startsWith('a')) {
-                            state.db.users.filter(u => u.areaId === r).forEach(u => finalUsers.add(u.id));
-                        }
+                        if (r.startsWith('u')) fU.add(r);
+                        if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id));
                     });
-                    item.owners = Array.from(finalUsers);
-                } else {
-                    item.owners = [item.creatorId];
-                }
+                    item.owners = Array.from(fU);
+                } else { item.owners = [item.creatorId]; }
 
                 item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
                 setState({ selectedItem: null, currentView: 'inbox' });
             }
             else if (action === 'doc-delete') {
-                if (!confirm('¿Está seguro de que desea eliminar este borrador permanentemente?')) return;
+                if (!confirm('¿Eliminar este borrador permanentemente?')) return;
                 item.status = STATUS.ELIMINADO;
                 item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente'));
                 setState({ selectedItem: null, currentView: 'drafts' });
@@ -1483,9 +1509,7 @@ document.addEventListener('click', (e) => {
             else if (action === 'doc-unrelate') {
                 if (!confirm('¿Seguro que desea eliminar esta relación?')) return;
                 const docId = actionBtn.getAttribute('data-id');
-                item.relatedDocs = item.relatedDocs.filter(id => id !== docId);
-                state.selectedItem.relatedDocs = item.relatedDocs;
-                setState({});
+                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({});
             }
             else if (action === 'exp-desarchivar') {
                 item.status = 'En Tramite';
@@ -1494,8 +1518,7 @@ document.addEventListener('click', (e) => {
             }
             else if (action === 'exp-unlink') {
                 const docId = actionBtn.getAttribute('data-id');
-                item.linkedDocs = item.linkedDocs.filter(id => id !== docId);
-                state.selectedItem.linkedDocs = item.linkedDocs;
+                item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
                 const doc = state.db.documents.find(d => d.id === docId);
                 item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`));
                 doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`));
@@ -1507,14 +1530,9 @@ document.addEventListener('click', (e) => {
 
     const tr = e.target.closest('tr[data-id]');
     if (tr) {
-        const id = tr.getAttribute('data-id');
-        const type = tr.getAttribute('data-type') || (id.startsWith('exp') ? 'expediente' : 'documento');
-        const coll = type === 'expediente' ? state.db.expedientes : state.db.documents;
-        const item = coll.find(i => i.id === id);
-        if (item) {
-            activeInputSelector = null;
-            setState({ selectedItem: { ...item, type } });
-        }
+        const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
+        const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
+        if (item) { activeInputSelector = null; setState({ selectedItem: { ...item, type } }); }
     }
 });
 
