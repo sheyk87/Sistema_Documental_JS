@@ -1,3 +1,42 @@
 - Adjuntos
 - Base de datos
 - Separar en módulos
+
+
+Agrega los datos a los graficos.
+
+En el Historial, cuando se deriva, tambien debe decir quien lo recibe, ahora solo dice quien lo envia
+
+Para generar el numero de los documentos y expedientes, usa estos códigos:
+Memo -> ME
+Nota -> NO
+Informe -> IF
+Acta - ACTA
+Resolución -> RESOL
+Disposición ->DISP
+Actuación- > ACTU
+
+Debe haber un buscador cuando estoy creando un Documento
+
+Agrega nuevos documentos sin destinatario: 
+- Dictamen -> DICT
+- Sanción -> SANC
+- Acuerdo de confidencialidad -> CONF
+- Factura -> FACT
+- Presupuesto -> PRESUP
+- Balance -> BAL
+- Informes Técnico -> IFT
+- Evaluación -> EVAL
+- Manual de procedimientos
+- Código de conducta
+- Política Interna -> POL
+- Contrato -> CONT
+
+Agrega nuevos documentos CON destinatario: 
+- Solicitud -> SOLI (va SÓLO a un área o SÓLO un usuario, no puede ir a ambos)
+- Solicitud de Compra -> SC (va SÓLO a un área o SÓLO un usuario, no puede ir a ambos)
+- Solicitud de Gasto -> GASTO (va SÓLO a un área o SÓLO un usuario, no puede ir a ambos)
+- Orden de Compra -> OC (va SÓLO a un área o SÓLO un usuario, no puede ir a ambos)
+- Carta -> CAR (va SÓLO a un área o SÓLO un usuario, no puede ir a ambos)
+- Notificación -> NOTI (puede ir a una o más áreas y a uno o más usuarios)
+- Circular -> CIRC (puede ir a una o más áreas y a uno o más usuarios)
