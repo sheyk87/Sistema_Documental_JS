@@ -1,0 +1,3 @@
+- Adjuntos
+- Base de datos
+- Separar en módulos

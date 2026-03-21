@@ -52,13 +52,18 @@ let state = {
 let chartInstances = {};
 let currentStatsData = {};
 let activeInputSelector = null;
+let isChartLoading = false;
 const appRoot = document.getElementById('app-root');
 
-// Inyección de Chart.js
-if (!window.Chart) {
+// Carga segura del CDN de Chart.js
+if (!window.Chart && !isChartLoading) {
+    isChartLoading = true;
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    script.onload = () => { if (state.currentView === 'stats') renderApp(); };
+    script.onload = () => { 
+        isChartLoading = false;
+        if (state.currentView === 'stats') renderApp(); 
+    };
     document.head.appendChild(script);
 }
 
@@ -156,19 +161,15 @@ function isAreaExp(e, user) {
     return e.currentOwnerId === user.areaId;
 }
 
-function getDerivationsCount(item) {
-    return item.history.filter(h => h.action === 'Derivar').length;
-}
+function getDerivationsCount(item) { return item.history.filter(h => h.action === 'Derivar').length; }
+function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
 
 // ==========================================
-// 3. EXPORTACIÓN CSV
+// 3. EXPORTACIÓN CSV Y TABLAS
 // ==========================================
 function exportToCSV(filename, rows) {
     const processRow = function (row) {
-        return row.map(val => {
-            let finalVal = val === null || val === undefined ? '' : val.toString();
-            return `"${finalVal.replace(/"/g, '""')}"`;
-        }).join(',');
+        return row.map(val => `"${(val === null || val === undefined ? '' : val.toString()).replace(/"/g, '""')}"`).join(',');
     };
     const csvFile = rows.map(processRow).join('\n');
     const blob = new Blob([csvFile], { type: 'text/csv;charset=utf-8;' });
@@ -246,9 +247,6 @@ function getFilteredItemsForModel(model) {
     }
 }
 
-// ==========================================
-// 4. TABLAS Y FILTROS
-// ==========================================
 function filterItem(item, term) {
     if (!term) return true;
     const t = term.toLowerCase();
@@ -332,7 +330,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
 }
 
 // ==========================================
-// 5. ESTADISTICAS Y GRAFICOS
+// 4. ESTADÍSTICAS Y GRÁFICOS
 // ==========================================
 function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
     const o = state.statsOpts;
@@ -351,13 +349,19 @@ function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
 function getAggregatedStats() {
     let totals = { firmados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, expsCreados: 0, archivados: 0, anulados: 0, usuarios: state.db.users.length, areas: state.db.areas.length };
     let usersMap = {}, areasMap = {};
-    const initMap = (map, id, label) => { if(!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
+    const initMap = (map, id, label) => { if(!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
 
     state.db.users.forEach(u => initMap(usersMap, u.id, u.name));
     state.db.areas.forEach(a => initMap(areasMap, a.id, a.name));
 
     state.db.documents.forEach(d => {
         let relationsCounted = false;
+        if (d.relatedDocs && d.relatedDocs.length > 0) {
+            if (checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
+                const u = state.db.users.find(x=>x.id===d.creatorId);
+                if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
+            }
+        }
         d.history.forEach(h => {
             const u = state.db.users.find(x=>x.id===h.userId);
             if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
@@ -388,8 +392,8 @@ function getAggregatedStats() {
 
     const getTop = (map, key) => Object.values(map).sort((a,b)=>b[key]-a[key]).slice(0,10).map(x=>({label: x.label, count: x[key]})).filter(x=>x.count>0);
     return { totals, usersMap, areasMap, top: {
-        u_firmados: getTop(usersMap, 'firmados'), u_creados: getTop(usersMap, 'creados'), u_derivaciones: getTop(usersMap, 'derivaciones'), u_vinculaciones: getTop(usersMap, 'vinculaciones'), u_anulaciones: getTop(usersMap, 'anulaciones'), u_archD: getTop(usersMap, 'archDesarchD'), u_archE: getTop(usersMap, 'archDesarchE'), u_rechazados: getTop(usersMap, 'rechazados'),
-        a_firmados: getTop(areasMap, 'firmados'), a_creados: getTop(areasMap, 'creados'), a_derivaciones: getTop(areasMap, 'derivaciones'), a_vinculaciones: getTop(areasMap, 'vinculaciones'), a_anulaciones: getTop(areasMap, 'anulaciones'), a_archD: getTop(areasMap, 'archDesarchD'), a_archE: getTop(areasMap, 'archDesarchE'), a_rechazados: getTop(areasMap, 'rechazados')
+        u_firmados: getTop(usersMap, 'firmados'), u_creados: getTop(usersMap, 'creados'), u_derivaciones: getTop(usersMap, 'derivaciones'), u_vinculaciones: getTop(usersMap, 'vinculaciones'), u_relaciones: getTop(usersMap, 'relaciones'), u_anulaciones: getTop(usersMap, 'anulaciones'), u_archD: getTop(usersMap, 'archDesarchD'), u_archE: getTop(usersMap, 'archDesarchE'), u_rechazados: getTop(usersMap, 'rechazados'),
+        a_firmados: getTop(areasMap, 'firmados'), a_creados: getTop(areasMap, 'creados'), a_derivaciones: getTop(areasMap, 'derivaciones'), a_vinculaciones: getTop(areasMap, 'vinculaciones'), a_relaciones: getTop(areasMap, 'relaciones'), a_anulaciones: getTop(areasMap, 'anulaciones'), a_archD: getTop(areasMap, 'archDesarchD'), a_archE: getTop(areasMap, 'archDesarchE'), a_rechazados: getTop(areasMap, 'rechazados')
     }};
 }
 
@@ -466,6 +470,10 @@ function drawCharts() {
         addKPI('Docs Relacionados', d.totals.relaciones, 'network', 'amber');
         addKPI('Usuarios Activos', d.totals.usuarios, 'users', 'slate');
         addKPI('Áreas Activas', d.totals.areas, 'building', 'slate');
+        
+        container.innerHTML = html;
+        if (window.lucide) lucide.createIcons();
+        return;
     } else if (tab === 'docs') {
         const docs = state.db.documents.filter(doc => checkStatsFilters(doc.createdAt, doc.creatorId, doc.docType));
         const exps = state.db.expedientes.filter(exp => checkStatsFilters(exp.createdAt, exp.creatorId, 'expediente'));
@@ -479,6 +487,11 @@ function drawCharts() {
         let cE = countByType(exps, null); addChartContainer('c-exp', 'Expedientes Creados', 2);
         let arD = countByType(docs, STATUS.ARCHIVADO), arE = countByType(exps, STATUS.ARCHIVADO); addChartContainer('c-arch', 'Archivados', 2);
         let anD = countByType(docs, STATUS.ANULADO), anE = countByType(exps, STATUS.ANULADO); addChartContainer('c-anul', 'Anulados', 2);
+        
+        addChartContainer('c-top-deriv-doc', 'Docs más Derivados', 2);
+        addChartContainer('c-top-vinc-exp', 'Exps más Vinculados', 2);
+        addChartContainer('c-top-rel-doc', 'Docs más Relacionados', 2);
+        addChartContainer('c-top-rech-doc', 'Docs más Rechazados', 2);
 
         container.innerHTML = html;
         if (window.lucide) lucide.createIcons();
@@ -489,6 +502,17 @@ function drawCharts() {
         if(cE.l.length) build('c-exp', cE.l, cE.d, cE.c);
         if(arD.l.length || arE.l.length) build('c-arch', [...arD.l,...arE.l], [...arD.d,...arE.d], [...arD.c,...arE.c]);
         if(anD.l.length || anE.l.length) build('c-anul', [...anD.l,...anE.l], [...anD.d,...anE.d], [...anD.c,...anE.c]);
+
+        const topDerivD = [...docs].sort((a,b) => getDerivationsCount(b) - getDerivationsCount(a)).filter(d=>getDerivationsCount(d)>0).slice(0,10);
+        const topVincE = [...exps].sort((a,b) => (b.linkedDocs?.length||0) - (a.linkedDocs?.length||0)).filter(e=>(e.linkedDocs?.length||0)>0).slice(0,10);
+        const topRelD = [...docs].sort((a,b) => (b.relatedDocs?.length||0) - (a.relatedDocs?.length||0)).filter(d=>(d.relatedDocs?.length||0)>0).slice(0,10);
+        const topRechD = [...docs].sort((a,b) => getRejectionsCount(b) - getRejectionsCount(a)).filter(d=>getRejectionsCount(d)>0).slice(0,10);
+        
+        const tc = t => CHART_COLORS[t] || CHART_COLORS['default'];
+        if(topDerivD.length) build('c-top-deriv-doc', topDerivD.map(d=>d.number), topDerivD.map(getDerivationsCount), topDerivD.map(d=>tc(d.docType)));
+        if(topVincE.length) build('c-top-vinc-exp', topVincE.map(e=>e.number), topVincE.map(e=>e.linkedDocs.length), topVincE.map(()=>CHART_COLORS['expediente']));
+        if(topRelD.length) build('c-top-rel-doc', topRelD.map(d=>d.number), topRelD.map(d=>d.relatedDocs.length), topRelD.map(d=>tc(d.docType)));
+        if(topRechD.length) build('c-top-rech-doc', topRechD.map(d=>d.number), topRechD.map(getRejectionsCount), topRechD.map(d=>tc(d.docType)));
         return;
     } else {
         const pfx = tab === 'usuarios' ? 'u_' : 'a_';
@@ -498,6 +522,7 @@ function drawCharts() {
         addChartContainer('c-top-creados', 'Más Exps Creados', 2);
         addChartContainer('c-top-deriv', 'Más Derivaciones', 2);
         addChartContainer('c-top-vinc', 'Más Vinculaciones', 2);
+        addChartContainer('c-top-rel', 'Más Relacionados', 2);
         addChartContainer('c-top-rech', 'Más Rechazados', 2);
         addChartContainer('c-top-anul', 'Más Anulaciones', 2);
         addChartContainer('c-top-archD', 'Más Arch. Docs', 2);
@@ -508,33 +533,37 @@ function drawCharts() {
         
         const buildTop = (id, key) => {
             const arr = d.top[pfx+key];
-            if(arr.length) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType);
+            if(arr && arr.length) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType);
         };
 
-        ['firmados', 'creados', 'derivaciones', 'vinculaciones', 'rechazados', 'anulaciones', 'archD', 'archE'].forEach(k => buildTop(`c-top-${k}`, k));
+        ['firmados', 'creados', 'derivaciones', 'vinculaciones', 'relaciones', 'rechazados', 'anulaciones', 'archD', 'archE'].forEach(k => buildTop(`c-top-${k}`, k));
         return;
     }
-
-    container.innerHTML = html;
-    if (window.lucide) lucide.createIcons();
 }
 
 function buildChart(id, labels, data, bgColors, cType) {
     const ctx = document.getElementById(id);
     if(!ctx) return;
+    
+    // Configuración para evitar el crash de "scales" en torta
+    let options = {
+        responsive: true, maintainAspectRatio: false, 
+        plugins: { legend: { display: cType==='pie', position: 'right' } }
+    };
+    
+    if (cType === 'bar') {
+        options.scales = { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } };
+    }
+
     chartInstances[id] = new Chart(ctx, {
         type: cType,
         data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] },
-        options: { 
-            responsive: true, maintainAspectRatio: false, 
-            plugins: { legend: { display: cType==='pie', position: 'right' } },
-            scales: cType === 'bar' ? { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } } : {}
-        }
+        options: options
     });
 }
 
 // ==========================================
-// 6. RENDERIZADO PRINCIPAL Y VISTAS
+// 5. RENDERIZADO PRINCIPAL Y VISTAS
 // ==========================================
 
 function renderApp() {
@@ -613,10 +642,6 @@ function getViewContent() {
     }
 }
 
-// ==========================================
-// 7. VISTAS ESPECIFICAS
-// ==========================================
-
 function renderLogin() {
     return `
         <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -638,7 +663,6 @@ function renderLogin() {
 
 function renderInbox() {
     const term = state.searchTerms.inbox;
-    
     const myDocs = state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
     const myExps = state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
     const areaDocs = state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
@@ -790,75 +814,6 @@ function renderSearcher() {
     `;
 }
 
-function renderAdminUsers() {
-    return `
-        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
-            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
-            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3>
-            <form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
-                <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
-                <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
-                <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" />
-                <select id="admin-u-area" class="w-48 px-3 py-2 border rounded outline-none">
-                    ${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
-                </select>
-                <select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none">
-                    <option value="user">Usuario</option>
-                    <option value="admin">Admin</option>
-                </select>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button>
-            </form>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm border-collapse">
-                    <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead>
-                    <tbody class="divide-y">
-                        ${state.db.users.map(u => `
-                            <tr>
-                                <td class="p-2 text-xs text-gray-500">${u.id}</td>
-                                <td class="p-2 font-medium">${u.name}</td>
-                                <td class="p-2">${u.email}</td>
-                                <td class="p-2">${getAreaName(u.areaId)}</td>
-                                <td class="p-2 uppercase text-xs">${u.role}</td>
-                                <td class="p-2">
-                                    <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
-                                    <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-}
-
-function renderAdminAreas() {
-    return `
-        <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
-            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
-            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3>
-            <form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
-                <input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" />
-                <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button>
-            </form>
-            <table class="w-full text-left text-sm border-collapse">
-                <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead>
-                <tbody class="divide-y">
-                    ${state.db.areas.map(a => {
-                        const uCount = state.db.users.filter(u => u.areaId === a.id).length;
-                        return `<tr>
-                                    <td class="p-2 text-xs text-gray-500">${a.id}</td>
-                                    <td class="p-2 font-medium">${a.name}</td>
-                                    <td class="p-2 text-center font-bold text-blue-600">${uCount}</td>
-                                    <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
-                                </tr>`;
-                    }).join('')}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
 function renderCreateDocument() {
     return `
         <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -917,6 +872,7 @@ function renderCreateExpediente() {
     `;
 }
 
+// --- DETALLE DE DOCUMENTO ---
 function renderDocumentDetail() {
     const doc = state.selectedItem;
     const isOwner = doc.currentOwnerId === state.currentUser.id;
@@ -945,13 +901,9 @@ function renderDocumentDetail() {
                         ${doc.status === STATUS.ANULADO ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span class="text-8xl text-red-600 font-black transform -rotate-45 border-8 border-red-600 p-8">ANULADO</span></div>` : ''}
                         
                         <div class="text-sm space-y-2 mb-8 border-b-2 border-gray-800 pb-6 relative z-10">
-                            <div class="flex justify-between">
-                                <p><strong>TIPO:</strong> ${doc.docType.toUpperCase()}</p>
-                                <p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
-                            </div>
+                            <div class="flex justify-between"><p><strong>TIPO:</strong> ${doc.docType.toUpperCase()}</p><p><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p></div>
                             ${isConDestinatario ? `<p><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ') || 'Ninguno'}</p>` : ''}
-                            <div class="mt-4 flex items-center gap-2">
-                                <label class="font-bold">ASUNTO:</label>
+                            <div class="mt-4 flex items-center gap-2"><label class="font-bold">ASUNTO:</label>
                                 ${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="flex-1 p-2 border font-medium outline-none rounded" />` : `<span class="text-lg">${doc.subject}</span>`}
                             </div>
                         </div>
@@ -962,31 +914,16 @@ function renderDocumentDetail() {
                         
                         ${doc.signedBy && doc.signedBy.length > 0 ? `
                             <div class="mt-8 pt-8 border-t border-gray-300 relative z-10 mb-12 flex justify-center gap-8 flex-wrap">
-                                ${doc.signedBy.map(s => `
-                                    <div class="text-center text-emerald-700">
-                                        <p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p>
-                                        <p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p>
-                                    </div>
-                                `).join('')}
+                                ${doc.signedBy.map(s => `<div class="text-center text-emerald-700"><p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p><p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p></div>`).join('')}
                             </div>
                         ` : ''}
 
                         <div class="mt-auto pt-8 border-t border-gray-200 bg-gray-50 -mx-12 -mb-12 p-8 text-sm">
                             <h4 class="font-bold text-gray-600 mb-4">REFERENCIAS DEL DOCUMENTO</h4>
-                            ${vinculados.length > 0 ? `
-                                <div class="mb-4"><strong>Vinculado en Expedientes:</strong>
-                                    <ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul>
-                                </div>
-                            ` : ''}
-                            
+                            ${vinculados.length > 0 ? `<div class="mb-4"><strong>Vinculado en Expedientes:</strong><ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul></div>` : ''}
                             <div class="mb-4">
-                                <div class="flex justify-between items-center">
-                                    <strong>Documentos Relacionados:</strong>
-                                    ${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> Relacionar Doc</button>` : ''}
-                                </div>
-                                ${relacionados.length > 0 ? `
-                                    <ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2" title="Quitar Relación"><i data-lucide="unlink" class="w-3 h-3"></i></button>` : ''}</li>`).join('')}</ul>
-                                ` : '<p class="text-xs text-gray-500 mt-1">Sin relaciones.</p>'}
+                                <div class="flex justify-between items-center"><strong>Documentos Relacionados:</strong>${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> Relacionar Doc</button>` : ''}</div>
+                                ${relacionados.length > 0 ? `<ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2" title="Quitar Relación"><i data-lucide="unlink" class="w-3 h-3"></i></button>` : ''}</li>`).join('')}</ul>` : '<p class="text-xs text-gray-500 mt-1">Sin relaciones.</p>'}
                             </div>
                         </div>
                     </div>
@@ -1007,13 +944,11 @@ function renderDocumentDetail() {
                             <button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button>
                             <button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>
                         ` : ''}
-
                         ${isMyTurnToSign ? `
                             ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}
                             <button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button>
                             <button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>
                         ` : ''}
-
                         ${isSignedOrArchived ? `
                             <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>
                             ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Documento</button>` : ''}
@@ -1045,8 +980,8 @@ function renderExpedienteDetail() {
     const isArchived = exp.status === STATUS.ARCHIVADO;
     const isAnulado = exp.status === STATUS.ANULADO;
     const isActive = !isArchived && !isAnulado;
-    const isOwnerUser = exp.currentOwnerId === state.currentUser.id; 
     
+    const isOwnerUser = exp.currentOwnerId === state.currentUser.id; 
     const term = state.searchTerms.expDetail.toLowerCase();
     const linkedDocsList = exp.linkedDocs.map(did => state.db.documents.find(d => d.id === did)).filter(Boolean).filter(d => (d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term));
 
@@ -1125,17 +1060,81 @@ function renderExpedienteDetail() {
     `;
 }
 
+function renderAdminUsers() {
+    return `
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3>
+            <form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
+                <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
+                <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" />
+                <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" />
+                <select id="admin-u-area" class="w-48 px-3 py-2 border rounded outline-none">
+                    ${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
+                </select>
+                <select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none">
+                    <option value="user">Usuario</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button>
+            </form>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead>
+                    <tbody class="divide-y">
+                        ${state.db.users.map(u => `
+                            <tr>
+                                <td class="p-2 text-xs text-gray-500">${u.id}</td>
+                                <td class="p-2 font-medium">${u.name}</td>
+                                <td class="p-2">${u.email}</td>
+                                <td class="p-2">${getAreaName(u.areaId)}</td>
+                                <td class="p-2 uppercase text-xs">${u.role}</td>
+                                <td class="p-2">
+                                    <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
+                                    <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function renderAdminAreas() {
+    return `
+        <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3>
+            <form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
+                <input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" />
+                <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button>
+            </form>
+            <table class="w-full text-left text-sm border-collapse">
+                <thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead>
+                <tbody class="divide-y">
+                    ${state.db.areas.map(a => {
+                        const uCount = state.db.users.filter(u => u.areaId === a.id).length;
+                        return `<tr>
+                                    <td class="p-2 text-xs text-gray-500">${a.id}</td>
+                                    <td class="p-2 font-medium">${a.name}</td>
+                                    <td class="p-2 text-center font-bold text-blue-600">${uCount}</td>
+                                    <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
+                                </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
 function renderModalOverlay() {
     if (!state.modal) return '';
-    const m = state.modal;
-    let title = '', content = '';
+    const m = state.modal; let title = '', content = '';
     const term = (m.search || '').toLowerCase();
     
-    const mixedList = [
-        ...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })),
-        ...state.db.users.filter(u => u.id !== state.currentUser.id).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))
-    ].filter(i => i.name.toLowerCase().includes(term));
-
+    const mixedList = [...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))].filter(i => i.name.toLowerCase().includes(term));
     const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
     const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && ((d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
 
@@ -1146,17 +1145,8 @@ function renderModalOverlay() {
                 <div><label class="text-xs font-bold text-gray-600">Nombre</label><input type="text" data-modal-input="editUName" value="${m.editUName}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Email</label><input type="email" data-modal-input="editUEmail" value="${m.editUEmail}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Contraseña</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" class="w-full p-2 border rounded text-sm outline-none" /></div>
-                <div><label class="text-xs font-bold text-gray-600">Área</label>
-                    <select data-modal-input="editUArea" class="w-full p-2 border rounded text-sm outline-none">
-                        ${state.db.areas.map(a => `<option value="${a.id}" ${m.editUArea === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}
-                    </select>
-                </div>
-                <div><label class="text-xs font-bold text-gray-600">Rol</label>
-                    <select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none">
-                        <option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option>
-                        <option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option>
-                    </select>
-                </div>
+                <div><label class="text-xs font-bold text-gray-600">Área</label><select data-modal-input="editUArea" class="w-full p-2 border rounded text-sm outline-none">${state.db.areas.map(a => `<option value="${a.id}" ${m.editUArea === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}</select></div>
+                <div><label class="text-xs font-bold text-gray-600">Rol</label><select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none"><option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option></select></div>
             </div>
         `;
     }
@@ -1165,9 +1155,7 @@ function renderModalOverlay() {
         const list = m.type === 'derivar_exp' ? mixedList : usersList;
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar destino único..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
-            <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">
-                ${list.map(i => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="radio" name="modal_selection" value="${i.id}" ${m.selectedId === i.id ? 'checked' : ''} data-modal-input="selectedId" /> ${i.name}</label>`).join('')}
-            </div>
+            <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">${list.map(i => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="radio" name="modal_selection" value="${i.id}" ${m.selectedId === i.id ? 'checked' : ''} data-modal-input="selectedId" /> ${i.name}</label>`).join('')}</div>
             <textarea data-modal-input="note" placeholder="Nota de transferencia (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>
         `;
     } 
@@ -1177,9 +1165,7 @@ function renderModalOverlay() {
         const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
-            <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">
-                ${list.map(u => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> ${u.name}</label>`).join('')}
-            </div>
+            <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">${list.map(u => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> ${u.name}</label>`).join('')}</div>
             ${m.type !== 'destinatarios' ? `<textarea data-modal-input="note" placeholder="Nota (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>` : ''}
         `;
     }
@@ -1195,17 +1181,12 @@ function renderModalOverlay() {
     }
     else if (m.type === 'vincular_doc' || m.type === 'relacionar_doc') {
         title = m.type === 'vincular_doc' ? 'Vincular Documentos a Expediente' : 'Relacionar Documentos';
-        const isVincular = m.type === 'vincular_doc';
-        const filteredDocs = isVincular ? docsFirmados.filter(d => !state.selectedItem?.linkedDocs?.includes(d.id)) : docsFirmados.filter(d => !state.selectedItem?.relatedDocs?.includes(d.id));
-        
+        const filteredDocs = m.type === 'vincular_doc' ? docsFirmados.filter(d => !state.selectedItem?.linkedDocs?.includes(d.id)) : docsFirmados.filter(d => !state.selectedItem?.relatedDocs?.includes(d.id));
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar documento firmado..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-60 overflow-y-auto bg-gray-50 p-1">
                 ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `
-                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0">
-                        <input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> 
-                        <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div>
-                    </label>
+                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>
                 `).join('')}
             </div>
         `;
@@ -1221,17 +1202,14 @@ function renderModalOverlay() {
             <div class="bg-white rounded-xl p-6 w-[500px] shadow-2xl flex flex-col max-h-[90vh]">
                 <h3 class="font-bold text-lg mb-4 text-gray-800">${title}</h3>
                 ${content}
-                <div class="flex justify-end gap-2 mt-auto">
-                    <button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
-                    <button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>
-                </div>
+                <div class="flex justify-end gap-2 mt-auto"><button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">Cancelar</button><button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button></div>
             </div>
         </div>
     `;
 }
 
 // ==========================================
-// 8. EVENTOS GLOBALES (DELEGACIÓN)
+// 7. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 
 document.addEventListener('input', (e) => {
@@ -1328,12 +1306,14 @@ document.addEventListener('click', (e) => {
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
         if (action === 'close-detail') return setState({ selectedItem: state.selectedItem.fromExpediente ? { ...state.db.expedientes.find(exp => exp.id === state.selectedItem.fromExpediente), type: 'expediente' } : null });
+        
         if (action === 'view-item') {
             const type = actionBtn.getAttribute('data-type');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
             if (item) return setState({ selectedItem: { ...item, type, fromExpediente: state.selectedItem?.id } });
         }
+        
         if (action === 'acquire-item') {
             const type = actionBtn.getAttribute('data-type');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
@@ -1343,6 +1323,7 @@ document.addEventListener('click', (e) => {
                 item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({});
             } return;
         }
+
         if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         
@@ -1368,7 +1349,6 @@ document.addEventListener('click', (e) => {
                 const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id'));
                 mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role;
             }
-
             return setState({ modal: mState });
         }
 
@@ -1391,6 +1371,7 @@ document.addEventListener('click', (e) => {
             if (m.type === 'destinatarios') {
                 item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null });
             }
+            
             if (m.type === 'editar_permisos_exp') {
                 item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null });
             }
@@ -1464,7 +1445,7 @@ document.addEventListener('click', (e) => {
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
                 saveEdits();
                 const isConDest = DOC_TYPES.CON_DEST.includes(item.docType);
-                if (isConDest && item.recipients.length === 0) return alert("Añada al menos un destinatario.");
+                if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
                 
                 if (!item.signedBy) item.signedBy = [];
                 item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
@@ -1483,8 +1464,8 @@ document.addEventListener('click', (e) => {
 
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
                     item.relatedDocs.forEach(relId => {
-                        const tDoc = state.db.documents.find(d => d.id === relId);
-                        if (tDoc) { if (!tDoc.relatedDocs) tDoc.relatedDocs = []; if (!tDoc.relatedDocs.includes(item.id)) tDoc.relatedDocs.push(item.id); }
+                        const targetDoc = state.db.documents.find(d => d.id === relId);
+                        if (targetDoc) { if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); }
                     });
                 }
 
