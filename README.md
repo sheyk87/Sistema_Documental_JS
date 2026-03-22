@@ -134,9 +134,9 @@ Prerrequisitos
 * **Pasos:**
 Clona este repositorio:
 
-``Bash
+```bash
 git clone [https://github.com/TU_USUARIO/sistema-gde-web.git](https://github.com/TU_USUARIO/sistema-gde-web.git)
-``
+```
 
 Abre la carpeta del proyecto en Visual Studio Code.
 Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server".
