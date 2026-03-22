@@ -135,7 +135,7 @@ Prerrequisitos
 Clona este repositorio:
 
 ```bash
-git clone [https://github.com/TU_USUARIO/sistema-gde-web.git](https://github.com/TU_USUARIO/sistema-gde-web.git)
+git clone https://github.com/sheyk87/Sistema_Documental_JS.git
 ```
 
 Abre la carpeta del proyecto en Visual Studio Code.
