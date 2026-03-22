@@ -1,0 +1,1191 @@
+Este documento explica como pasar de la aplicaión desarrollada íntegramente en Vanilla JavaScript (Arquitectura SPA - Single Page Application), a un modelo Full Stack completa, persistente y conectada a una base de datos
+Especificamente esta este commit: 3637cd8
+https://github.com/sheyk87/Sistema_Documental_JS/commit/3637
+
+1. Arquitectura de Módulos (Backend)
+/backend
+├── /config
+│   └── db.js               // Conexión a MySQL usando un Pool
+├── /controllers
+│   ├── authController.js   // Lógica de login y generación de tokens
+│   ├── docController.js    // Lógica para crear, firmar y derivar documentos
+│   └── expController.js    // Lógica de expedientes
+├── /middlewares
+│   └── authMiddleware.js   // Verificación de tokens JWT para proteger las rutas
+├── /routes
+│   ├── authRoutes.js       // Rutas (Endpoints) de autenticación
+│   ├── docRoutes.js        // Rutas de documentos
+│   └── expRoutes.js        // Rutas de expedientes
+├── .env                    // Variables de entorno (credenciales de DB, secretos JWT)
+├── server.js               // Punto de entrada de la aplicación
+└── schema.sql              // Script de creación de la base de datos
+
+Para este proceso, vamos a construir una API REST. Piensa en la API como un "mozo" en un restaurante: tu Frontend (el cliente) le pide al mozo (la API) que le traiga datos de la cocina (la Base de Datos MySQL).
+
+Vamos a preparar tu entorno de trabajo.
+
+Paso 1: Instalar los programas necesarios
+Si aún no los tienes, necesitas instalar dos cosas en tu computadora:
+
+1- Node.js: Es el entorno que permite ejecutar JavaScript fuera del navegador (en tu servidor). Descárgalo e instálalo desde su página oficial (la versión LTS es la mejor).
+2- MySQL: Necesitas el motor de base de datos. Si usas Windows, programas como XAMPP o WAMP son excelentes porque te instalan MySQL y te dan una interfaz visual (phpMyAdmin) para ver tus tablas fácilmente.
+
+Paso 2: Crear el proyecto Backend
+Vamos a separar físicamente el código.
+
+1- Crea una carpeta nueva en tu computadora llamada gde_backend (ponla fuera de la carpeta donde tienes tu Frontend actual).
+2- Abre esa nueva carpeta gde_backend con Visual Studio Code.
+3- Abre una terminal dentro de VS Code (menú superior: Terminal -> New Terminal).
+4- Escribe el siguiente comando y presiona Enter:
+npm init -y
+
+¿Qué hace esto? Crea un archivo llamado package.json. Es como el "DNI" de tu proyecto backend, donde se anotarán todas las librerías que vamos a usar.
+
+Paso 3: Instalar las librerías (Dependencias)
+En la misma terminal, vamos a instalar las herramientas de Node.js que necesitamos. Copia, pega y ejecuta este comando:
+npm install express mysql2 cors dotenv bcrypt jsonwebtoken
+
+¿Para qué sirve cada una?
+
+- express: Es la librería principal. Nos permite crear el servidor web y escuchar las peticiones (el "mozo").
+- mysql2: Permite que Node.js se conecte y hable con tu base de datos MySQL.
+- cors: Es un guardia de seguridad. Permite que tu Frontend (que está en una carpeta distinta) tenga permiso para hablar con este Backend.
+- dotenv: Permite ocultar contraseñas y datos sensibles en un archivo secreto.
+- bcrypt: Sirve para encriptar las contraseñas de los usuarios para que no se guarden como texto normal en la base de datos.
+- jsonwebtoken: Crea los "pases VIP" (tokens). Cuando un usuario se loguea, le damos un token para que el sistema recuerde quién es en cada clic.
+
+Ahora, instala esta herramienta extra para desarrollo:
+npm install --save-dev nodemon
+
+Nodemon reinicia tu servidor automáticamente cada vez que guardas un cambio en el código, ahorrándote tener que apagarlo y prenderlo a mano.
+
+Paso 4: Ajustar el package.json
+Abre el archivo package.json que se creó en el Paso 2. Busca la parte que dice "scripts" y modifícala para que quede exactamente así:
+"scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+
+Paso 5: Crear el archivo de Variables de Entorno
+Crea un nuevo archivo en la raíz de tu carpeta llamado exactamente .env (con el punto al principio). Aquí pondremos las credenciales de tu base de datos. Pega esto adentro:
+PORT=3000
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=gde_system
+JWT_SECRET=mi_palabra_secreta_super_segura_123
+
+(Nota: Si tu MySQL tiene una contraseña, ponla en DB_PASSWORD. Si usas XAMPP por defecto, suele ir vacía como está ahí).
+
+Paso 6: Crear tu primer Servidor (El punto de entrada)
+Crea un archivo llamado server.js en la raíz de tu carpeta. Este es el corazón de tu backend. Pega el siguiente código:
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+
+// Inicializamos la aplicación Express
+const app = express();
+
+// Middlewares (Configuraciones base)
+app.use(cors()); // Permite peticiones desde el frontend
+app.use(express.json()); // Permite que el servidor entienda datos en formato JSON
+
+// Una ruta de prueba para ver si el servidor responde
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'El servidor GDE está funcionando correctamente' });
+});
+
+// Levantar el servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor corriendo en el puerto ${PORT}`);
+});
+
+Paso 7: ¡Encender el servidor!
+Ve a la terminal de VS Code y ejecuta:
+npm run dev
+
+Si todo salió bien, verás un mensaje en la terminal que dice: Servidor corriendo en el puerto 3000.
+Para comprobarlo, abre tu navegador de internet y entra a: http://localhost:3000/api/test. Deberías ver un texto respondiéndote que el servidor funciona.
+
+####################################################################
+
+Ahora vamos a darle "memoria permanente" a nuestro sistema. Vamos a conectar Node.js con MySQL, vamos a crear las tablas de Áreas y Usuarios, y vamos a hacer que el sistema de Login funcione de verdad (con contraseñas encriptadas y tokens de seguridad).
+
+Sigue estos pasos dentro de tu carpeta gde_backend en Visual Studio Code:
+
+Paso 8: Preparar la Base de Datos en MySQL
+Primero, abre tu gestor de base de datos (por ejemplo, phpMyAdmin si usas XAMPP, o MySQL Workbench).
+
+1- Crea una base de datos nueva y vacía llamada exactamente gde_system.
+(No hace falta que crees las tablas a mano, ¡vamos a hacer que Node.js lo haga por nosotros de forma automática!)
+
+Paso 9: Configurar la conexión a la Base de Datos
+Vamos a crear el "puente" entre nuestro servidor y MySQL.
+
+1- Dentro de tu carpeta gde_backend, crea una nueva carpeta llamada config.
+2- Dentro de config, crea un archivo llamado db.js y pega este código:
+// config/db.js
+const mysql = require('mysql2/promise');
+require('dotenv').config();
+
+// Creamos un "Pool" de conexiones (es más rápido y seguro que una conexión simple)
+const pool = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+module.exports = pool;
+Paso 10: El script "Mágico" de Inicialización
+En lugar de escribir las contraseñas en MySQL manualmente (lo cual es inseguro), vamos a crear un script temporal en Node.js que cree las tablas y encripte las contraseñas iniciales (la contraseña "123") por nosotros usando bcrypt.
+
+1- En la carpeta raíz de tu backend (junto a server.js), crea un archivo llamado setup_full.js y pega esto:
+const pool = require('./config/db');
+const bcrypt = require('bcrypt');
+
+async function setupFull() {
+    try {
+        console.log('Construyendo la base de datos completa...');
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS areas (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                email VARCHAR(100) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                area_id VARCHAR(50) NOT NULL,
+                role ENUM('admin', 'user') DEFAULT 'user',
+                FOREIGN KEY (area_id) REFERENCES areas(id)
+            )
+        `);
+
+        console.log('Insertando áreas...');
+        await pool.query(`INSERT IGNORE INTO areas (id, name) VALUES 
+            ('a1', 'Dirección General'), ('a2', 'Recursos Humanos'), ('a3', 'Sistemas')
+        `);
+
+        console.log('Encriptando contraseñas e insertando usuarios...');
+        const hash = await bcrypt.hash('123', 10); // Encriptamos el "123"
+
+        await pool.query(`INSERT IGNORE INTO users (id, name, email, password, area_id, role) VALUES 
+            ('u1', 'Admin Sistema', 'admin@gde.com', '${hash}', 'a3', 'admin'),
+            ('u2', 'Juan Perez', 'juan@gde.com', '${hash}', 'a1', 'user'),
+            ('u3', 'Maria Gomez', 'maria@gde.com', '${hash}', 'a2', 'user'),
+            ('u4', 'Carlos Lopez', 'carlos@gde.com', '${hash}', 'a3', 'user')
+        `);
+
+        // 1. Tabla Documents
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS documents (
+                id VARCHAR(50) PRIMARY KEY,
+                number VARCHAR(50),
+                doc_type VARCHAR(50) NOT NULL,
+                subject VARCHAR(255) NOT NULL,
+                content TEXT NOT NULL,
+                creator_id VARCHAR(50) NOT NULL,
+                current_owner_id VARCHAR(50) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                owners JSON,
+                recipients JSON,
+                signed_by JSON,
+                related_docs JSON,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (creator_id) REFERENCES users(id)
+            )
+        `);
+        console.log('- Tabla documents creada.');
+
+        // 2. Tabla Expedientes
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS expedientes (
+                id VARCHAR(50) PRIMARY KEY,
+                number VARCHAR(50) UNIQUE NOT NULL,
+                subject VARCHAR(255) NOT NULL,
+                creator_id VARCHAR(50) NOT NULL,
+                current_owner_id VARCHAR(50) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                is_public BOOLEAN DEFAULT TRUE,
+                auth_areas JSON,
+                auth_users JSON,
+                linked_docs JSON,
+                sealed_docs JSON,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (creator_id) REFERENCES users(id)
+            )
+        `);
+        console.log('- Tabla expedientes creada.');
+
+        // 3. Tabla History (Historial universal)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                item_id VARCHAR(50) NOT NULL,
+                item_type ENUM('documento', 'expediente') NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        `);
+        console.log('- Tabla history creada.');
+
+        console.log('¡Todas las tablas fueron creadas con éxito!');
+        process.exit();
+    } catch (error) {
+        console.error('Error al crear las tablas:', error);
+        process.exit(1);
+    }
+}
+
+setupFull();
+
+2- Detén tu servidor si está corriendo (presionando Ctrl + C en la terminal) y ejecuta este comando para correr el script:
+node setup_full.js
+
+Si miras en tu phpMyAdmin ahora, verás que se crearon las tablas users y areas, y si miras la tabla users, las contraseñas son un texto ilegible (¡Seguridad al máximo!).
+
+Paso 11: Crear el "Controlador" del Login
+Ahora vamos a escribir la lógica que verifica si el correo y la contraseña son correctos, y le da al usuario un Token JWT.
+
+1- Crea una carpeta llamada controllers.
+2- Dentro, crea un archivo llamado authController.js y pega esto:
+// controllers/authController.js
+const pool = require('../config/db');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+exports.login = async (req, res) => {
+    // Recibimos el email y password que manda el frontend
+    const { email, password } = req.body;
+
+    try {
+        // 1. Buscamos al usuario en la base de datos
+        const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+        
+        if (rows.length === 0) {
+            return res.status(401).json({ message: 'Credenciales inválidas' });
+        }
+
+        const user = rows[0];
+
+        // 2. Comparamos la contraseña enviada con la encriptada en la BD
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Credenciales inválidas' });
+        }
+
+        // 3. Creamos el Pase VIP (Token JWT)
+        const token = jwt.sign(
+            { id: user.id, role: user.role, areaId: user.area_id },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' } // El token expira en 8 horas
+        );
+
+        // 4. Quitamos la contraseña del objeto antes de enviarlo al frontend
+        delete user.password;
+
+        // 5. Enviamos el token y los datos del usuario de vuelta
+        res.json({ token, user });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
+};
+
+Paso 12: Crear las Rutas y conectar con server.js
+1- Crea una carpeta llamada routes.
+2- Dentro, crea el archivo authRoutes.js y pega esto:
+// routes/authRoutes.js
+const express = require('express');
+const router = express.Router();
+const authController = require('../controllers/authController');
+
+// Cuando alguien haga POST a /login, ejecuta la función del controlador
+router.post('/login', authController.login);
+
+module.exports = router;
+
+3- Finalmente, vamos a actualizar nuestro server.js original para que use esta nueva ruta. Reemplaza el contenido de server.js por este:
+// server.js
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// Importamos las rutas
+const authRoutes = require('./routes/authRoutes');
+
+// Usamos las rutas (El endpoint final será /api/auth/login)
+app.use('/api/auth', authRoutes);
+
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'El servidor GDE está funcionando correctamente' });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor corriendo en el puerto ${PORT}`);
+});
+
+Paso 13: Encender y probar
+Vuelve a encender tu servidor:
+npm run dev
+
+¡Ya tienes una API de autenticación real conectada a MySQL!
+
+####################################################################
+
+Si no hubo errores, significa que tu servidor Node.js y tu base de datos MySQL ya están hablando entre sí a la perfección.
+
+Ahora vamos a hacer que el Frontend deje de usar los usuarios de prueba inventados en JavaScript y empiece a consumir los datos reales de tu base de datos mediante la API.
+
+Sigue estos pasos cuidadosamente:
+
+Paso 14: El Guardia de Seguridad (Middleware)
+Para que nadie pueda pedirle datos a tu base de datos sin estar logueado, necesitamos un "patovica" o guardia de seguridad que revise si el usuario tiene un Token válido.
+
+1- Dentro de tu carpeta gde_backend, crea una carpeta llamada middlewares.
+2- Adentro, crea un archivo llamado authMiddleware.js y pega esto:
+// middlewares/authMiddleware.js
+const jwt = require('jsonwebtoken');
+
+module.exports = (req, res, next) => {
+    // Buscamos el token en los encabezados de la petición
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+        return res.status(401).json({ message: 'Acceso denegado. Se requiere un token.' });
+    }
+
+    try {
+        // Verificamos si el token es real usando nuestra palabra secreta
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded; // Guardamos los datos del usuario en la request
+        next(); // Le decimos al servidor: "Todo en orden, déjalo pasar a la ruta"
+    } catch (error) {
+        res.status(400).json({ message: 'Token inválido o expirado.' });
+    }
+};
+
+Paso 15: Crear la ruta para traer Áreas y Usuarios
+Cuando el usuario haga login, el Frontend necesitará saber qué áreas y usuarios existen en el sistema real para mostrarlos en los menús y tablas.
+
+1- En la carpeta controllers, crea un archivo llamado systemController.js:
+// controllers/systemController.js
+const pool = require('../config/db');
+
+exports.getInitialData = async (req, res) => {
+    try {
+        // Traemos todas las áreas
+        const [areas] = await pool.query('SELECT id, name FROM areas');
+        
+        // Traemos los usuarios (¡SIN LA CONTRASEÑA!) y renombramos area_id a areaId para que coincida con tu Frontend
+        const [users] = await pool.query('SELECT id, name, email, area_id AS areaId, role FROM users');
+        
+        res.json({ areas, users });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener datos del sistema' });
+    }
+};
+
+2- En la carpeta routes, crea systemRoutes.js:
+// routes/systemRoutes.js
+const express = require('express');
+const router = express.Router();
+const systemController = require('../controllers/systemController');
+const authMiddleware = require('../middlewares/authMiddleware'); // Importamos al guardia
+
+// Esta ruta está PROTEGIDA por el authMiddleware
+router.get('/init', authMiddleware, systemController.getInitialData);
+
+module.exports = router;
+
+3- Actualiza tu server.js para incluir esta nueva ruta. Agrega estas dos líneas justo debajo de donde importaste y usaste las rutas de authRoutes:
+// Agrega esto en server.js
+const systemRoutes = require('./routes/systemRoutes');
+app.use('/api/system', systemRoutes);
+
+(Recuerda guardar todos los archivos. Nodemon reiniciará el servidor solo).
+
+###############################################################################
+
+Paso 16: ¡Conectar el Frontend! (Tu archivo app.js)
+Ahora vamos a tu archivo app.js del Frontend (el archivo largo). Busca la parte donde escuchas el evento submit del formulario, específicamente la línea que dice document.addEventListener('submit', (e) => {.
+
+Vas a reemplazar todo el bloque del evento submit por este nuevo bloque que usa fetch para comunicarse con nuestro Backend real:
+// Reemplaza todo el document.addEventListener('submit', ...) por esto:
+
+document.addEventListener('submit', async (e) => { // <-- ¡Nota el async!
+    if (e.target.id === 'form-login') {
+        e.preventDefault();
+        
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const errorDiv = document.getElementById('login-error');
+
+        try {
+            // 1. Pedimos el login a nuestra API real
+            const response = await fetch('http://localhost:3000/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok) throw new Error('Credenciales inválidas');
+
+            const data = await response.json();
+            
+            // 2. Guardamos el token de seguridad en el navegador
+            localStorage.setItem('gde_token', data.token);
+
+            // 3. Pedimos los datos reales de Áreas y Usuarios a la base de datos
+            const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+                method: 'GET',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${data.token}` // Pasamos el token al guardia
+                }
+            });
+
+            if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
+
+            const sysData = await sysResponse.json();
+
+            // 4. Inyectamos los datos reales de MySQL en nuestro estado Frontend
+            state.db.areas = sysData.areas;
+            state.db.users = sysData.users;
+            
+            // 5. Borramos los errores y entramos al sistema
+            errorDiv.classList.add('hide');
+            setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
+
+        } catch (error) {
+            console.error(error);
+            errorDiv.textContent = 'Credenciales inválidas o error de conexión con el servidor.';
+            errorDiv.classList.remove('hide');
+        }
+    }
+    else if (e.target.id === 'form-create-doc') {
+        e.preventDefault();
+        const type = document.getElementById('create-doc-type').value;
+        const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
+        if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SÓLO admite 1 destinatario inicial (área o usuario).");
+        state.db.documents.push({
+            id: `doc_${Date.now()}`, type: 'documento', docType: type, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
+            signatories: [], recipients: dests, relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+        }); setState({ currentView: 'drafts' });
+    }
+    else if (e.target.id === 'form-create-exp') {
+        e.preventDefault(); const isPublic = document.getElementById('create-exp-public').checked; const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+        state.db.expedientes.push({
+            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)), subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
+            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
+        }); setState({ currentView: 'inbox' });
+    }
+    else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
+    else if (e.target.id === 'form-admin-user') {
+        e.preventDefault(); state.db.users.push({ id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }); setState({});
+    }
+});
+
+Si guardas los cambios y pruebas iniciar sesión en tu Frontend (con admin@gde.com y 123), el sistema debería dejarte entrar cargando las áreas y usuarios directamente desde tu MySQL.
+
+#######################################################################
+
+Ahora vamos a dar el siguiente gran paso: Guardar y leer los Documentos desde MySQL.
+
+Para hacer esta transición mucho más fácil y moderna, vamos a aprovechar una característica excelente de MySQL: las columnas JSON. Como en tu Frontend guardamos listas (como owners: ['u1', 'u2'] o recipients: ['a1']), en lugar de crear 4 tablas separadas, le diremos a MySQL que guarde esos arreglos directamente en formato JSON.
+
+Sigue estos pasos en tu Visual Studio Code (en la carpeta gde_backend):
+
+Paso 18: Crear el Controlador de Documentos
+Este "mozo" se encargará de recibir los documentos nuevos y de enviarle al Frontend todos los documentos existentes.
+
+1- En tu carpeta controllers, crea el archivo docController.js:
+// controllers/docController.js
+const pool = require('../config/db');
+
+// 1. Guardar un nuevo documento
+exports.createDocument = async (req, res) => {
+    const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients } = req.body;
+
+    // Convertimos los arreglos a formato texto JSON para MySQL
+    const ownersJSON = JSON.stringify(owners || []);
+    const recipientsJSON = JSON.stringify(recipients || []);
+
+    try {
+        // Insertamos el documento
+        await pool.query(
+            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`,
+            [id, docType, subject, content, creatorId, currentOwnerId, status, ownersJSON, recipientsJSON]
+        );
+
+        // Insertamos el primer paso en el historial
+        await pool.query(
+            `INSERT INTO history (item_id, item_type, user_id, action, notes) 
+             VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador')`,
+            [id, creatorId]
+        );
+
+        res.status(201).json({ message: 'Documento creado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al crear el documento' });
+    }
+};
+
+// 2. Enviar todos los documentos al Frontend
+exports.getAllDocuments = async (req, res) => {
+    try {
+        // Traemos todos los documentos
+        const [docs] = await pool.query('SELECT * FROM documents');
+        
+        // Traemos todo el historial de los documentos
+        const [history] = await pool.query("SELECT * FROM history WHERE item_type = 'documento' ORDER BY created_at ASC");
+
+        // Formateamos los datos para que sean EXACTAMENTE iguales a como los espera tu Frontend
+        const formattedDocs = docs.map(doc => {
+            return {
+                id: doc.id,
+                type: 'documento',
+                docType: doc.doc_type,
+                subject: doc.subject,
+                content: doc.content,
+                creatorId: doc.creator_id,
+                currentOwnerId: doc.current_owner_id,
+                status: doc.status,
+                number: doc.number,
+                createdAt: doc.created_at,
+                // Si MySQL devuelve texto, lo convertimos de vuelta a Arreglo de JS
+                owners: typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []),
+                recipients: typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []),
+                signedBy: typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []),
+                relatedDocs: typeof doc.related_docs === 'string' ? JSON.parse(doc.related_docs) : (doc.related_docs || []),
+                
+                // Filtramos el historial que le pertenece solo a este documento
+                history: history.filter(h => h.item_id === doc.id).map(h => ({
+                    date: h.created_at,
+                    userId: h.user_id,
+                    action: h.action,
+                    notes: h.notes
+                }))
+            };
+        });
+
+        res.json(formattedDocs);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener los documentos' });
+    }
+};
+
+Paso 19: Crear las Rutas de Documentos
+En tu carpeta routes, crea docRoutes.js:
+// routes/docRoutes.js
+const express = require('express');
+const router = express.Router();
+const docController = require('../controllers/docController');
+const authMiddleware = require('../middlewares/authMiddleware');
+
+// Ambas rutas estarán protegidas por el guardia de seguridad
+router.post('/create', authMiddleware, docController.createDocument);
+router.get('/all', authMiddleware, docController.getAllDocuments);
+
+module.exports = router;
+
+Paso 20: Conectar las rutas en server.js
+Abre tu server.js y agrega las rutas de documentos (justo debajo de donde agregaste las rutas de system):
+// En server.js, agrega esto:
+const docRoutes = require('./routes/docRoutes');
+app.use('/api/docs', docRoutes);
+
+(Asegúrate de que tu terminal siga corriendo con npm run dev para que tome estos cambios).
+
+###########################################################################
+
+Paso 21: Actualizar el Frontend (app.js)
+Ahora vamos al archivo de tu Frontend. Tenemos que hacer dos cambios muy pequeños.
+
+Cambio A: Cargar los documentos al iniciar sesión.
+Busca donde hicimos el fetch de /api/system/init en el evento Submit. Justo debajo de donde inyectamos las áreas y usuarios, vamos a pedir los documentos:
+// ... (código anterior del login)
+            const sysData = await sysResponse.json();
+            state.db.areas = sysData.areas;
+            state.db.users = sysData.users;
+            
+            // --- NUEVO CÓDIGO A AGREGAR AQUÍ ---
+            // Pedimos los documentos a la base de datos
+            const docsResponse = await fetch('http://localhost:3000/api/docs/all', {
+                headers: { 'Authorization': `Bearer ${data.token}` }
+            });
+            const docsData = await docsResponse.json();
+            state.db.documents = docsData; // ¡Documentos cargados desde MySQL!
+            // -----------------------------------
+
+            errorDiv.classList.add('hide');
+            setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
+
+Cambio B: Guardar el documento en MySQL al crearlo.
+Busca el bloque else if (e.target.id === 'form-create-doc') { y reemplázalo por este:
+else if (e.target.id === 'form-create-doc') {
+        e.preventDefault();
+        const type = document.getElementById('create-doc-type').value;
+        const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
+        if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SÓLO admite 1 destinatario inicial (área o usuario).");
+        
+        // Armamos el objeto del nuevo documento
+        const newDoc = {
+            id: `doc_${Date.now()}`,
+            docType: type,
+            subject: document.getElementById('create-doc-subject').value,
+            content: document.getElementById('create-doc-content').value,
+            creatorId: state.currentUser.id,
+            currentOwnerId: state.currentUser.id,
+            owners: [state.currentUser.id],
+            status: STATUS.BORRADOR,
+            recipients: dests
+        };
+
+        // Lo enviamos a nuestro Backend
+        fetch('http://localhost:3000/api/docs/create', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+            },
+            body: JSON.stringify(newDoc)
+        }).then(res => {
+            if(res.ok) {
+                // Si MySQL lo guardó, lo agregamos visualmente a la pantalla
+                state.db.documents.push({
+                    ...newDoc, 
+                    type: 'documento', number: null, createdAt: new Date().toISOString(), 
+                    signatories: [], relatedDocs: [], signedBy: [], 
+                    history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+                });
+                setState({ currentView: 'drafts' });
+            } else {
+                alert("Error al guardar en la base de datos");
+            }
+        });
+    }
+
+¡Pruébalo! Inicia sesión, crea un Documento y luego recarga la página de tu navegador (F5). Al volver a entrar, verás que el documento que creaste sigue ahí, ¡porque ahora vive permanentemente en MySQL!
+
+###################################################################
+
+Como ya logramos que los Documentos nazcan y vivan en la base de datos, el paso natural e idéntico es hacer exactamente lo mismo para los Expedientes.
+
+Vamos a seguir la misma lógica de "Controlador -> Ruta -> Frontend".
+
+Paso 22: Crear el Controlador de Expedientes
+En tu backend, los expedientes necesitan su propio "mozo" para guardarlos y traerlos de MySQL.
+
+1- En la carpeta controllers, crea un archivo llamado expController.js y pega este código:
+// controllers/expController.js
+const pool = require('../config/db');
+
+// 1. Guardar un nuevo expediente
+exports.createExpediente = async (req, res) => {
+    const { id, number, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers } = req.body;
+
+    try {
+        await pool.query(
+            `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`,
+            [
+                id, number, subject, creatorId, currentOwnerId, status, 
+                isPublic ? 1 : 0, // MySQL guarda los booleanos como 1 (true) o 0 (false)
+                JSON.stringify(authAreas || []), 
+                JSON.stringify(authUsers || [])
+            ]
+        );
+
+        // Guardamos el primer movimiento en el historial
+        await pool.query(
+            `INSERT INTO history (item_id, item_type, user_id, action, notes) 
+             VALUES (?, 'expediente', ?, 'Apertura', 'Expediente inicializado')`,
+            [id, creatorId]
+        );
+
+        res.status(201).json({ message: 'Expediente creado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al crear el expediente' });
+    }
+};
+
+// 2. Traer todos los expedientes para el Frontend
+exports.getAllExpedientes = async (req, res) => {
+    try {
+        const [exps] = await pool.query('SELECT * FROM expedientes');
+        const [history] = await pool.query("SELECT * FROM history WHERE item_type = 'expediente' ORDER BY created_at ASC");
+
+        const formattedExps = exps.map(e => {
+            return {
+                id: e.id,
+                type: 'expediente',
+                number: e.number,
+                subject: e.subject,
+                creatorId: e.creator_id,
+                currentOwnerId: e.current_owner_id,
+                status: e.status,
+                isPublic: e.is_public === 1,
+                createdAt: e.created_at,
+                // Parseamos los JSON de MySQL a Arreglos de JavaScript
+                authAreas: typeof e.auth_areas === 'string' ? JSON.parse(e.auth_areas) : (e.auth_areas || []),
+                authUsers: typeof e.auth_users === 'string' ? JSON.parse(e.auth_users) : (e.auth_users || []),
+                linkedDocs: typeof e.linked_docs === 'string' ? JSON.parse(e.linked_docs) : (e.linked_docs || []),
+                sealedDocs: typeof e.sealed_docs === 'string' ? JSON.parse(e.sealed_docs) : (e.sealed_docs || []),
+                
+                history: history.filter(h => h.item_id === e.id).map(h => ({
+                    date: h.created_at,
+                    userId: h.user_id,
+                    action: h.action,
+                    notes: h.notes
+                }))
+            };
+        });
+
+        res.json(formattedExps);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener expedientes' });
+    }
+};
+
+Paso 23: Crear las Rutas de Expedientes y unirlas al servidor
+1- En la carpeta routes, crea el archivo expRoutes.js:
+// routes/expRoutes.js
+const express = require('express');
+const router = express.Router();
+const expController = require('../controllers/expController');
+const authMiddleware = require('../middlewares/authMiddleware');
+
+router.post('/create', authMiddleware, expController.createExpediente);
+router.get('/all', authMiddleware, expController.getAllExpedientes);
+
+module.exports = router;
+
+2- Abre tu archivo server.js (en la raíz del backend) y agrega las rutas de los expedientes justo debajo de las de documentos:
+// Agrega estas dos líneas en server.js
+const expRoutes = require('./routes/expRoutes');
+app.use('/api/exps', expRoutes);
+
+Paso 24: Conectar el Frontend (app.js)
+Vamos a hacer los dos mismos cambios que hicimos para los documentos: cargar los expedientes al loguearse, y guardar el expediente en la base de datos al crearlo.
+
+Abre tu app.js (Frontend) y busca el document.addEventListener('submit', async (e) => {.
+
+A) Modifica el Login para que también traiga los expedientes:
+// ... (debajo de donde cargas state.db.documents) ...
+            
+            // Pedimos los expedientes a la base de datos
+            const expsResponse = await fetch('http://localhost:3000/api/exps/all', {
+                headers: { 'Authorization': `Bearer ${data.token}` }
+            });
+            const expsData = await expsResponse.json();
+            state.db.expedientes = expsData; // ¡Expedientes cargados desde MySQL!
+
+            // Borramos los errores y entramos al sistema
+            errorDiv.classList.add('hide');
+            setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
+
+B) Modifica el guardado del formulario de Expedientes:
+
+Busca el bloque que empieza con else if (e.target.id === 'form-create-exp') { y reemplázalo completamente por este:
+else if (e.target.id === 'form-create-exp') {
+        e.preventDefault(); 
+        const isPublic = document.getElementById('create-exp-public').checked; 
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); 
+        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+        
+        // Generamos el número antes de mandarlo al backend para mantener el contador
+        const expNumber = generateNumber('EX', getAreaName(state.currentUser.areaId));
+        
+        const newExp = {
+            id: `exp_${Date.now()}`, 
+            number: expNumber, 
+            subject: document.getElementById('create-exp-subject').value, 
+            creatorId: state.currentUser.id, 
+            currentOwnerId: state.currentUser.id,
+            status: 'En Tramite', 
+            isPublic: isPublic, 
+            authAreas: authAreas, 
+            authUsers: authUsers
+        };
+
+        // Lo enviamos a nuestro Backend
+        fetch('http://localhost:3000/api/exps/create', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+            },
+            body: JSON.stringify(newExp)
+        }).then(res => {
+            if(res.ok) {
+                // Si MySQL lo guardó, lo agregamos visualmente a la pantalla
+                state.db.expedientes.push({
+                    ...newExp,
+                    type: 'expediente',
+                    linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), 
+                    history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
+                }); 
+                setState({ currentView: 'inbox' });
+            } else {
+                alert("Error al guardar el expediente en la base de datos");
+            }
+        });
+    }
+
+¡Pruébalo! Si creas un expediente ahora, quedará guardado para siempre en tu base de datos de MySQL junto a los documentos.
+
+##########################################################################
+
+Llegamos a la etapa final del Backend: Actualizar los documentos y expedientes existentes (Firmar, Derivar, Archivar, Vincular, etc.).
+
+Para esto, vamos a crear la lógica de actualización en nuestros "mozos" (Controladores), y luego en el Frontend (app.js) agregaremos una función automática que envíe los cambios a MySQL cada vez que hagas una acción.
+
+Sigue estos 4 pasos en tu Visual Studio Code:
+
+Paso 1: Actualizar el Controlador de Documentos
+Abre el archivo controllers/docController.js y agrega este código al final del archivo:
+// Actualizar un documento existente y agregar su historial
+exports.updateDocument = async (req, res) => {
+    const { item, historyEntry } = req.body;
+    try {
+        await pool.query(
+            `UPDATE documents SET 
+                subject = ?, content = ?, status = ?, current_owner_id = ?, 
+                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, number = ?
+             WHERE id = ?`,
+            [
+                item.subject, item.content, item.status, item.currentOwnerId,
+                JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
+                JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
+                item.number, item.id
+            ]
+        );
+
+        if (historyEntry) {
+            await pool.query(
+                `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, ?, ?)`,
+                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes]
+            );
+        }
+
+        res.json({ message: 'Documento actualizado' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al actualizar el documento' });
+    }
+};
+
+Paso 2: Actualizar las Rutas de Documentos
+Abre el archivo routes/docRoutes.js y agrega la nueva ruta PUT justo antes del module.exports = router;:
+// Agrega esta línea:
+router.put('/update/:id', authMiddleware, docController.updateDocument);
+
+Paso 3: Actualizar el Controlador de Expedientes
+Abre el archivo controllers/expController.js y agrega este código al final del archivo:
+// Actualizar un expediente existente y agregar su historial
+exports.updateExpediente = async (req, res) => {
+    const { item, historyEntry } = req.body;
+    try {
+        await pool.query(
+            `UPDATE expedientes SET 
+                current_owner_id = ?, status = ?, auth_areas = ?, auth_users = ?, 
+                linked_docs = ?, sealed_docs = ?
+             WHERE id = ?`,
+            [
+                item.currentOwnerId, item.status, 
+                JSON.stringify(item.authAreas || []), JSON.stringify(item.authUsers || []), 
+                JSON.stringify(item.linkedDocs || []), JSON.stringify(item.sealedDocs || []), 
+                item.id
+            ]
+        );
+
+        if (historyEntry) {
+            await pool.query(
+                `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'expediente', ?, ?, ?)`,
+                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes]
+            );
+        }
+
+        res.json({ message: 'Expediente actualizado' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al actualizar el expediente' });
+    }
+};
+
+Paso 4: Actualizar las Rutas de Expedientes
+Abre el archivo routes/expRoutes.js y agrega la nueva ruta PUT justo antes del module.exports = router;:
+// Agrega esta línea:
+router.put('/update/:id', authMiddleware, expController.updateExpediente);
+
+(Guarda todos los archivos, el servidor Node se reiniciará solo).
+
+################################################################
+
+Paso 5: Actualizar el Frontend (app.js)
+Para no sobrepasar los límites de caracteres, te daré SOLO el bloque final de tu archivo app.js (Frontend).
+
+Busca en tu app.js la línea que dice document.addEventListener('click', (e) => {.
+Vas a borrar todo desde esa línea hasta el final del archivo, y lo vas a reemplazar por esto.
+
+(Fíjate que creamos la función syncData que envía mágicamente los cambios a la base de datos).
+
+// --- FUNCIÓN MÁGICA DE SINCRONIZACIÓN CON MYSQL ---
+async function syncData(item, type) {
+    const url = type === 'expediente' ? `http://localhost:3000/api/exps/update/${item.id}` : `http://localhost:3000/api/docs/update/${item.id}`;
+    const historyEntry = item.history[item.history.length - 1]; // Tomamos el último movimiento
+    try {
+        await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({ item, historyEntry })
+        });
+    } catch (err) { console.error("Error sincronizando", err); }
+}
+
+// --- EVENTOS DE CLICK RECONSTRUIDOS CON ASYNC/AWAIT ---
+document.addEventListener('click', async (e) => {
+    const thSort = e.target.closest('th[data-sort]');
+    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } return renderApp(); }
+
+    const navBtn = e.target.closest('[data-target-view]');
+    if (navBtn) return setState({ currentView: navBtn.getAttribute('data-target-view'), selectedItem: null, modal: null });
+
+    const actionBtn = e.target.closest('[data-action]');
+    if (actionBtn) {
+        const action = actionBtn.getAttribute('data-action');
+        
+        if (action === 'toggle-sidebar') { state.ui.sidebarOpen = !state.ui.sidebarOpen; return setState({}); }
+        if (action === 'set-stats-tab') { state.statsOpts.tab = actionBtn.getAttribute('data-tab'); return renderApp(); }
+        if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
+        if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
+        if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
+        if (action === 'logout') { localStorage.removeItem('gde_token'); return setState({ currentUser: null, currentView: 'inbox', selectedItem: null }); }
+        
+        if (action === 'close-detail') {
+            if (state.selectedItem && state.selectedItem.parentId) {
+                const parentColl = state.selectedItem.parentType === 'expediente' ? state.db.expedientes : state.db.documents;
+                const parent = parentColl.find(x => x.id === state.selectedItem.parentId);
+                if (parent) return setState({ selectedItem: { ...parent, type: state.selectedItem.parentType } });
+            }
+            return setState({ selectedItem: null });
+        }
+        
+        if (action === 'view-item') {
+            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
+            if (item) return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
+        }
+        
+        if (action === 'acquire-item') {
+            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            if (item) { 
+                if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } 
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); 
+                await syncData(item, type);
+                setState({}); 
+            } return;
+        }
+
+        if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
+        if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
+        
+        const saveEdits = async () => {
+            if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
+                const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                if (docIdx > -1) { 
+                    state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value; 
+                    state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value; 
+                    await syncData(state.db.documents[docIdx], 'documento');
+                }
+            }
+        };
+
+        if (action === 'open-modal') {
+            await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+            if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
+            if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
+            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role; }
+            return setState({ modal: mState });
+        }
+
+        if (action === 'close-modal') return setState({ modal: null });
+
+        if (action === 'confirm-modal') {
+            const m = state.modal;
+            if (m.type === 'editar_usuario') { /* Edición de admin local por ahora */ return setState({ modal: null }); }
+
+            const isExp = state.selectedItem.type === 'expediente';
+            const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+            const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
+
+            if (m.type === 'destinatarios') { 
+                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && m.selectionArr.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; 
+                await syncData(item, 'documento'); return setState({ modal: null }); 
+            }
+            if (m.type === 'editar_permisos_exp') { 
+                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); 
+                await syncData(item, 'expediente'); return setState({ modal: null }); 
+            }
+
+            if (m.type === 'revisar' || m.type === 'derivar_exp') {
+                if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+                item.currentOwnerId = m.selectedId; if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+                if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
+                const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivad a ${destName}`;
+                item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
+                await syncData(item, isExp ? 'expediente' : 'documento');
+                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+            }
+
+            if (m.type === 'enviar_firmar') {
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+                item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
+                const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
+                item.history.push(createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note));
+                await syncData(item, 'documento'); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+            }
+
+            if (m.type === 'derivar_doc') {
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+                item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
+                const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ');
+                item.history.push(createHistoryEntry(state.currentUser.id, `Derivad a ${destNames}`, m.note)); 
+                await syncData(item, 'documento'); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+            }
+            
+            if (m.type === 'vincular_doc') {
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
+                for (let docId of m.selectionArr) {
+                    const doc = state.db.documents.find(d => d.id === docId);
+                    if (!item.linkedDocs.includes(doc.id)) {
+                        item.linkedDocs.push(doc.id); 
+                        item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
+                        doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`));
+                        await syncData(doc, 'documento'); // Sincronizamos el doc afectado
+                    }
+                }
+                state.selectedItem.linkedDocs = item.linkedDocs; 
+                await syncData(item, 'expediente'); // Sincronizamos el exp principal
+                return setState({ modal: null });
+            }
+
+            if (m.type === 'relacionar_doc') {
+                if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
+                for (let docId of m.selectionArr) {
+                    const doc2 = state.db.documents.find(d => d.id === docId);
+                    if (!item.relatedDocs) item.relatedDocs = []; 
+                    if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
+                }
+                state.selectedItem.relatedDocs = item.relatedDocs; 
+                await syncData(item, 'documento'); return setState({ modal: null });
+            }
+
+            if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
+                if (!m.note.trim()) return alert("Ingrese un motivo obligatorio.");
+                let newStatus = ''; let actionName = '';
+                if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
+                if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
+                if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
+                item.status = newStatus; if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                item.history.push(createHistoryEntry(state.currentUser.id, actionName, m.note));
+                await syncData(item, isExp ? 'expediente' : 'documento');
+                return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
+            }
+        }
+
+        if (state.selectedItem) {
+            const isExp = state.selectedItem.type === 'expediente';
+            const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+            const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
+
+            if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
+                await saveEdits(); const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
+                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
+                
+                if (!item.signedBy) item.signedBy = []; item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
+
+                if (action === 'doc-sign-pending') {
+                    item.signatories = item.signatories.filter(id => id !== state.currentUser.id);
+                    if (item.signatories.length > 0) {
+                        item.currentOwnerId = item.signatories[0]; item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
+                        await syncData(item, 'documento'); return setState({ selectedItem: null, currentView: 'inbox' });
+                    }
+                }
+
+                item.status = STATUS.FIRMADO; if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+
+                if (item.relatedDocs && item.relatedDocs.length > 0) {
+                    for (let relId of item.relatedDocs) { 
+                        const targetDoc = state.db.documents.find(d => d.id === relId); 
+                        if (targetDoc) { 
+                            if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; 
+                            if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); 
+                            await syncData(targetDoc, 'documento'); // Sincroniza doc relacionado
+                        } 
+                    }
+                }
+
+                if (isConDest) {
+                    let fU = new Set(); item.recipients.forEach(r => { if (r.startsWith('u')) fU.add(r); if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); });
+                    item.owners = Array.from(fU);
+                } else { item.owners = [item.creatorId]; }
+
+                item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
+                await syncData(item, 'documento'); setState({ selectedItem: null, currentView: 'inbox' });
+            }
+            else if (action === 'doc-delete') { if (!confirm('¿Eliminar este borrador permanentemente?')) return; item.status = STATUS.ELIMINADO; item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente')); await syncData(item, 'documento'); setState({ selectedItem: null, currentView: 'drafts' }); }
+            else if (action === 'doc-unrelate') { if (!confirm('¿Seguro que desea eliminar esta relación?')) return; const docId = actionBtn.getAttribute('data-id'); item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; await syncData(item, 'documento'); setState({}); }
+            else if (action === 'exp-desarchivar') { item.status = 'En Tramite'; item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite')); await syncData(item, 'expediente'); setState({ selectedItem: null, currentView: 'archive' }); }
+            else if (action === 'exp-unlink') {
+                const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
+                const doc = state.db.documents.find(d => d.id === docId); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`)); 
+                await syncData(doc, 'documento'); await syncData(item, 'expediente'); setState({});
+            }
+        }
+        return;
+    }
+
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) {
+        const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
+        const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
+        if (item) { activeInputSelector = null; setState({ selectedItem: { ...item, type } }); }
+    }
+});
+
+// Arrancar App
+renderApp();
+
+¡Listo! Con esto has logrado algo impresionante: transformaste un prototipo visual estático en una aplicación web Full Stack completa, persistente y conectada a una base de datos relacional.

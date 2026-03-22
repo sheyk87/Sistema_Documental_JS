@@ -719,34 +719,177 @@ document.addEventListener('change', (e) => {
     if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
 });
 
-document.addEventListener('submit', (e) => {
+document.addEventListener('submit', async (e) => { // <-- ¡Nota el async!
     if (e.target.id === 'form-login') {
         e.preventDefault();
-        const user = state.db.users.find(u => u.email === document.getElementById('login-email').value && u.password === document.getElementById('login-password').value);
-        if (user) setState({ currentUser: user, currentView: 'inbox', selectedItem: null }); else document.getElementById('login-error').classList.remove('hide');
-    } else if (e.target.id === 'form-create-doc') {
+        
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const errorDiv = document.getElementById('login-error');
+
+        try {
+            // 1. Pedimos el login a nuestra API real
+            const response = await fetch('http://localhost:3000/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok) throw new Error('Credenciales inválidas');
+
+            const data = await response.json();
+            
+            // 2. Guardamos el token de seguridad en el navegador
+            localStorage.setItem('gde_token', data.token);
+
+            // 3. Pedimos los datos reales de Áreas y Usuarios a la base de datos
+            const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+                method: 'GET',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${data.token}` // Pasamos el token al guardia
+                }
+            });
+
+            if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
+
+            const sysData = await sysResponse.json();
+
+            // 4. Inyectamos los datos reales de MySQL en nuestro estado Frontend
+            state.db.areas = sysData.areas;
+            state.db.users = sysData.users;
+
+            // Pedimos los documentos a la base de datos
+            const docsResponse = await fetch('http://localhost:3000/api/docs/all', {
+                headers: { 'Authorization': `Bearer ${data.token}` }
+            });
+            const docsData = await docsResponse.json();
+            state.db.documents = docsData; // ¡Documentos cargados desde MySQL!
+            
+            // Pedimos los expedientes a la base de datos
+            const expsResponse = await fetch('http://localhost:3000/api/exps/all', {
+                headers: { 'Authorization': `Bearer ${data.token}` }
+            });
+            const expsData = await expsResponse.json();
+            state.db.expedientes = expsData; // ¡Expedientes cargados desde MySQL!
+
+            // 5. Borramos los errores y entramos al sistema
+            errorDiv.classList.add('hide');
+            setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
+
+        } catch (error) {
+            console.error(error);
+            errorDiv.textContent = 'Credenciales inválidas o error de conexión con el servidor.';
+            errorDiv.classList.remove('hide');
+        }
+    }
+    else if (e.target.id === 'form-create-doc') {
         e.preventDefault();
         const type = document.getElementById('create-doc-type').value;
         const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
         if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SÓLO admite 1 destinatario inicial (área o usuario).");
-        state.db.documents.push({
-            id: `doc_${Date.now()}`, type: 'documento', docType: type, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
-            signatories: [], recipients: dests, relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
-        }); setState({ currentView: 'drafts' });
-    } else if (e.target.id === 'form-create-exp') {
-        e.preventDefault(); const isPublic = document.getElementById('create-exp-public').checked; const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
-        state.db.expedientes.push({
-            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)), subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
-            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
-        }); setState({ currentView: 'inbox' });
-    } else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
+        
+        // Armamos el objeto del nuevo documento
+        const newDoc = {
+            id: `doc_${Date.now()}`,
+            docType: type,
+            subject: document.getElementById('create-doc-subject').value,
+            content: document.getElementById('create-doc-content').value,
+            creatorId: state.currentUser.id,
+            currentOwnerId: state.currentUser.id,
+            owners: [state.currentUser.id],
+            status: STATUS.BORRADOR,
+            recipients: dests
+        };
+
+        // Lo enviamos a nuestro Backend
+        fetch('http://localhost:3000/api/docs/create', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+            },
+            body: JSON.stringify(newDoc)
+        }).then(res => {
+            if(res.ok) {
+                // Si MySQL lo guardó, lo agregamos visualmente a la pantalla
+                state.db.documents.push({
+                    ...newDoc, 
+                    type: 'documento', number: null, createdAt: new Date().toISOString(), 
+                    signatories: [], relatedDocs: [], signedBy: [], 
+                    history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+                });
+                setState({ currentView: 'drafts' });
+            } else {
+                alert("Error al guardar en la base de datos");
+            }
+        });
+    }
+    else if (e.target.id === 'form-create-exp') {
+        e.preventDefault(); 
+        const isPublic = document.getElementById('create-exp-public').checked; 
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); 
+        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+        
+        // Generamos el número antes de mandarlo al backend para mantener el contador
+        const expNumber = generateNumber('EX', getAreaName(state.currentUser.areaId));
+        
+        const newExp = {
+            id: `exp_${Date.now()}`, 
+            number: expNumber, 
+            subject: document.getElementById('create-exp-subject').value, 
+            creatorId: state.currentUser.id, 
+            currentOwnerId: state.currentUser.id,
+            status: 'En Tramite', 
+            isPublic: isPublic, 
+            authAreas: authAreas, 
+            authUsers: authUsers
+        };
+
+        // Lo enviamos a nuestro Backend
+        fetch('http://localhost:3000/api/exps/create', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+            },
+            body: JSON.stringify(newExp)
+        }).then(res => {
+            if(res.ok) {
+                // Si MySQL lo guardó, lo agregamos visualmente a la pantalla
+                state.db.expedientes.push({
+                    ...newExp,
+                    type: 'expediente',
+                    linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), 
+                    history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
+                }); 
+                setState({ currentView: 'inbox' });
+            } else {
+                alert("Error al guardar el expediente en la base de datos");
+            }
+        });
+    }
+    else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault(); state.db.users.push({ id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }); setState({});
     }
 });
 
-document.addEventListener('click', (e) => {
+// --- FUNCIÓN MÁGICA DE SINCRONIZACIÓN CON MYSQL ---
+async function syncData(item, type) {
+    const url = type === 'expediente' ? `http://localhost:3000/api/exps/update/${item.id}` : `http://localhost:3000/api/docs/update/${item.id}`;
+    const historyEntry = item.history[item.history.length - 1]; // Tomamos el último movimiento
+    try {
+        await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({ item, historyEntry })
+        });
+    } catch (err) { console.error("Error sincronizando", err); }
+}
+
+// --- EVENTOS DE CLICK RECONSTRUIDOS CON ASYNC/AWAIT ---
+document.addEventListener('click', async (e) => {
     const thSort = e.target.closest('th[data-sort]');
     if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } return renderApp(); }
 
@@ -762,7 +905,7 @@ document.addEventListener('click', (e) => {
         if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
-        if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
+        if (action === 'logout') { localStorage.removeItem('gde_token'); return setState({ currentUser: null, currentView: 'inbox', selectedItem: null }); }
         
         if (action === 'close-detail') {
             if (state.selectedItem && state.selectedItem.parentId) {
@@ -781,21 +924,30 @@ document.addEventListener('click', (e) => {
         
         if (action === 'acquire-item') {
             const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
-            if (item) { if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({}); } return;
+            if (item) { 
+                if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } 
+                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); 
+                await syncData(item, type);
+                setState({}); 
+            } return;
         }
 
         if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
         
-        const saveEdits = () => {
+        const saveEdits = async () => {
             if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
                 const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
-                if (docIdx > -1) { state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value; state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value; }
+                if (docIdx > -1) { 
+                    state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value; 
+                    state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value; 
+                    await syncData(state.db.documents[docIdx], 'documento');
+                }
             }
         };
 
         if (action === 'open-modal') {
-            saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+            await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
             if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role; }
@@ -806,12 +958,7 @@ document.addEventListener('click', (e) => {
 
         if (action === 'confirm-modal') {
             const m = state.modal;
-            if (m.type === 'editar_usuario') {
-                if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
-                const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
-                if (uIdx > -1) { state.db.users[uIdx].name = m.editUName; state.db.users[uIdx].email = m.editUEmail; state.db.users[uIdx].password = m.editUPass; state.db.users[uIdx].areaId = m.editUArea; state.db.users[uIdx].role = m.editURole; }
-                return setState({ modal: null });
-            }
+            if (m.type === 'editar_usuario') { /* Edición de admin local por ahora */ return setState({ modal: null }); }
 
             const isExp = state.selectedItem.type === 'expediente';
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
@@ -819,9 +966,13 @@ document.addEventListener('click', (e) => {
 
             if (m.type === 'destinatarios') { 
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && m.selectionArr.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
-                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null }); 
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; 
+                await syncData(item, 'documento'); return setState({ modal: null }); 
             }
-            if (m.type === 'editar_permisos_exp') { item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null }); }
+            if (m.type === 'editar_permisos_exp') { 
+                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); 
+                await syncData(item, 'expediente'); return setState({ modal: null }); 
+            }
 
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
@@ -830,6 +981,7 @@ document.addEventListener('click', (e) => {
                 const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
                 const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivad a ${destName}`;
                 item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
+                await syncData(item, isExp ? 'expediente' : 'documento');
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
@@ -838,7 +990,7 @@ document.addEventListener('click', (e) => {
                 item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
                 const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
                 item.history.push(createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note));
-                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                await syncData(item, 'documento'); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
             if (m.type === 'derivar_doc') {
@@ -846,26 +998,34 @@ document.addEventListener('click', (e) => {
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                 const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ');
                 item.history.push(createHistoryEntry(state.currentUser.id, `Derivad a ${destNames}`, m.note)); 
-                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                await syncData(item, 'documento'); return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
             if (m.type === 'vincular_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
-                m.selectionArr.forEach(docId => {
+                for (let docId of m.selectionArr) {
                     const doc = state.db.documents.find(d => d.id === docId);
                     if (!item.linkedDocs.includes(doc.id)) {
-                        item.linkedDocs.push(doc.id); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
+                        item.linkedDocs.push(doc.id); 
+                        item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
                         doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`));
+                        await syncData(doc, 'documento'); // Sincronizamos el doc afectado
                     }
-                }); state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
+                }
+                state.selectedItem.linkedDocs = item.linkedDocs; 
+                await syncData(item, 'expediente'); // Sincronizamos el exp principal
+                return setState({ modal: null });
             }
 
             if (m.type === 'relacionar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
-                m.selectionArr.forEach(docId => {
+                for (let docId of m.selectionArr) {
                     const doc2 = state.db.documents.find(d => d.id === docId);
-                    if (!item.relatedDocs) item.relatedDocs = []; if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
-                }); state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
+                    if (!item.relatedDocs) item.relatedDocs = []; 
+                    if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
+                }
+                state.selectedItem.relatedDocs = item.relatedDocs; 
+                await syncData(item, 'documento'); return setState({ modal: null });
             }
 
             if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
@@ -874,9 +1034,9 @@ document.addEventListener('click', (e) => {
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
                 if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
-                item.status = newStatus;
-                if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                item.status = newStatus; if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 item.history.push(createHistoryEntry(state.currentUser.id, actionName, m.note));
+                await syncData(item, isExp ? 'expediente' : 'documento');
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
         }
@@ -887,8 +1047,7 @@ document.addEventListener('click', (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                saveEdits();
-                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                await saveEdits(); const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
                 
@@ -898,14 +1057,21 @@ document.addEventListener('click', (e) => {
                     item.signatories = item.signatories.filter(id => id !== state.currentUser.id);
                     if (item.signatories.length > 0) {
                         item.currentOwnerId = item.signatories[0]; item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
-                        return setState({ selectedItem: null, currentView: 'inbox' });
+                        await syncData(item, 'documento'); return setState({ selectedItem: null, currentView: 'inbox' });
                     }
                 }
 
                 item.status = STATUS.FIRMADO; if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
-                    item.relatedDocs.forEach(relId => { const targetDoc = state.db.documents.find(d => d.id === relId); if (targetDoc) { if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); } });
+                    for (let relId of item.relatedDocs) { 
+                        const targetDoc = state.db.documents.find(d => d.id === relId); 
+                        if (targetDoc) { 
+                            if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; 
+                            if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); 
+                            await syncData(targetDoc, 'documento'); // Sincroniza doc relacionado
+                        } 
+                    }
                 }
 
                 if (isConDest) {
@@ -914,14 +1080,15 @@ document.addEventListener('click', (e) => {
                 } else { item.owners = [item.creatorId]; }
 
                 item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
-                setState({ selectedItem: null, currentView: 'inbox' });
+                await syncData(item, 'documento'); setState({ selectedItem: null, currentView: 'inbox' });
             }
-            else if (action === 'doc-delete') { if (!confirm('¿Eliminar este borrador permanentemente?')) return; item.status = STATUS.ELIMINADO; item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente')); setState({ selectedItem: null, currentView: 'drafts' }); }
-            else if (action === 'doc-unrelate') { if (!confirm('¿Seguro que desea eliminar esta relación?')) return; const docId = actionBtn.getAttribute('data-id'); item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({}); }
-            else if (action === 'exp-desarchivar') { item.status = 'En Tramite'; item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite')); setState({ selectedItem: null, currentView: 'archive' }); }
+            else if (action === 'doc-delete') { if (!confirm('¿Eliminar este borrador permanentemente?')) return; item.status = STATUS.ELIMINADO; item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente')); await syncData(item, 'documento'); setState({ selectedItem: null, currentView: 'drafts' }); }
+            else if (action === 'doc-unrelate') { if (!confirm('¿Seguro que desea eliminar esta relación?')) return; const docId = actionBtn.getAttribute('data-id'); item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; await syncData(item, 'documento'); setState({}); }
+            else if (action === 'exp-desarchivar') { item.status = 'En Tramite'; item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite')); await syncData(item, 'expediente'); setState({ selectedItem: null, currentView: 'archive' }); }
             else if (action === 'exp-unlink') {
                 const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
-                const doc = state.db.documents.find(d => d.id === docId); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`)); setState({});
+                const doc = state.db.documents.find(d => d.id === docId); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`)); 
+                await syncData(doc, 'documento'); await syncData(item, 'expediente'); setState({});
             }
         }
         return;
