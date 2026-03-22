@@ -869,11 +869,39 @@ document.addEventListener('submit', async (e) => { // <-- ¡Nota el async!
             }
         });
     }
-    else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
-    else if (e.target.id === 'form-admin-user') {
-        e.preventDefault(); state.db.users.push({ id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }); setState({});
+    else if (e.target.id === 'form-admin-area') { 
+        e.preventDefault(); 
+        const id = `a${Date.now()}`;
+        const name = document.getElementById('admin-a-name').value;
+        
+        fetch('http://localhost:3000/api/areas/create', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({ id, name })
+        }).then(res => { 
+            if(res.ok) { state.db.areas.push({ id, name }); setState({}); } 
+        });
     }
-});
+    else if (e.target.id === 'form-admin-user') {
+        e.preventDefault(); 
+        const newUser = { 
+            id: `u${Date.now()}`, 
+            name: document.getElementById('admin-u-name').value, 
+            email: document.getElementById('admin-u-email').value, 
+            areaId: document.getElementById('admin-u-area').value, 
+            role: document.getElementById('admin-u-role').value, 
+            password: document.getElementById('admin-u-pass').value 
+        }; 
+        
+        fetch('http://localhost:3000/api/users/create', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify(newUser)
+        }).then(res => { 
+            if(res.ok) { state.db.users.push(newUser); setState({}); } 
+        });
+    }
+}); // Cierre del evento submit
 
 // --- FUNCIÓN MÁGICA DE SINCRONIZACIÓN CON MYSQL ---
 async function syncData(item, type) {
@@ -932,8 +960,27 @@ document.addEventListener('click', async (e) => {
             } return;
         }
 
-        if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
-        if (action === 'admin-del-area') { if(confirm('¿Eliminar área?')) { state.db.areas = state.db.areas.filter(a => a.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
+        if (action === 'admin-del-user') { 
+            if(confirm('¿Eliminar usuario?')) { 
+                const id = actionBtn.getAttribute('data-id');
+                fetch(`http://localhost:3000/api/users/delete/${id}`, { 
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                }).then(res => { if(res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
+            } 
+            return; 
+        }
+        if (action === 'admin-del-area') { 
+            if(confirm('¿Eliminar área?')) { 
+                const id = actionBtn.getAttribute('data-id');
+                fetch(`http://localhost:3000/api/areas/delete/${id}`, { 
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                }).then(res => { 
+                    if(res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); } 
+                    else { alert("No se puede eliminar un área que contiene usuarios registrados."); } 
+                });
+            } 
+            return; 
+        }
         
         const saveEdits = async () => {
             if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
@@ -958,7 +1005,23 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'confirm-modal') {
             const m = state.modal;
-            if (m.type === 'editar_usuario') { /* Edición de admin local por ahora */ return setState({ modal: null }); }
+            if (m.type === 'editar_usuario') {
+                if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
+                const updatedUser = { name: m.editUName, email: m.editUEmail, password: m.editUPass, areaId: m.editUArea, role: m.editURole };
+                
+                fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
+                    method: 'PUT', 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                    body: JSON.stringify(updatedUser)
+                }).then(res => {
+                    if (res.ok) {
+                        const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
+                        if (uIdx > -1) { state.db.users[uIdx] = { ...state.db.users[uIdx], ...updatedUser }; }
+                        setState({ modal: null });
+                    } else { alert("Error al actualizar el usuario en la Base de Datos"); }
+                });
+                return;
+            }
 
             const isExp = state.selectedItem.type === 'expediente';
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);

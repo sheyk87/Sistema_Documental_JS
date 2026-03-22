@@ -1,11 +1,14 @@
 # Sistema GDE Web - Gestión Documental Electrónica 📄🏛️
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
-![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
+![Express.js](https://img.shields.io/badge/Express.js-404D59?style=for-the-badge)
+![MySQL](https://img.shields.io/badge/MySQL-00000F?style=for-the-badge&logo=mysql&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
-![Chart.js](https://img.shields.io/badge/Chart.js-FF6384?style=for-the-badge&logo=chartdotjs&logoColor=white)
 
-GDE Web es un Sistema de Gestión Documental Electrónica desarrollado íntegramente en Vanilla JavaScript (Arquitectura SPA - Single Page Application). Diseñado para simular el ecosistema de administración pública o corporativa, permite la creación, firma electrónica, enrutamiento, archivo y vinculación de Documentos y Expedientes con un estricto control de acceso y trazabilidad.
+GDE Web es un Sistema de Gestión Documental Electrónica Full Stack. Diseñado para simular el ecosistema de administración pública o corporativa, permite la creación, firma electrónica, enrutamiento, archivo y vinculación de Documentos y Expedientes con un estricto control de acceso y trazabilidad.
+
+Esta aplicación separa claramente el Frontend (Vanilla JavaScript SPA) del Backend (API REST en Node.js/Express) respaldado por una base de datos relacional MySQL, garantizando seguridad, persistencia y escalabilidad.
 
 ## 📋 Tabla de Contenidos
 
@@ -14,7 +17,7 @@ GDE Web es un Sistema de Gestión Documental Electrónica desarrollado íntegram
 - [Ciclo de Vida y Diagramas de Flujo](#-ciclo-de-vida-y-diagramas-de-flujo)
   - [Flujo de Documentos](#1-ciclo-de-vida-de-un-documento)
   - [Flujo de Expedientes](#2-ciclo-de-vida-de-un-expediente)
-- [Estructura y Arquitectura](#-estructura-y-arquitectura)
+- [Estructura y Arquitectura Full Stack](#-estructura-y-arquitectura-full-stack)
 - [Módulos del Sistema](#-módulos-del-sistema)
 - [Instalación y Uso Local](#-instalación-y-uso-local)
 
@@ -22,14 +25,16 @@ GDE Web es un Sistema de Gestión Documental Electrónica desarrollado íntegram
 
 ## ✨ Características Principales
 
-* **Arquitectura de Estado Global:** Patrón de diseño reactivo implementado desde cero (`setState`), actualizando el DOM virtualmente sin recargas de página.
-* **Bandejas de Entrada Inteligentes:** Separación entre "Trámites Personales" y "Trámites de Área". Los documentos asignados a un Área son adquiridos por el primer usuario que los reclame, desapareciendo para el resto (Prevención de duplicidad de trabajo).
-* **Firma Digital en Cascada:** Soporte para múltiples firmantes. El documento viaja de bandeja en bandeja y se estampa al completarse el circuito.
-* **Deduplicación de Destinatarios:** Algoritmo que previene el envío doble si un usuario es asignado como destinatario individual y, al mismo tiempo, como miembro de un área destinataria.
-* **Seguridad y Control de Acceso:** Expedientes configurables como "Públicos" o "Reservados" (con listas de control de acceso granulares por área o usuario).
-* **Trazabilidad Absoluta (Auditoría):** Historial inmutable en cada documento y expediente, registrando quién, cuándo y qué acción realizó (con notas justificativas).
-* **Dashboard Estadístico:** Motor analítico con **Chart.js**. Gráficos de barras y tortas renderizados dinámicamente con filtros cruzados (por usuario, área, tipo y rango de fechas).
-* **Exportación de Datos:** Botones de generación y descarga nativa de archivos `.csv` en todas las tablas y reportes estadísticos.
+* **Arquitectura Cliente-Servidor:** Separación estricta entre Frontend (SPA) y Backend (API REST).
+* **Base de Datos Relacional:** Uso de MySQL con aprovechamiento de columnas JSON para datos anidados (destinatarios, fojas, permisos).
+* **Autenticación JWT:** Seguridad mediante JSON Web Tokens y contraseñas encriptadas con `bcrypt`.
+* **Bandejas de Entrada Inteligentes:** Separación entre "Trámites Personales" y "Trámites de Área". Los documentos de Área son adquiridos por el primer usuario que los reclame, desapareciendo para el resto.
+* **Firma Digital en Cascada:** Soporte para múltiples firmantes. El documento viaja y se estampa al completarse el circuito, indicando el Área Promotora.
+* **Control Estricto de Enrutamiento:** Validaciones en Frontend y Backend para documentos que admiten destinatarios múltiples vs. destinatarios únicos.
+* **Seguridad y Control de Acceso:** Expedientes configurables como "Públicos" o "Reservados" (con ACL por área o usuario).
+* **Trazabilidad Absoluta (Auditoría):** Historial inmutable respaldado en BD para cada ítem, registrando actor, fecha, acción y destino.
+* **Dashboard Estadístico:** Motor analítico interactivo con **Chart.js + DataLabels**. Gráficos dinámicos con filtros cruzados.
+* **Exportación de Datos:** Descarga nativa de archivos `.csv` en todas las tablas y reportes estadísticos.
 
 ---
 
@@ -37,8 +42,8 @@ GDE Web es un Sistema de Gestión Documental Electrónica desarrollado íntegram
 
 El sistema clasifica los documentos por su comportamiento de enrutamiento:
 
-1.  **Con Destinatario Único:** `Solicitud`, `Solicitud de Compra`, `Solicitud de Gasto`, `Orden de Compra`, `Carta`. (El sistema valida estrictamente que solo se envíen a un destino).
-2.  **Con Destinatario Múltiple:** `Memo`, `Nota`, `Notificación`, `Circular`.
+1.  **Con Destinatario Único:** `Solicitud`, `Solicitud de Compra`, `Solicitud de Gasto`, `Orden de Compra`, `Carta`. (El sistema valida estrictamente que solo se envíen a 1 área o 1 usuario).
+2.  **Con Destinatario Múltiple:** `Memo`, `Nota`, `Notificación`, `Circular`. (Pueden ir a múltiples áreas y usuarios simultáneamente).
 3.  **Sin Destinatario (De Registro):** `Acta`, `Informe`, `Resolucion`, `Disposicion`, `Actuacion`, `Dictamen`, `Factura`, `Presupuesto`, `Contrato`, etc.
 
 ---
@@ -46,7 +51,7 @@ El sistema clasifica los documentos por su comportamiento de enrutamiento:
 ## 🔄 Ciclo de Vida y Diagramas de Flujo
 
 ### 1. Ciclo de Vida de un Documento
-Desde el momento en que un usuario hace clic en "Crear Documento" hasta que se estampa la firma y se archiva.
+Desde el momento en que un usuario lo crea hasta que se estampa la firma y se archiva o vincula.
 
 ```mermaid
 graph TD
@@ -75,7 +80,6 @@ graph TD
 ```
 ### 2. Ciclo de Vida de un Expediente
 Los expedientes actúan como "carpetas contenedoras" (foliadas) que agrupan documentos firmados.
-
 ```mermaid
 graph TD
     A([Apertura Expediente]) --> B[Estado: EN TRAMITE]
@@ -94,59 +98,98 @@ graph TD
     H -->|Anular| K((ANULADO))
 ```
 
-### 🏗️ Estructura y Arquitectura
-El proyecto es 100% Frontend y se ejecuta en el navegador (simulando una base de datos local en la variable state).
+### 🏗️ Estructura y Arquitectura Full Stack
+El proyecto implementa una arquitectura moderna cliente-servidor:
 
-* **app.js**: Contiene la totalidad de la lógica de negocio, el estado global (state) y el motor de renderizado HTML.
-* **Gestión de Estado**: La función setState(newState) intercepta los cambios de datos y dispara renderApp(), re-pintando solo las vistas necesarias. Esto emula el comportamiento de
+**Backend (Node.js + Express)**
+Se encarga de la lógica de negocio profunda, seguridad y acceso a datos.
 
-UI/UX:
-* **Tailwind CSS**: Se usa mediante CDN para estilos rápidos, estáticos y responsivos.
-* **Lucide Icons**: Carga dinámica de iconografía limpia y minimalista.
-* **Sidebar Retráctil**: Menú lateral expansible/colapsable con memoria visual (tooltips).
+* `/config`: Configuración del Pool de conexiones a MySQL.
+* `/controllers`: Manejadores de lógica (`authController`, `docController`, `expController`).
+* `/middlewares`: Protección de rutas mediante verificación de JWT.
+* `/routes`: Definición de Endpoints de la API REST.
+
+**Frontend (Vanilla JS SPA)**
+Se encarga exclusivamente de la presentación y la experiencia del usuario, consumiendo la API.
+
+* `app.js`: Motor principal. Implementa un patrón de Estado Global Reactivo (`setState`) que repinta el DOM virtualmente. Centraliza las peticiones `fetch` hacia el Backend.
+
+* UI/UX:
+
+* **Tailwind CSS**: Clases estáticas para estilos rápidos y responsivos.
+* **Lucide Icons**: Iconografía SVG limpia.
+* **Sidebar Retráctil**: Menú lateral colapsable a modo "solo íconos" con tooltips.
 
 ### 🧩 Módulos del Sistema
-Seguridad y Autenticación: Login simulado. Diferencia entre roles (admin y user).
+**Seguridad y Autenticación:** Login real contra base de datos. Contraseñas hasheadas y generación de JWT.
 
-Mi Trabajo (Inbox & Drafts):
-* **Las bandejas agrupan lógicamente Documentos y Expedientes.**
-* **Búsqueda en tiempo real por número, asunto o remitente.**
-* **Creación de Trámites:**
-* **Campos inteligentes (El selector de destinatarios aparece o desaparece según el tipo de documento).**
-* **Buscador predictivo para tipos de documentos y selección de destinatarios.**
-* **Archivo Central y Anulados: Repositorios de lectura de trámites finalizados o dados de baja temporal/permanentemente.**
-* **Buscador Global: Motor de búsqueda transversal que atraviesa todos los documentos y expedientes a los que el usuario tiene autorización de lectura.**
+**Mi Trabajo (Inbox & Drafts):**
+* Bandejas divididas (Personal y de Área).
+* Búsqueda en tiempo real cruzada.
 
-Módulo de Estadísticas:
-* **Generación de KPI's (Total de Firmas, Exps Creados, Derivaciones, etc).**
-* **Generación de top 10 (Usuarios con más derivaciones, Documentos más vinculados, etc).**
-* **Gráficos intercalables (Torta o Barras) usando Chart.js + DataLabels.**
-* **Administración (Solo Admins): Alta, Baja y Modificación (ABM) de Usuarios y Áreas.**
+**Creación de Trámites:**
+* Formularios dinámicos.
+* Buscadores integrados para filtrar el catálogo de documentos y seleccionar destinatarios.
 
+**Archivo Central y Anulados:** Repositorios inmutables de consulta.
+
+**Buscador Global:** Motor de búsqueda transversal respetando la ACL de cada usuario.
+
+**Módulo de Estadísticas:**
+* KPIs y ránkings Top 10 (Usuarios, Áreas, Documentos).
+* Gráficos dinámicos interactivos.
+
+**Administración:** ABM de Usuarios y Áreas (Solo rol `admin`).
 
 ### 🚀 Instalación y Uso Local
-Debido a los estrictos controles de seguridad de los navegadores modernos (Políticas CORS), este proyecto no debe abrirse haciendo doble clic en el archivo HTML (file:///...). Debe ejecutarse a través de un servidor local.
-
 Prerrequisitos
-* **Visual Studio Code (recomendado).**
-* **Extensión Live Server instalada en tu editor.**
-
-* **Pasos:**
-Clona este repositorio:
-
+* **Node.js** instalado.
+* **MySQL** (o un entorno como XAMPP/WAMP) funcionando.
+* Clonar este repositorio:
 ```bash
 git clone https://github.com/sheyk87/Sistema_Documental_JS.git
 ```
 
-Abre la carpeta del proyecto en Visual Studio Code.
-Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server".
-El navegador se abrirá automáticamente en http://127.0.0.1:5500.
+**Paso 1: Configurar la Base de Datos (Backend)**
+1- Navega a la carpeta del backend en tu terminal:
+```bash
+cd ruta/a/tu/backend
+```
 
-Credenciales de Prueba
+2- Instala las dependencias:
+```bash
+npm install
+```
 
-Para ingresar al sistema, utiliza las siguientes credenciales predefinidas:
+3- Crea un archivo `.env` en la raíz del backend con tus credenciales:
+```bash
+PORT=3000
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=tu_password_mysql
+DB_NAME=gde_system
+JWT_SECRET=tu_secreto_seguro_123
+```
 
-* **Email:** admin@gde.com
-* **Contraseña:** 123
+4- Crea la base de datos gde_system en MySQL (puedes usar phpMyAdmin).
+5- Ejecuta el script de inicialización para crear las tablas y los usuarios de prueba:
+```bash
+node setup_full.js
+```
 
-(Puedes loguearte también como juan@gde.com o maria@gde.com usando la misma contraseña para probar la interacción entre distintas áreas).
+6- Enciende el servidor Backend:
+```bash
+npm run dev
+```
+
+**Paso 2: Ejecutar el Frontend**
+1- Abre la carpeta del Frontend (donde están index.html y app.js) en Visual Studio Code.
+2- Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server". (Requiere la extensión Live Server).
+3- El navegador se abrirá mostrando el sistema.
+
+**Credenciales de Prueba**
+El script de inicialización crea los siguientes usuarios por defecto (todas las contraseñas son 123):
+
+* **Admin:** `admin@gde.com` (Sistemas - Rol Admin)
+* **User 1:** `juan@gde.com` (Dirección General)
+* **User 2:** `maria@gde.com` (Recursos Humanos)

@@ -22,6 +22,12 @@ app.use('/api/docs', docRoutes);
 const expRoutes = require('./routes/expRoutes');
 app.use('/api/exps', expRoutes);
 
+const userRoutes = require('./routes/userRoutes');
+const areaRoutes = require('./routes/areaRoutes');
+
+app.use('/api/users', userRoutes);
+app.use('/api/areas', areaRoutes);
+
 app.get('/api/test', (req, res) => {
     res.json({ message: 'El servidor GDE está funcionando correctamente' });
 });

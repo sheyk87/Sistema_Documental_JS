@@ -1188,4 +1188,203 @@ document.addEventListener('click', async (e) => {
 // Arrancar App
 renderApp();
 
+############################################################################
+Paso 1: Controladores del Backend (Node.js)
+1- En tu carpeta gde_backend/controllers, crea un archivo llamado userController.js y pega esto:
+const pool = require('../config/db');
+const bcrypt = require('bcrypt');
+
+exports.createUser = async (req, res) => {
+    const { id, name, email, password, areaId, role } = req.body;
+    try {
+        const hash = await bcrypt.hash(password, 10); // Encriptamos la contraseña
+        await pool.query(
+            `INSERT INTO users (id, name, email, password, area_id, role) VALUES (?, ?, ?, ?, ?, ?)`,
+            [id, name, email, hash, areaId, role]
+        );
+        res.status(201).json({ message: 'Usuario creado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al crear usuario' });
+    }
+};
+
+exports.updateUser = async (req, res) => {
+    const { id } = req.params;
+    const { name, email, password, areaId, role } = req.body;
+    try {
+        const hash = await bcrypt.hash(password, 10); // Encriptamos la nueva contraseña
+        await pool.query(
+            `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ? WHERE id = ?`,
+            [name, email, hash, areaId, role, id]
+        );
+        res.json({ message: 'Usuario actualizado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al actualizar usuario' });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query(`DELETE FROM users WHERE id = ?`, [id]);
+        res.json({ message: 'Usuario eliminado' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al eliminar usuario' });
+    }
+};
+
+2- En la misma carpeta controllers, crea un archivo llamado areaController.js:
+const pool = require('../config/db');
+
+exports.createArea = async (req, res) => {
+    const { id, name } = req.body;
+    try {
+        await pool.query(`INSERT INTO areas (id, name) VALUES (?, ?)`, [id, name]);
+        res.status(201).json({ message: 'Área creada exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al crear área' });
+    }
+};
+
+exports.deleteArea = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query(`DELETE FROM areas WHERE id = ?`, [id]);
+        res.json({ message: 'Área eliminada' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'No se puede eliminar un área que contiene usuarios.' });
+    }
+};
+Paso 2: Rutas del Backend
+1- En tu carpeta gde_backend/routes, crea userRoutes.js:
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/userController');
+const authMiddleware = require('../middlewares/authMiddleware');
+
+router.post('/create', authMiddleware, userController.createUser);
+router.put('/update/:id', authMiddleware, userController.updateUser);
+router.delete('/delete/:id', authMiddleware, userController.deleteUser);
+
+module.exports = router;
+
+2- En la misma carpeta routes, crea areaRoutes.js:
+const express = require('express');
+const router = express.Router();
+const areaController = require('../controllers/areaController');
+const authMiddleware = require('../middlewares/authMiddleware');
+
+router.post('/create', authMiddleware, areaController.createArea);
+router.delete('/delete/:id', authMiddleware, areaController.deleteArea);
+
+module.exports = router;
+
+Paso 3: Conectar todo en server.js
+Abre tu archivo server.js en la raíz del backend y agrega estas líneas junto a las demás rutas:
+// Agrega esto debajo de tus rutas de expedientes y documentos
+const userRoutes = require('./routes/userRoutes');
+const areaRoutes = require('./routes/areaRoutes');
+
+app.use('/api/users', userRoutes);
+app.use('/api/areas', areaRoutes);
+
+(Guarda los archivos, Nodemon reiniciará el servidor).
+
+#################################################################
+
+Paso 4: Sincronizar el Frontend (app.js)
+Abre tu archivo app.js en tu proyecto Frontend. Para no tocar el resto del código que ya funciona perfecto, vamos a reemplazar solo fragmentos específicos.
+
+A) Creación (Evento Submit):
+Busca la parte final del evento document.addEventListener('submit', ...) donde dice else if (e.target.id === 'form-admin-area') y reemplaza ESOS DOS else if finales por esto:
+else if (e.target.id === 'form-admin-area') { 
+        e.preventDefault(); 
+        const id = `a${Date.now()}`;
+        const name = document.getElementById('admin-a-name').value;
+        
+        fetch('http://localhost:3000/api/areas/create', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({ id, name })
+        }).then(res => { 
+            if(res.ok) { state.db.areas.push({ id, name }); setState({}); } 
+        });
+    }
+    else if (e.target.id === 'form-admin-user') {
+        e.preventDefault(); 
+        const newUser = { 
+            id: `u${Date.now()}`, 
+            name: document.getElementById('admin-u-name').value, 
+            email: document.getElementById('admin-u-email').value, 
+            areaId: document.getElementById('admin-u-area').value, 
+            role: document.getElementById('admin-u-role').value, 
+            password: document.getElementById('admin-u-pass').value 
+        }; 
+        
+        fetch('http://localhost:3000/api/users/create', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify(newUser)
+        }).then(res => { 
+            if(res.ok) { state.db.users.push(newUser); setState({}); } 
+        });
+    }
+}); // Cierre del evento submit
+
+B) Edición y Eliminación (Evento Click):
+En el evento document.addEventListener('click', ...) busca dónde están los botones de eliminar (cerca de la línea if (action === 'admin-del-user')). Reemplaza esas dos líneas de eliminación por esto:
+if (action === 'admin-del-user') { 
+            if(confirm('¿Eliminar usuario?')) { 
+                const id = actionBtn.getAttribute('data-id');
+                fetch(`http://localhost:3000/api/users/delete/${id}`, { 
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                }).then(res => { if(res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
+            } 
+            return; 
+        }
+        if (action === 'admin-del-area') { 
+            if(confirm('¿Eliminar área?')) { 
+                const id = actionBtn.getAttribute('data-id');
+                fetch(`http://localhost:3000/api/areas/delete/${id}`, { 
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                }).then(res => { 
+                    if(res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); } 
+                    else { alert("No se puede eliminar un área que contiene usuarios registrados."); } 
+                });
+            } 
+            return; 
+        }
+
+C) Edición de Usuarios (Confirmación del Modal):
+Finalmente, un poco más abajo, dentro de if (action === 'confirm-modal') {, busca el fragmento de la edición del usuario y reemplázalo por este:
+if (action === 'confirm-modal') {
+            const m = state.modal;
+            
+            if (m.type === 'editar_usuario') {
+                if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
+                const updatedUser = { name: m.editUName, email: m.editUEmail, password: m.editUPass, areaId: m.editUArea, role: m.editURole };
+                
+                fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
+                    method: 'PUT', 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                    body: JSON.stringify(updatedUser)
+                }).then(res => {
+                    if (res.ok) {
+                        const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
+                        if (uIdx > -1) { state.db.users[uIdx] = { ...state.db.users[uIdx], ...updatedUser }; }
+                        setState({ modal: null });
+                    } else { alert("Error al actualizar el usuario en la Base de Datos"); }
+                });
+                return;
+            }
+
+            // ... (el resto del código original de isExp sigue igual) ...
+
+Con esto, la gestión completa del administrador queda conectada a la base de datos MySQL (con validaciones para evitar que borres áreas que todavía tengan usuarios asignados, garantizando la integridad de los datos).
+
 ¡Listo! Con esto has logrado algo impresionante: transformaste un prototipo visual estático en una aplicación web Full Stack completa, persistente y conectada a una base de datos relacional.
