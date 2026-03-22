@@ -559,6 +559,23 @@ function renderDocumentDetail() {
                             <h4 class="font-bold text-gray-600 mb-4">REFERENCIAS DEL DOCUMENTO</h4>
                             ${vinculados.length > 0 ? `<div class="mb-4"><strong>Vinculado en Expedientes:</strong><ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul></div>` : ''}
                             <div class="mb-4"><div class="flex justify-between items-center"><strong>Documentos Relacionados:</strong>${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> Relacionar Doc</button>` : ''}</div>${relacionados.length > 0 ? `<ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2" title="Quitar Relación"><i data-lucide="unlink" class="w-3 h-3"></i></button>` : ''}</li>`).join('')}</ul>` : '<p class="text-xs text-gray-500 mt-1">Sin relaciones.</p>'}</div>
+                            <h4 class="font-bold text-gray-600 mb-4 mt-8 border-t pt-4">ARCHIVOS ADJUNTOS</h4>
+                            <div class="mb-4">
+                                ${canEdit ? `
+                                    <div class="flex items-center gap-2 mb-4 bg-white p-3 rounded border">
+                                        <input type="file" id="file-upload-input" class="text-sm flex-1 cursor-pointer file:mr-4 file:py-1.5 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                        <button data-action="upload-file" class="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><i data-lucide="upload" class="w-4 h-4"></i> Subir</button>
+                                    </div>
+                                ` : ''}
+                                <ul class="space-y-2">
+                                    ${doc.attachments && doc.attachments.length > 0 ? doc.attachments.map(att => `
+                                        <li class="flex items-center justify-between p-3 bg-white border border-gray-200 shadow-sm rounded-lg group">
+                                            <a href="http://localhost:3000/uploads/${att.filename}" target="_blank" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-2 text-sm"><i data-lucide="paperclip" class="w-4 h-4"></i> ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span></a>
+                                            ${canEdit ? `<button data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                                        </li>
+                                    `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -781,7 +798,8 @@ document.addEventListener('submit', async (e) => {
         
         const newDoc = {
             id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests,
+            attachments: []
         };
 
         fetch('http://localhost:3000/api/docs/create', {
@@ -789,7 +807,7 @@ document.addEventListener('submit', async (e) => {
         }).then(async res => {
             if(res.ok) {
                 state.db.documents.push({
-                    ...newDoc, type: 'documento', number: null, createdAt: new Date().toISOString(), signatories: [], relatedDocs: [], signedBy: [], 
+                    ...newDoc, type: 'documento', number: null, createdAt: new Date().toISOString(), signatories: [], relatedDocs: [], signedBy: [], attachments: [], 
                     history: [createHistoryEntry(state.currentUser.id, 'Creacion', 'Se genero borrador')]
                 });
                 setState({ currentView: 'drafts' });
@@ -878,6 +896,48 @@ document.addEventListener('click', async (e) => {
                 await syncData(item, type, hEntry);
                 setState({}); 
             } return;
+        }
+
+        if (action === 'upload-file') {
+            e.preventDefault();
+            const fileInput = document.getElementById('file-upload-input');
+            if (!fileInput.files || fileInput.files.length === 0) return alert("Seleccione un archivo primero.");
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: formData // No se envía 'Content-Type', el navegador lo auto-asigna para FormData
+            }).then(async res => {
+                if (res.ok) {
+                    const data = await res.json();
+                    if(!state.selectedItem.attachments) state.selectedItem.attachments = [];
+                    state.selectedItem.attachments.push(data.attachment);
+                    state.selectedItem.history.push(createHistoryEntry(state.currentUser.id, 'Archivo Adjuntado', fileInput.files[0].name));
+                    setState({});
+                } else { alert("Error al subir el archivo."); }
+            });
+            return;
+        }
+
+        if (action === 'delete-file') {
+            e.preventDefault();
+            if (!confirm('¿Seguro que desea eliminar este archivo adjunto?')) return;
+            const filename = actionBtn.getAttribute('data-filename');
+            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            }).then(res => {
+                if (res.ok) {
+                    const originalName = state.selectedItem.attachments.find(a => a.filename === filename)?.originalname || filename;
+                    state.selectedItem.attachments = state.selectedItem.attachments.filter(a => a.filename !== filename);
+                    state.selectedItem.history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
+                    setState({});
+                } else { alert("Error al eliminar el archivo."); }
+            });
+            return;
         }
 
         if (action === 'admin-del-user') { 
