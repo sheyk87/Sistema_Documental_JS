@@ -143,6 +143,7 @@ Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server
 El navegador se abrirá automáticamente en http://127.0.0.1:5500.
 
 Credenciales de Prueba
+
 Para ingresar al sistema, utiliza las siguientes credenciales predefinidas:
 
 * **Email:** admin@gde.com
