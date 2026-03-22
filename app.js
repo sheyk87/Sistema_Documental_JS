@@ -43,14 +43,12 @@ let state = {
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
     },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
+    ui: { sidebarOpen: true },
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     modal: null
 };
 
-let chartInstances = {};
-let currentStatsData = {};
-let activeInputSelector = null;
-let isChartLoading = false;
+let chartInstances = {}, currentStatsData = {}, activeInputSelector = null, isChartLoading = false;
 const appRoot = document.getElementById('app-root');
 
 if (!window.Chart && !isChartLoading) {
@@ -73,15 +71,11 @@ function restoreInputFocus() {
         if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; }
     }
 }
-
 const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().toISOString(), userId, action, notes });
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
 const getAreaName = (id) => state.db.areas.find(a => a.id === id)?.name || 'Desconocida';
 const getCurrentYear = () => new Date().getFullYear().toString();
-
-function formatDateOnly(dateString) {
-    const d = new Date(dateString); return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
-}
+function formatDateOnly(dateString) { const d = new Date(dateString); return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`; }
 
 const getDocCode = (type) => {
     const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX', 'Dictamen': 'DICT', 'Sanción': 'SANC', 'Acuerdo de confidencialidad': 'CONF', 'Factura': 'FACT', 'Presupuesto': 'PRESUP', 'Balance': 'BAL', 'Informes Técnico': 'IFT', 'Evaluación': 'EVAL', 'Manual de procedimientos': 'MPROC', 'Código de conducta': 'CCOND', 'Política Interna': 'POL', 'Contrato': 'CONT', 'Solicitud': 'SOLI', 'Solicitud de Compra': 'SC', 'Solicitud de Gasto': 'GASTO', 'Orden de Compra': 'OC', 'Carta': 'CAR', 'Notificación': 'NOTI', 'Circular': 'CIRC' };
@@ -97,18 +91,21 @@ const generateNumber = (type, areaName) => {
 function setState(newState) { state = { ...state, ...newState }; renderApp(); }
 
 function getBadgeColor(status) {
-    const colors = {
-        [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200',
-        [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200',
-        [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900',
-        [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200'
-    }; return colors[status] || colors[STATUS.BORRADOR];
+    const colors = { [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200', [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200', [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900', [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200' };
+    return colors[status] || colors[STATUS.BORRADOR];
 }
-function getTypeColorClass(type) { return CHART_COLORS[type] ? `bg-[${CHART_COLORS[type]}]/10 text-[${CHART_COLORS[type]}]` : 'bg-gray-100 text-gray-800'; }
+
+function getTypeColorClass(type) {
+    const colors = {
+        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800', 'Acta': 'bg-orange-100 text-orange-800', 'Informe': 'bg-blue-100 text-blue-800', 'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800', 'Actuacion': 'bg-indigo-100 text-indigo-800', 'Dictamen': 'bg-purple-100 text-purple-800', 'Sanción': 'bg-rose-100 text-rose-800', 'Acuerdo de confidencialidad': 'bg-slate-100 text-slate-800', 'Factura': 'bg-lime-100 text-lime-800', 'Presupuesto': 'bg-emerald-100 text-emerald-800', 'Balance': 'bg-cyan-100 text-cyan-800', 'Informes Técnico': 'bg-sky-100 text-sky-800', 'Evaluación': 'bg-violet-100 text-violet-800', 'Manual de procedimientos': 'bg-fuchsia-100 text-fuchsia-800', 'Código de conducta': 'bg-pink-100 text-pink-800', 'Política Interna': 'bg-rose-100 text-rose-800', 'Contrato': 'bg-stone-100 text-stone-800', 'Solicitud': 'bg-sky-100 text-sky-800', 'Solicitud de Compra': 'bg-emerald-100 text-emerald-800', 'Solicitud de Gasto': 'bg-red-100 text-red-800', 'Orden de Compra': 'bg-teal-100 text-teal-800', 'Carta': 'bg-orange-100 text-orange-800', 'Notificación': 'bg-yellow-100 text-yellow-800', 'Circular': 'bg-blue-100 text-blue-800', 'expediente': 'bg-purple-100 text-purple-800'
+    };
+    return colors[type] || 'bg-gray-100 text-gray-800';
+}
 
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
-    const lastTransfer = [...item.history].reverse().find(h => ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'].some(act => h.action.includes(act)));
+    const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
+    const lastTransfer = [...item.history].reverse().find(h => transferActions.some(act => h.action.includes(act)));
     return lastTransfer ? getUserName(lastTransfer.userId) : getUserName(item.creatorId);
 }
 
@@ -135,21 +132,15 @@ function getRejectionsCount(item) { return item.history.filter(h => h.action ===
 // ==========================================
 function exportToCSV(filename, rows) {
     const processRow = row => row.map(val => `"${(val === null || val === undefined ? '' : val.toString()).replace(/"/g, '""')}"`).join(',');
-    const blob = new Blob([rows.map(processRow).join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    if (link.download !== undefined) {
-        link.setAttribute("href", URL.createObjectURL(blob)); link.setAttribute("download", filename);
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    }
+    const blob = new Blob([rows.map(processRow).join('\n')], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a");
+    if (link.download !== undefined) { link.setAttribute("href", URL.createObjectURL(blob)); link.setAttribute("download", filename); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); }
 }
 
 function handleExport(model) {
     let items = [], headers = [], rows = [];
-    if (model === 'admin_users') {
-        headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol']; rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])];
-    } else if (model === 'admin_areas') {
-        headers = ['ID', 'Nombre', 'Usuarios']; rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u=>u.areaId===a.id).length])];
-    } else if (model === 'stats') {
+    if (model === 'admin_users') { headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol']; rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])]; }
+    else if (model === 'admin_areas') { headers = ['ID', 'Nombre', 'Usuarios']; rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u=>u.areaId===a.id).length])]; }
+    else if (model === 'stats') {
         let r = [['--- ESTADISTICAS EXPORTADAS ---']];
         if (currentStatsData.totals) { r.push(['',''],['TOTALES GENERALES']); Object.entries(currentStatsData.totals).forEach(([k, v]) => r.push([k, v])); }
         if (currentStatsData.top) { r.push(['','']); Object.entries(currentStatsData.top).forEach(([title, list]) => { r.push([title.toUpperCase()], ['Elemento', 'Cantidad']); list.forEach(i => r.push([i.label, i.count])); r.push(['','']); }); }
@@ -200,8 +191,7 @@ function sortItems(items, model) {
             case 'fojas': vA = a.type === 'expediente' ? (a.linkedDocs?.length || 0) : -1; vB = b.type === 'expediente' ? (b.linkedDocs?.length || 0) : -1; break;
             case 'date': default: vA = new Date(a.createdAt).getTime(); vB = new Date(b.createdAt).getTime(); break;
         }
-        if(vA < vB) return s.order === 'asc' ? -1 : 1;
-        if(vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
+        if(vA < vB) return s.order === 'asc' ? -1 : 1; if(vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
     });
 }
 
@@ -220,7 +210,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                     ${sortedItems.map(item => `
                         <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
                             <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
-                            <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
+                            <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
                             <td class="p-4 font-medium text-gray-800">${item.subject}</td>
                             <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
@@ -333,7 +323,7 @@ function drawCharts() {
     const addKPI = (title, val, icon, color) => { html += `<div class="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-l-${color}-500 flex items-center justify-between col-span-2 lg:col-span-1"><div><p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p><p class="text-3xl font-black text-gray-800">${val}</p></div><i data-lucide="${icon}" class="w-10 h-10 text-${color}-200"></i></div>`; };
 
     if (tab === 'generales') {
-        addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald'); addKPI('Exps Creados', d.totals.expsCreados, 'folder-plus', 'purple');
+        addKPI('Docs Firmados', d.totals.firmados, 'file-check', 'emerald'); addKPI('Expedientes Creados', d.totals.expsCreados, 'folder-plus', 'purple');
         addKPI('Derivaciones Totales', d.totals.derivaciones, 'share', 'indigo'); addKPI('Fojas Vinculadas', d.totals.vinculaciones, 'link', 'blue');
         addKPI('Docs Relacionados', d.totals.relaciones, 'network', 'amber'); addKPI('Anulaciones', d.totals.anulados, 'ban', 'red');
         addKPI('Docs Archivados', d.totals.archD, 'archive', 'stone'); addKPI('Exps Archivados', d.totals.archE, 'archive', 'stone');
@@ -407,18 +397,56 @@ function renderApp() {
     if (state.currentView === 'stats') drawCharts();
 }
 
-function renderMenuSection(id, title, itemsHtml) {
-    const isOpen = state.menus[id];
-    return `<div class="mb-1"><button data-action="toggle-menu" data-menu="${id}" class="w-full flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-2 hover:text-slate-300 transition-colors outline-none">${title} <i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i></button><div class="${isOpen ? 'block' : 'hidden'} space-y-1 mt-1">${itemsHtml}</div></div>`;
+function renderMenuSection(id, title, icon, itemsHtml) {
+    const isOpen = state.menus[id]; const sbOpen = state.ui.sidebarOpen;
+    return `
+        <div class="mb-1">
+            <button data-action="${sbOpen ? 'toggle-menu' : 'toggle-sidebar'}" data-menu="${id}" class="w-full flex ${sbOpen ? 'justify-between' : 'justify-center'} items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 hover:text-slate-300 transition-colors outline-none" title="${!sbOpen ? title : ''}">
+                <div class="flex items-center gap-2">${!sbOpen ? `<i data-lucide="${icon}" class="w-5 h-5"></i>` : ''}<span class="${sbOpen ? 'block' : 'hidden'}">${title}</span></div>
+                ${sbOpen ? `<i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>` : ''}
+            </button>
+            <div class="${isOpen && sbOpen ? 'block' : 'hidden'} space-y-1 mt-1">${itemsHtml}</div>
+        </div>
+    `;
 }
 
 function renderMainLayout() {
-    return `<div class="flex h-screen bg-gray-50 font-sans text-gray-800"><div class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10 shrink-0"><div class="p-4 bg-slate-950 border-b border-slate-800"><h1 class="text-xl font-bold text-blue-400 flex items-center gap-2"><i data-lucide="building"></i> GDE Web</h1><p class="text-xs text-slate-400 mt-1">${getUserName(state.currentUser.id)}</p><p class="text-xs text-slate-500">${getAreaName(state.currentUser.areaId)}</p></div><nav class="flex-1 p-4 overflow-y-auto">${renderMenuSection('trabajo', 'Mi Trabajo', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}${renderMenuSection('nuevo', 'Nuevo', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}${renderMenuSection('consultas', 'Consultas', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')) : ''}</nav><div class="p-4 border-t border-slate-800"><button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button></div></div><div class="flex-1 flex flex-col overflow-hidden relative"><header class="bg-white shadow-sm h-14 flex items-center px-6 justify-between shrink-0"><h2 class="text-lg font-semibold text-gray-700 capitalize">${state.selectedItem ? `Detalle de ${state.selectedItem.type}` : state.currentView.replace('_', ' ')}</h2><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${getCurrentYear()}</span></header><main class="flex-1 overflow-auto p-6 bg-slate-50/50">${getViewContent()}</main>${renderModalOverlay()}</div></div>`;
+    const sbw = state.ui.sidebarOpen ? 'w-64' : 'w-16';
+    const sbo = state.ui.sidebarOpen;
+    return `
+        <div class="flex h-screen bg-gray-50 font-sans text-gray-800">
+            <div class="${sbw} bg-slate-900 text-white flex flex-col shadow-xl z-10 shrink-0 transition-all duration-300">
+                <div class="p-4 bg-slate-950 border-b border-slate-800 flex items-center ${sbo ? 'justify-between' : 'justify-center'}">
+                    <div class="flex items-center gap-2 ${!sbo ? 'hidden' : ''}"><i data-lucide="building" class="text-blue-400"></i><h1 class="text-xl font-bold text-blue-400">GDE Web</h1></div>
+                    <button data-action="toggle-sidebar" class="text-slate-400 hover:text-white outline-none" title="Menú"><i data-lucide="menu"></i></button>
+                </div>
+                ${sbo ? `<div class="p-4 border-b border-slate-800"><p class="text-xs text-slate-400 truncate">${getUserName(state.currentUser.id)}</p><p class="text-xs text-slate-500 truncate">${getAreaName(state.currentUser.areaId)}</p></div>` : ''}
+                <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden">
+                    ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+                    ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
+                    ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
+                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')) : ''}
+                </nav>
+                <div class="p-4 border-t border-slate-800">
+                    <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
+                </div>
+            </div>
+            <div class="flex-1 flex flex-col overflow-hidden relative">
+                <header class="bg-white shadow-sm h-14 flex items-center px-6 justify-between shrink-0">
+                    <h2 class="text-lg font-semibold text-gray-700 capitalize">${state.selectedItem ? `Detalle de ${state.selectedItem.type}` : state.currentView.replace('_', ' ')}</h2>
+                    <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${getCurrentYear()}</span>
+                </header>
+                <main class="flex-1 overflow-auto p-6 bg-slate-50/50">${getViewContent()}</main>
+                ${renderModalOverlay()}
+            </div>
+        </div>
+    `;
 }
 
 function renderNavItem(icon, label, view) {
     const isActive = state.currentView === view && !state.selectedItem; const activeClass = isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white';
-    return `<button data-target-view="${view}" class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none"><i data-lucide="${icon}" class="w-4 h-4"></i> ${label}</button>`;
+    const sbOpen = state.ui.sidebarOpen;
+    return `<button data-target-view="${view}" class="w-full flex items-center ${sbOpen ? 'gap-3 px-3' : 'justify-center px-0'} py-2.5 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none" title="${!sbOpen ? label : ''}"><i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i> <span class="${sbOpen ? 'block' : 'hidden'} truncate">${label}</span></button>`;
 }
 
 function getViewContent() {
@@ -480,11 +508,11 @@ function renderSearcher() {
 function renderCreateDocument() {
     const term = state.searchTerms.docTypeCreate.toLowerCase();
     const filterOpts = (arr) => arr.filter(t => t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term));
-    const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL);
-    const mult = filterOpts(DOC_TYPES.CON_DEST_MULT);
-    const sin = filterOpts(DOC_TYPES.SIN_DEST);
+    const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
 
-    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div><div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
+    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
+    <div id="dest-container" style="display:none;"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a=>({id:a.id, name:`[Área] ${a.name}`})), ...state.db.users.filter(u=>u.id!==state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
+    <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
 
 function renderCreateExpediente() {
@@ -510,7 +538,7 @@ function renderDocumentDetail() {
     return `
         <div class="flex gap-6 max-w-7xl mx-auto h-[calc(100vh-8rem)]">
             <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm bg-gray-100">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
+                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm ${getTypeColorClass(doc.docType)}">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
                 <div class="flex-1 overflow-auto p-8 bg-gray-50/50">
                     <div class="max-w-4xl mx-auto bg-white min-h-[700px] shadow-lg border border-gray-300 p-12 flex flex-col relative">
                         ${doc.status === STATUS.ANULADO ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span class="text-8xl text-red-600 font-black transform -rotate-45 border-8 border-red-600 p-8">ANULADO</span></div>` : ''}
@@ -647,7 +675,9 @@ function renderModalOverlay() {
         content = `
             <input type="text" data-modal-input="search" placeholder="Buscar documento firmado..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-60 overflow-y-auto bg-gray-50 p-1">
-                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>`).join('')}
+                ${filteredDocs.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No hay documentos disponibles</p>' : filteredDocs.map(d => `
+                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${d.id}" ${m.selectionArr.includes(d.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> <div><p class="font-medium text-blue-700">${d.number}</p><p class="text-xs text-gray-500">${d.subject}</p></div></label>
+                `).join('')}
             </div>
         `;
     }
@@ -670,81 +700,49 @@ function renderModalOverlay() {
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 document.addEventListener('input', (e) => {
-    if (e.target.hasAttribute('data-search-model')) {
-        const model = e.target.getAttribute('data-search-model'); state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp();
-    }
-    if (e.target.hasAttribute('data-modal-input')) {
-        const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value;
-        if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); }
-    }
+    if (e.target.hasAttribute('data-search-model')) { const model = e.target.getAttribute('data-search-model'); state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp(); }
+    if (e.target.hasAttribute('data-modal-input')) { const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value; if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); } }
+    if (e.target.hasAttribute('data-local-search')) { const term = e.target.value.toLowerCase(); document.querySelectorAll('.dest-item').forEach(lbl => { const text = lbl.querySelector('.dest-text').textContent.toLowerCase(); lbl.style.display = text.includes(term) ? 'flex' : 'none'; }); }
 });
 
 document.addEventListener('change', (e) => {
-    if (e.target.hasAttribute('data-modal-toggle')) {
-        const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value;
-        if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val);
-    }
+    if (e.target.hasAttribute('data-modal-toggle')) { const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value; if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val); }
     if (e.target.hasAttribute('data-modal-input')) { state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; }
-    if (e.target.hasAttribute('data-stats-filter-multi')) {
-        const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value);
-        state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all');
-        if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp();
-    }
+    if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
+    if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
 });
 
 document.addEventListener('submit', (e) => {
     if (e.target.id === 'form-login') {
         e.preventDefault();
         const user = state.db.users.find(u => u.email === document.getElementById('login-email').value && u.password === document.getElementById('login-password').value);
-        if (user) setState({ currentUser: user, currentView: 'inbox', selectedItem: null });
-        else document.getElementById('login-error').classList.remove('hide');
-    }
-    else if (e.target.id === 'form-create-doc') {
+        if (user) setState({ currentUser: user, currentView: 'inbox', selectedItem: null }); else document.getElementById('login-error').classList.remove('hide');
+    } else if (e.target.id === 'form-create-doc') {
         e.preventDefault();
+        const type = document.getElementById('create-doc-type').value;
+        const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
+        if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SÓLO admite 1 destinatario inicial (área o usuario).");
         state.db.documents.push({
-            id: `doc_${Date.now()}`, type: 'documento', docType: document.getElementById('create-doc-type').value,
-            subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id],
-            status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
-            signatories: [], recipients: [], relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
-        });
-        setState({ currentView: 'drafts' });
-    }
-    else if (e.target.id === 'form-create-exp') {
-        e.preventDefault();
-        const isPublic = document.getElementById('create-exp-public').checked;
-        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value);
-        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+            id: `doc_${Date.now()}`, type: 'documento', docType: type, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, number: null, createdAt: new Date().toISOString(),
+            signatories: [], recipients: dests, relatedDocs: [], signedBy: [], history: [createHistoryEntry(state.currentUser.id, 'Creación', 'Se generó borrador')]
+        }); setState({ currentView: 'drafts' });
+    } else if (e.target.id === 'form-create-exp') {
+        e.preventDefault(); const isPublic = document.getElementById('create-exp-public').checked; const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
         state.db.expedientes.push({
-            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)),
-            subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
-            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(),
-            history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
-        });
-        setState({ currentView: 'inbox' });
-    }
-    else if (e.target.id === 'form-admin-area') {
-        e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({});
-    }
+            id: `exp_${Date.now()}`, type: 'expediente', number: generateNumber('EX', getAreaName(state.currentUser.areaId)), subject: document.getElementById('create-exp-subject').value, creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id,
+            status: 'En Tramite', isPublic, authAreas, authUsers, linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
+        }); setState({ currentView: 'inbox' });
+    } else if (e.target.id === 'form-admin-area') { e.preventDefault(); state.db.areas.push({ id: `a${Date.now()}`, name: document.getElementById('admin-a-name').value }); setState({}); }
     else if (e.target.id === 'form-admin-user') {
-        e.preventDefault();
-        state.db.users.push({
-            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, 
-            areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value
-        });
-        setState({});
+        e.preventDefault(); state.db.users.push({ id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }); setState({});
     }
 });
 
 document.addEventListener('click', (e) => {
     const thSort = e.target.closest('th[data-sort]');
-    if (thSort) {
-        const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field');
-        if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc';
-        else { state.sort[model].field = field; state.sort[model].order = 'asc'; }
-        return renderApp();
-    }
+    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } return renderApp(); }
 
     const navBtn = e.target.closest('[data-target-view]');
     if (navBtn) return setState({ currentView: navBtn.getAttribute('data-target-view'), selectedItem: null, modal: null });
@@ -753,12 +751,12 @@ document.addEventListener('click', (e) => {
     if (actionBtn) {
         const action = actionBtn.getAttribute('data-action');
         
+        if (action === 'toggle-sidebar') { state.ui.sidebarOpen = !state.ui.sidebarOpen; return setState({}); }
         if (action === 'set-stats-tab') { state.statsOpts.tab = actionBtn.getAttribute('data-tab'); return renderApp(); }
         if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
-        
         if (action === 'close-detail') {
             if (state.selectedItem && state.selectedItem.parentId) {
                 const parentColl = state.selectedItem.parentType === 'expediente' ? state.db.expedientes : state.db.documents;
@@ -769,20 +767,14 @@ document.addEventListener('click', (e) => {
         }
         
         if (action === 'view-item') {
-            const type = actionBtn.getAttribute('data-type');
-            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
             if (item) return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
         }
         
         if (action === 'acquire-item') {
-            const type = actionBtn.getAttribute('data-type');
-            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
-            if (item) {
-                if (type === 'expediente') item.currentOwnerId = state.currentUser.id;
-                else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); }
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({});
-            } return;
+            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            if (item) { if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } item.history.push(createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del área')); setState({}); } return;
         }
 
         if (action === 'admin-del-user') { if(confirm('¿Eliminar usuario?')) { state.db.users = state.db.users.filter(u => u.id !== actionBtn.getAttribute('data-id')); setState({}); } return; }
@@ -796,17 +788,10 @@ document.addEventListener('click', (e) => {
         };
 
         if (action === 'open-modal') {
-            saveEdits();
-            const type = actionBtn.getAttribute('data-modal-type');
-            let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
-
+            saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            
-            if (type === 'editar_usuario') {
-                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id'));
-                mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role;
-            }
+            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role; }
             return setState({ modal: mState });
         }
 
@@ -825,22 +810,18 @@ document.addEventListener('click', (e) => {
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
-            if (m.type === 'destinatarios') {
-                const isExcl = DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
-                if (isExcl && m.selectionArr.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
-                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null });
+            if (m.type === 'destinatarios') { 
+                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && m.selectionArr.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; return setState({ modal: null }); 
             }
-            if (m.type === 'editar_permisos_exp') {
-                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null });
-            }
+            if (m.type === 'editar_permisos_exp') { item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); return setState({ modal: null }); }
 
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                item.currentOwnerId = m.selectedId;
-                if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+                item.currentOwnerId = m.selectedId; if (m.type === 'revisar') item.status = STATUS.BORRADOR;
                 if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 const destName = m.selectedId.startsWith('a') ? `Área: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
-                const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivado a ${destName}`;
+                const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivad a ${destName}`;
                 item.history.push(createHistoryEntry(state.currentUser.id, hAction, m.note));
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
@@ -857,7 +838,7 @@ document.addEventListener('click', (e) => {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                 const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Área: ${getAreaName(id)}` : getUserName(id)).join(', ');
-                item.history.push(createHistoryEntry(state.currentUser.id, `Derivad a ${destNames}`, m.note)); // Termina en "d" para el match de lastTransfer
+                item.history.push(createHistoryEntry(state.currentUser.id, `Derivad a ${destNames}`, m.note)); 
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
@@ -866,22 +847,18 @@ document.addEventListener('click', (e) => {
                 m.selectionArr.forEach(docId => {
                     const doc = state.db.documents.find(d => d.id === docId);
                     if (!item.linkedDocs.includes(doc.id)) {
-                        item.linkedDocs.push(doc.id);
-                        item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
+                        item.linkedDocs.push(doc.id); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`));
                         doc.history.push(createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`));
                     }
-                });
-                state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
+                }); state.selectedItem.linkedDocs = item.linkedDocs; return setState({ modal: null });
             }
 
             if (m.type === 'relacionar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 m.selectionArr.forEach(docId => {
                     const doc2 = state.db.documents.find(d => d.id === docId);
-                    if (!item.relatedDocs) item.relatedDocs = [];
-                    if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
-                });
-                state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
+                    if (!item.relatedDocs) item.relatedDocs = []; if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
+                }); state.selectedItem.relatedDocs = item.relatedDocs; return setState({ modal: null });
             }
 
             if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
@@ -890,8 +867,7 @@ document.addEventListener('click', (e) => {
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
                 if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
-                item.status = newStatus;
-                if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                item.status = newStatus; if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 item.history.push(createHistoryEntry(state.currentUser.id, actionName, m.note));
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
@@ -903,69 +879,40 @@ document.addEventListener('click', (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                saveEdits();
-                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
-                const isExcl = DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                saveEdits(); const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
-                if (isExcl && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
+                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
                 
-                if (!item.signedBy) item.signedBy = [];
-                item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
+                if (!item.signedBy) item.signedBy = []; item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
 
                 if (action === 'doc-sign-pending') {
                     item.signatories = item.signatories.filter(id => id !== state.currentUser.id);
                     if (item.signatories.length > 0) {
-                        item.currentOwnerId = item.signatories[0];
-                        item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
+                        item.currentOwnerId = item.signatories[0]; item.history.push(createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante'));
                         return setState({ selectedItem: null, currentView: 'inbox' });
                     }
                 }
 
-                item.status = STATUS.FIRMADO;
-                if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+                item.status = STATUS.FIRMADO; if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
-                    item.relatedDocs.forEach(relId => {
-                        const targetDoc = state.db.documents.find(d => d.id === relId);
-                        if (targetDoc) { if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); }
-                    });
+                    item.relatedDocs.forEach(relId => { const targetDoc = state.db.documents.find(d => d.id === relId); if (targetDoc) { if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); } });
                 }
 
                 if (isConDest) {
-                    let fU = new Set();
-                    item.recipients.forEach(r => {
-                        if (r.startsWith('u')) fU.add(r);
-                        if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id));
-                    });
+                    let fU = new Set(); item.recipients.forEach(r => { if (r.startsWith('u')) fU.add(r); if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); });
                     item.owners = Array.from(fU);
                 } else { item.owners = [item.creatorId]; }
 
                 item.history.push(createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente'));
                 setState({ selectedItem: null, currentView: 'inbox' });
             }
-            else if (action === 'doc-delete') {
-                if (!confirm('¿Eliminar este borrador permanentemente?')) return;
-                item.status = STATUS.ELIMINADO;
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente'));
-                setState({ selectedItem: null, currentView: 'drafts' });
-            }
-            else if (action === 'doc-unrelate') {
-                if (!confirm('¿Seguro que desea eliminar esta relación?')) return;
-                const docId = actionBtn.getAttribute('data-id');
-                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({});
-            }
-            else if (action === 'exp-desarchivar') {
-                item.status = 'En Tramite';
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite'));
-                setState({ selectedItem: null, currentView: 'archive' });
-            }
+            else if (action === 'doc-delete') { if (!confirm('¿Eliminar este borrador permanentemente?')) return; item.status = STATUS.ELIMINADO; item.history.push(createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente')); setState({ selectedItem: null, currentView: 'drafts' }); }
+            else if (action === 'doc-unrelate') { if (!confirm('¿Seguro que desea eliminar esta relación?')) return; const docId = actionBtn.getAttribute('data-id'); item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; setState({}); }
+            else if (action === 'exp-desarchivar') { item.status = 'En Tramite'; item.history.push(createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo trámite')); setState({ selectedItem: null, currentView: 'archive' }); }
             else if (action === 'exp-unlink') {
-                const docId = actionBtn.getAttribute('data-id');
-                item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
-                const doc = state.db.documents.find(d => d.id === docId);
-                item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`));
-                doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`));
-                setState({});
+                const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
+                const doc = state.db.documents.find(d => d.id === docId); item.history.push(createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`)); doc.history.push(createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`)); setState({});
             }
         }
         return;
