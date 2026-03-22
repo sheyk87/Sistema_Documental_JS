@@ -26,9 +26,13 @@ const STATUS = {
 const CHART_COLORS = {
     'Memo': '#f59e0b', 'Nota': '#22c55e', 'Acta': '#f97316', 'Informe': '#3b82f6',
     'Resolucion': '#ef4444', 'Disposicion': '#14b8a6', 'Actuacion': '#6366f1',
-    'Dictamen': '#8b5cf6', 'Sanción': '#dc2626', 'Factura': '#84cc16', 
-    'Solicitud': '#0ea5e9', 'Orden de Compra': '#10b981',
-    'expediente': '#a855f7', 'default': '#94a3b8'
+    'Dictamen': '#8b5cf6', 'Sanción': '#e11d48', 'Acuerdo de confidencialidad': '#64748b',
+    'Factura': '#84cc16', 'Presupuesto': '#10b981', 'Balance': '#06b6d4',
+    'Informes Técnico': '#0ea5e9', 'Evaluación': '#a855f7', 'Manual de procedimientos': '#d946ef',
+    'Código de conducta': '#ec4899', 'Política Interna': '#f43f5e', 'Contrato': '#78716c',
+    'Solicitud': '#0284c7', 'Solicitud de Compra': '#059669', 'Solicitud de Gasto': '#dc2626',
+    'Orden de Compra': '#0d9488', 'Carta': '#ea580c', 'Notificación': '#eab308', 'Circular': '#2563eb',
+    'expediente': '#9333ea', 'default': '#94a3b8'
 };
 
 let state = {
@@ -66,10 +70,7 @@ if (!window.Chart && !isChartLoading) {
 // 2. FUNCIONES AUXILIARES GLOBALES
 // ==========================================
 function restoreInputFocus() {
-    if (activeInputSelector) {
-        const input = document.querySelector(activeInputSelector);
-        if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; }
-    }
+    if (activeInputSelector) { const input = document.querySelector(activeInputSelector); if (input) { input.focus(); const val = input.value; input.value = ''; input.value = val; } }
 }
 const createHistoryEntry = (userId, action, notes = '') => ({ date: new Date().toISOString(), userId, action, notes });
 const getUserName = (id) => state.db.users.find(u => u.id === id)?.name || 'Desconocido';
@@ -83,8 +84,7 @@ const getDocCode = (type) => {
 };
 
 const generateNumber = (type, areaName) => {
-    const year = getCurrentYear(); const code = getDocCode(type); const key = `${year}-${code}`;
-    state.db.counters[key] = (state.db.counters[key] || 0) + 1;
+    const year = getCurrentYear(); const code = getDocCode(type); const key = `${year}-${code}`; state.db.counters[key] = (state.db.counters[key] || 0) + 1;
     return `${year}-${code}-${String(state.db.counters[key]).padStart(6, '0')}-${areaName}`;
 };
 
@@ -97,7 +97,7 @@ function getBadgeColor(status) {
 
 function getTypeColorClass(type) {
     const colors = {
-        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800', 'Acta': 'bg-orange-100 text-orange-800', 'Informe': 'bg-blue-100 text-blue-800', 'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800', 'Actuacion': 'bg-indigo-100 text-indigo-800', 'Dictamen': 'bg-purple-100 text-purple-800', 'Sanción': 'bg-rose-100 text-rose-800', 'Acuerdo de confidencialidad': 'bg-slate-100 text-slate-800', 'Factura': 'bg-lime-100 text-lime-800', 'Presupuesto': 'bg-emerald-100 text-emerald-800', 'Balance': 'bg-cyan-100 text-cyan-800', 'Informes Técnico': 'bg-sky-100 text-sky-800', 'Evaluación': 'bg-violet-100 text-violet-800', 'Manual de procedimientos': 'bg-fuchsia-100 text-fuchsia-800', 'Código de conducta': 'bg-pink-100 text-pink-800', 'Política Interna': 'bg-rose-100 text-rose-800', 'Contrato': 'bg-stone-100 text-stone-800', 'Solicitud': 'bg-sky-100 text-sky-800', 'Solicitud de Compra': 'bg-emerald-100 text-emerald-800', 'Solicitud de Gasto': 'bg-red-100 text-red-800', 'Orden de Compra': 'bg-teal-100 text-teal-800', 'Carta': 'bg-orange-100 text-orange-800', 'Notificación': 'bg-yellow-100 text-yellow-800', 'Circular': 'bg-blue-100 text-blue-800', 'expediente': 'bg-purple-100 text-purple-800'
+        'Memo': 'bg-amber-100 text-amber-800', 'Nota': 'bg-green-100 text-green-800', 'Acta': 'bg-orange-100 text-orange-800', 'Informe': 'bg-blue-100 text-blue-800', 'Resolucion': 'bg-red-100 text-red-800', 'Disposicion': 'bg-teal-100 text-teal-800', 'Actuacion': 'bg-indigo-100 text-indigo-800', 'Dictamen': 'bg-purple-100 text-purple-800', 'Sanción': 'bg-rose-100 text-rose-800', 'Acuerdo de confidencialidad': 'bg-slate-200 text-slate-800', 'Factura': 'bg-lime-100 text-lime-800', 'Presupuesto': 'bg-emerald-100 text-emerald-800', 'Balance': 'bg-cyan-100 text-cyan-800', 'Informes Técnico': 'bg-sky-100 text-sky-800', 'Evaluación': 'bg-violet-100 text-violet-800', 'Manual de procedimientos': 'bg-fuchsia-100 text-fuchsia-800', 'Código de conducta': 'bg-pink-100 text-pink-800', 'Política Interna': 'bg-rose-100 text-rose-800', 'Contrato': 'bg-stone-200 text-stone-800', 'Solicitud': 'bg-sky-100 text-sky-800', 'Solicitud de Compra': 'bg-emerald-100 text-emerald-800', 'Solicitud de Gasto': 'bg-red-100 text-red-800', 'Orden de Compra': 'bg-teal-100 text-teal-800', 'Carta': 'bg-orange-100 text-orange-800', 'Notificación': 'bg-yellow-100 text-yellow-800', 'Circular': 'bg-blue-100 text-blue-800', 'expediente': 'bg-purple-100 text-purple-800'
     };
     return colors[type] || 'bg-gray-100 text-gray-800';
 }
@@ -118,14 +118,12 @@ function isPersonalDoc(d, user) {
     if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id;
     return d.owners?.includes(user.id);
 }
-function isAreaDoc(d, user) {
-    if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return false;
-    return d.owners?.includes(user.areaId);
-}
+function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) && d.owners?.includes(user.areaId); }
 function isPersonalExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.id; }
 function isAreaExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.areaId; }
 function getDerivationsCount(item) { return item.history.filter(h => h.action.includes('Derivad')).length; }
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
+const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e']; return p[idx % p.length]; };
 
 // ==========================================
 // 3. EXPORTACIÓN Y TABLAS
@@ -191,7 +189,8 @@ function sortItems(items, model) {
             case 'fojas': vA = a.type === 'expediente' ? (a.linkedDocs?.length || 0) : -1; vB = b.type === 'expediente' ? (b.linkedDocs?.length || 0) : -1; break;
             case 'date': default: vA = new Date(a.createdAt).getTime(); vB = new Date(b.createdAt).getTime(); break;
         }
-        if(vA < vB) return s.order === 'asc' ? -1 : 1; if(vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
+        if(vA < vB) return s.order === 'asc' ? -1 : 1;
+        if(vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
     });
 }
 
@@ -291,7 +290,10 @@ function renderStats() {
     const o = state.statsOpts; const tab = o.tab; const allTypes = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST, 'expediente'];
     const renderMultiSelect = (key, label, optionsArr, isObj) => {
         const isAll = o[key].includes('all');
-        return `<div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label><select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
+        return `
+            <div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
+            <select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>
+            ${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
     };
 
     return `
@@ -365,7 +367,7 @@ function drawCharts() {
         if(topRechD.length) build('c-top-rech-doc', topRechD.map(d=>d.number), topRechD.map(getRejectionsCount), topRechD.map(d=>tc(d.docType)));
         return;
     } else {
-        const pfx = tab === 'usuarios' ? 'u_' : 'a_'; const color = tab === 'usuarios' ? CHART_COLORS.Actuacion : CHART_COLORS.Informe;
+        const pfx = tab === 'usuarios' ? 'u_' : 'a_'; 
         const chartsToRender = [
             { key: 'firmados', title: 'Más Firmas' }, { key: 'creados', title: 'Más Exps Creados' }, { key: 'derivaciones', title: 'Más Derivaciones' },
             { key: 'vinculaciones', title: 'Más Vinculaciones' }, { key: 'relaciones', title: 'Más Relacionados' }, { key: 'rechazados', title: 'Más Rechazados' },
@@ -374,7 +376,7 @@ function drawCharts() {
 
         chartsToRender.forEach(c => addChartContainer(`c-top-${c.key}`, c.title, 2));
         container.innerHTML = html; if (window.lucide) lucide.createIcons();
-        const buildTop = (id, key) => { const arr = d.top[pfx+key]; if(arr && arr.length > 0) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map(()=>color), cType); };
+        const buildTop = (id, key) => { const arr = d.top[pfx+key]; if(arr && arr.length > 0) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map((_,i)=>getColorPalette(i)), cType); };
         chartsToRender.forEach(c => buildTop(`c-top-${c.key}`, c.key));
         return;
     }
@@ -399,29 +401,33 @@ function renderApp() {
 
 function renderMenuSection(id, title, icon, itemsHtml) {
     const isOpen = state.menus[id]; const sbOpen = state.ui.sidebarOpen;
+    
+    if (!sbOpen) {
+        return `<div class="space-y-1 mb-4 border-b border-slate-800 pb-4">${itemsHtml}</div>`;
+    }
+    
     return `
         <div class="mb-1">
-            <button data-action="${sbOpen ? 'toggle-menu' : 'toggle-sidebar'}" data-menu="${id}" class="w-full flex ${sbOpen ? 'justify-between' : 'justify-center'} items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 hover:text-slate-300 transition-colors outline-none" title="${!sbOpen ? title : ''}">
-                <div class="flex items-center gap-2">${!sbOpen ? `<i data-lucide="${icon}" class="w-5 h-5"></i>` : ''}<span class="${sbOpen ? 'block' : 'hidden'}">${title}</span></div>
-                ${sbOpen ? `<i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>` : ''}
+            <button data-action="toggle-menu" data-menu="${id}" class="w-full flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 hover:text-slate-300 transition-colors outline-none">
+                <div class="flex items-center gap-2"><span>${title}</span></div>
+                <i data-lucide="${isOpen ? 'chevron-down' : 'chevron-right'}" class="w-4 h-4"></i>
             </button>
-            <div class="${isOpen && sbOpen ? 'block' : 'hidden'} space-y-1 mt-1">${itemsHtml}</div>
+            <div class="${isOpen ? 'block' : 'hidden'} space-y-1 mt-1">${itemsHtml}</div>
         </div>
     `;
 }
 
 function renderMainLayout() {
-    const sbw = state.ui.sidebarOpen ? 'w-64' : 'w-16';
-    const sbo = state.ui.sidebarOpen;
+    const sbw = state.ui.sidebarOpen ? 'w-64' : 'w-20'; const sbo = state.ui.sidebarOpen;
     return `
         <div class="flex h-screen bg-gray-50 font-sans text-gray-800">
             <div class="${sbw} bg-slate-900 text-white flex flex-col shadow-xl z-10 shrink-0 transition-all duration-300">
-                <div class="p-4 bg-slate-950 border-b border-slate-800 flex items-center ${sbo ? 'justify-between' : 'justify-center'}">
-                    <div class="flex items-center gap-2 ${!sbo ? 'hidden' : ''}"><i data-lucide="building" class="text-blue-400"></i><h1 class="text-xl font-bold text-blue-400">GDE Web</h1></div>
-                    <button data-action="toggle-sidebar" class="text-slate-400 hover:text-white outline-none" title="Menú"><i data-lucide="menu"></i></button>
+                <div class="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-2 ${!sbo ? 'hidden' : ''}"><i data-lucide="building" class="text-blue-400"></i><h1 class="text-xl font-bold text-blue-400">GDE</h1></div>
+                    <button data-action="toggle-sidebar" class="text-slate-400 hover:text-white outline-none ${!sbo ? 'mx-auto' : ''}" title="${!sbo ? 'Expandir menú' : 'Contraer menú'}"><i data-lucide="menu"></i></button>
                 </div>
                 ${sbo ? `<div class="p-4 border-b border-slate-800"><p class="text-xs text-slate-400 truncate">${getUserName(state.currentUser.id)}</p><p class="text-xs text-slate-500 truncate">${getAreaName(state.currentUser.areaId)}</p></div>` : ''}
-                <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden">
+                <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden ${!sbo ? 'px-3 pt-6' : ''}">
                     ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
@@ -446,7 +452,7 @@ function renderMainLayout() {
 function renderNavItem(icon, label, view) {
     const isActive = state.currentView === view && !state.selectedItem; const activeClass = isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white';
     const sbOpen = state.ui.sidebarOpen;
-    return `<button data-target-view="${view}" class="w-full flex items-center ${sbOpen ? 'gap-3 px-3' : 'justify-center px-0'} py-2.5 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none" title="${!sbOpen ? label : ''}"><i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i> <span class="${sbOpen ? 'block' : 'hidden'} truncate">${label}</span></button>`;
+    return `<button data-target-view="${view}" class="w-full flex items-center ${sbOpen ? 'gap-3 px-3' : 'justify-center px-0'} py-2.5 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none" title="${!sbOpen ? label : ''}"><i data-lucide="${icon}" class="w-5 h-5 shrink-0"></i> <span class="${sbOpen ? 'block' : 'hidden'} truncate">${label}</span></button>`;
 }
 
 function getViewContent() {
@@ -757,6 +763,7 @@ document.addEventListener('click', (e) => {
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') return setState({ currentUser: null, currentView: 'inbox', selectedItem: null });
+        
         if (action === 'close-detail') {
             if (state.selectedItem && state.selectedItem.parentId) {
                 const parentColl = state.selectedItem.parentType === 'expediente' ? state.db.expedientes : state.db.documents;
@@ -867,7 +874,8 @@ document.addEventListener('click', (e) => {
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
                 if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
-                item.status = newStatus; if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                item.status = newStatus;
+                if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 item.history.push(createHistoryEntry(state.currentUser.id, actionName, m.note));
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
@@ -879,7 +887,8 @@ document.addEventListener('click', (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                saveEdits(); const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                saveEdits();
+                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SÓLO admite 1 destinatario (área o usuario).");
                 
