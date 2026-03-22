@@ -150,6 +150,183 @@ function handleExport(model) {
     exportToCSV(`${model}_export.csv`, rows);
 }
 
+// --- NUEVO: GENERADOR DE PDF Y ZIP ---
+
+// Crea el PDF del documento respetando el diseño visual y las referencias
+async function generatePDFBlob(doc) {
+    const tempDiv = document.createElement('div');
+    tempDiv.style.padding = '40px';
+    tempDiv.style.fontFamily = 'Georgia, serif';
+    tempDiv.style.color = '#333';
+    
+    // 1. Buscamos las referencias (Expedientes y Documentos Relacionados)
+    const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
+    const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
+
+    let referenciasHtml = '';
+    if (vinculados.length > 0 || relacionados.length > 0) {
+        referenciasHtml = `
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e2e8f0; page-break-inside: avoid;">
+                <h3 style="color: #475569; font-size: 13px; font-family: sans-serif; margin-bottom: 15px; letter-spacing: 1px;">REFERENCIAS DEL DOCUMENTO</h3>
+                ${vinculados.length > 0 ? `
+                    <div style="margin-bottom: 15px;">
+                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Vinculado en Expedientes:</strong>
+                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
+                            ${vinculados.map(e => `<li>${e.number} - ${e.subject}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${relacionados.length > 0 ? `
+                    <div style="margin-bottom: 15px;">
+                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Documentos Relacionados:</strong>
+                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
+                            ${relacionados.map(d => `<li>${d.number} - ${d.subject}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    // 2. Lógica para el campo PROMOTOR
+    const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
+    let promotorHtml = '';
+    
+    if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
+        // Tomamos el último elemento del arreglo de firmas
+        const lastSignerId = doc.signedBy[doc.signedBy.length - 1].id;
+        const lastSignerUser = state.db.users.find(u => u.id === lastSignerId);
+        const promotorArea = lastSignerUser ? getAreaName(lastSignerUser.areaId) : 'Desconocida';
+        promotorHtml = `<p style="margin: 0 0 8px 0; color: #334155;"><strong>PROMOTOR:</strong> ${promotorArea}</p>`;
+    }
+
+    // 3. Armamos el bloque de firmas
+    let firmasHtml = '<p style="margin-top: 40px; color: #94a3b8; font-style: italic;">Documento sin firmar</p>';
+    if (doc.signedBy && doc.signedBy.length > 0) {
+        firmasHtml = `
+            <div style="margin-top: 40px; border-top: 2px solid #e2e8f0; padding-top: 20px; page-break-inside: avoid;">
+                <h3 style="color: #475569; font-size: 13px; font-family: sans-serif; margin-bottom: 20px; letter-spacing: 1px;">FIRMAS DIGITALES</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 30px;">
+                ${doc.signedBy.map(s => {
+                    const u = state.db.users.find(user => user.id === s.id);
+                    return `
+                        <div style="margin-bottom: 15px; text-align: left; min-width: 200px;">
+                            <p style="margin: 0 0 5px 0; font-family: serif; font-style: italic; color: #059669; border-bottom: 1px solid #a7f3d0; display: inline-block; padding-bottom: 2px;">Firmado Digitalmente</p>
+                            <p style="margin: 5px 0 0 0; font-weight: bold; color: #1e293b; font-size: 14px;">${u ? u.name : 'Usuario Desconocido'}</p>
+                            <p style="margin: 2px 0 0 0; font-size: 12px; color: #475569;">${u ? getAreaName(u.areaId) : ''}</p>
+                            <p style="margin: 2px 0 0 0; font-size: 10px; color: #94a3b8; font-family: monospace;">Fecha: ${new Date(s.date).toLocaleString()}</p>
+                        </div>`;
+                }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // 4. Compilamos todo el HTML
+    tempDiv.innerHTML = `
+        <h1 style="text-align:center; font-size: 22px; margin-bottom: 5px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">${doc.docType.toUpperCase()}</h1>
+        <h2 style="text-align:center; font-size: 16px; margin-bottom: 30px; color: #64748b; font-family: monospace;">Nro: ${doc.number || 'S/N (Borrador)'}</h2>
+        
+        <div style="margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px;">
+            <p style="margin: 0 0 8px 0; color: #334155;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
+            <p style="margin: 0 0 8px 0; color: #334155;"><strong>ASUNTO:</strong> ${doc.subject}</p>
+            ${promotorHtml}
+            ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
+        </div>
+        
+        <div style="font-size: 14px; white-space: pre-wrap; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
+        
+        ${firmasHtml}
+        ${referenciasHtml}
+    `;
+    
+    const opt = {
+        margin: 20,
+        filename: `${doc.number || 'Borrador'}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    
+    return await html2pdf().set(opt).from(tempDiv).outputPdf('blob');
+}
+
+// Empaqueta el PDF y sus adjuntos en un ZIP
+async function downloadDocumentArchive(docId) {
+    const doc = state.db.documents.find(d => d.id === docId);
+    if (!doc) return;
+    
+    const zip = new JSZip();
+    
+    // 1. Generamos y guardamos el PDF principal
+    const pdfBlob = await generatePDFBlob(doc);
+    zip.file(`${doc.number || 'Borrador'}.pdf`, pdfBlob);
+    
+    // 2. Buscamos y guardamos los adjuntos reales desde el Backend
+    if (doc.attachments && doc.attachments.length > 0) {
+        const attFolder = zip.folder("Archivos_Adjuntos");
+        for (let att of doc.attachments) {
+            try {
+                const resp = await fetch(`http://localhost:3000/uploads/${att.filename}`);
+                const blob = await resp.blob();
+                attFolder.file(att.originalname, blob);
+            } catch(e) { console.error("Error al descargar adjunto:", e); }
+        }
+    }
+    
+    // 3. Generamos el ZIP y forzamos la descarga
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    saveAs(zipBlob, `${doc.number || 'Documento'}.zip`);
+}
+
+// Empaqueta todo el expediente (TXT + Múltiples Fojas PDF + Adjuntos)
+async function downloadFullExpediente(expId) {
+    const exp = state.db.expedientes.find(e => e.id === expId);
+    if (!exp) return;
+    
+    const zip = new JSZip();
+    
+    // 1. Creamos el archivo de texto con el historial
+    let historyText = `=== HISTORIAL DEL EXPEDIENTE ===\nNÚMERO: ${exp.number}\nASUNTO: ${exp.subject}\nCREADO: ${formatDateOnly(exp.createdAt)}\n\n`;
+    [...exp.history].reverse().forEach(h => {
+        historyText += `[${new Date(h.date).toLocaleString()}] ${h.action} \nActor: ${getUserName(h.userId)}\nNotas: ${h.notes || 'Sin notas'}\n-----------------------------------\n`;
+    });
+    zip.file(`Historial_${exp.number}.txt`, historyText);
+    
+    // 2. Iteramos sobre cada foja vinculada
+    if (exp.linkedDocs && exp.linkedDocs.length > 0) {
+        for (let i = 0; i < exp.linkedDocs.length; i++) {
+            const docId = exp.linkedDocs[i];
+            const doc = state.db.documents.find(d => d.id === docId);
+            if (doc) {
+                // Creamos una carpeta por cada foja
+                const fojaName = `Foja_${String(i + 1).padStart(3, '0')}_${doc.number}`;
+                const docFolder = zip.folder(fojaName);
+                
+                // Agregamos el PDF del documento
+                const pdfBlob = await generatePDFBlob(doc);
+                docFolder.file(`${doc.number}.pdf`, pdfBlob);
+                
+                // Si la foja tiene adjuntos, los metemos en su respectiva subcarpeta
+                if (doc.attachments && doc.attachments.length > 0) {
+                    const attFolder = docFolder.folder("Adjuntos");
+                    for (let att of doc.attachments) {
+                        try {
+                            const resp = await fetch(`http://localhost:3000/uploads/${att.filename}`);
+                            const blob = await resp.blob();
+                            attFolder.file(att.originalname, blob);
+                        } catch(e) { console.error(e); }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. Compilamos y descargamos el mega-archivo ZIP
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    saveAs(zipBlob, `${exp.number}_Completo.zip`);
+}
+
 function getFilteredItemsForModel(model) {
     const term = state.searchTerms[model.replace(/(Doc|Exp)$/, '')] || '';
     switch(model) {
@@ -581,7 +758,10 @@ function renderDocumentDetail() {
                 </div>
             </div>
             <div class="w-80 flex flex-col gap-4">
-                <button data-action="close-detail" class="w-full py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 flex justify-center items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+                <div class="flex gap-2">
+                    <button data-action="close-detail" class="flex-1 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 flex justify-center items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+                    <button data-action="download-doc-zip" data-id="${doc.id}" class="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex justify-center items-center gap-2" title="Descargar PDF y Adjuntos"><i data-lucide="download" class="w-4 h-4"></i> Descargar</button>
+                </div>
                 ${(isOwner || isSignedOrArchived) && doc.status !== STATUS.ANULADO ? `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                     <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
@@ -609,7 +789,11 @@ function renderExpedienteDetail() {
         <div class="max-w-5xl mx-auto h-[calc(100vh-8rem)] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-200 bg-purple-50 flex justify-between items-center shrink-0">
                 <div class="flex items-center gap-4"><div class="p-3 bg-white rounded-lg shadow-sm text-purple-600"><i data-lucide="folder-open" class="w-8 h-8"></i></div><div><h2 class="text-2xl font-bold">${exp.number}</h2><p class="text-gray-600 font-medium">${exp.subject}</p></div></div>
-                <div class="flex items-center gap-4">${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800">RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span><button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button></div>
+                <div class="flex items-center gap-4">
+                    ${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800">RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
+                    <button data-action="download-exp-zip" data-id="${exp.id}" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 flex items-center gap-2 font-bold shadow-sm"><i data-lucide="package" class="w-4 h-4"></i> Exportar ZIP</button>
+                    <button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+                </div>
             </div>
             <div class="flex-1 flex overflow-hidden">
                 <div class="flex-1 flex flex-col p-6 bg-gray-50 border-r border-gray-200 overflow-hidden">
@@ -621,7 +805,12 @@ function renderExpedienteDetail() {
                             return `
                             <div class="bg-white p-4 rounded-lg border shadow-sm flex items-center justify-between group">
                                 <div class="flex items-center gap-4"><div class="font-bold text-slate-500">${originalIndex}</div><div><p class="font-medium text-blue-700">${d.number}</p><p class="text-sm text-gray-600">${d.subject}</p></div></div>
-                                <div class="flex gap-2">${isOwnerUser && isActive && !isSealed ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><i data-lucide="unlink" class="w-3 h-3"></i> Desvincular</button>` : ''}${isSealed ? `<span class="px-3 py-1.5 text-xs text-gray-400 bg-gray-100 rounded border">Sellada</span>` : ''}<button data-action="view-item" data-id="${d.id}" data-type="documento" class="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded border flex items-center gap-1"><i data-lucide="eye" class="w-3 h-3"></i> Ver</button></div>
+                                <div class="flex gap-2">
+                                    ${isOwnerUser && isActive && !isSealed ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><i data-lucide="unlink" class="w-3 h-3"></i> Desvincular</button>` : ''}
+                                    ${isSealed ? `<span class="px-3 py-1.5 text-xs text-gray-400 bg-gray-100 rounded border">Sellada</span>` : ''}
+                                    <button data-action="download-doc-zip" data-id="${d.id}" class="px-2 py-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs rounded border" title="Descargar Foja"><i data-lucide="download" class="w-3 h-3"></i></button>
+                                    <button data-action="view-item" data-id="${d.id}" data-type="documento" class="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs rounded border flex items-center gap-1"><i data-lucide="eye" class="w-3 h-3"></i> Ver</button>
+                                </div>
                             </div>
                         `}).join('')}
                     </div>
@@ -871,6 +1060,20 @@ document.addEventListener('click', async (e) => {
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') { localStorage.removeItem('gde_token'); return setState({ currentUser: null, currentView: 'inbox', selectedItem: null }); }
+
+        if (action === 'download-doc-zip') {
+            actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';
+            await downloadDocumentArchive(actionBtn.getAttribute('data-id'));
+            renderApp(); // Repinta para restaurar el botón a la normalidad
+            return;
+        }
+
+        if (action === 'download-exp-zip') {
+            actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Generando...';
+            await downloadFullExpediente(actionBtn.getAttribute('data-id'));
+            renderApp();
+            return;
+        }
         
         if (action === 'close-detail') {
             if (state.selectedItem && state.selectedItem.parentId) {
