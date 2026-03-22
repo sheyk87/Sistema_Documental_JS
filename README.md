@@ -108,46 +108,44 @@ UI/UX:
 ### 🧩 Módulos del Sistema
 Seguridad y Autenticación: Login simulado. Diferencia entre roles (admin y user).
 
-* **Mi Trabajo (Inbox & Drafts)**:
-Las bandejas agrupan lógicamente Documentos y Expedientes.
-Búsqueda en tiempo real por número, asunto o remitente.
-Creación de Trámites:
-Campos inteligentes (El selector de destinatarios aparece o desaparece según el tipo de documento).
-Buscador predictivo para tipos de documentos y selección de destinatarios.
-Archivo Central y Anulados: Repositorios de lectura de trámites finalizados o dados de baja temporal/permanentemente.
-Buscador Global: Motor de búsqueda transversal que atraviesa todos los documentos y expedientes a los que el usuario tiene autorización de lectura.
+Mi Trabajo (Inbox & Drafts):
+* **Las bandejas agrupan lógicamente Documentos y Expedientes.**
+* **Búsqueda en tiempo real por número, asunto o remitente.**
+* **Creación de Trámites:**
+* **Campos inteligentes (El selector de destinatarios aparece o desaparece según el tipo de documento).**
+* **Buscador predictivo para tipos de documentos y selección de destinatarios.**
+* **Archivo Central y Anulados: Repositorios de lectura de trámites finalizados o dados de baja temporal/permanentemente.**
+* **Buscador Global: Motor de búsqueda transversal que atraviesa todos los documentos y expedientes a los que el usuario tiene autorización de lectura.**
 
-* **Módulo de Estadísticas:**
-Generación de KPI's (Total de Firmas, Exps Creados, Derivaciones, etc).
-Generación de top 10 (Usuarios con más derivaciones, Documentos más vinculados, etc).
-Gráficos intercalables (Torta o Barras) usando Chart.js + DataLabels.
-Administración (Solo Admins): Alta, Baja y Modificación (ABM) de Usuarios y Áreas.
+Módulo de Estadísticas:
+* **Generación de KPI's (Total de Firmas, Exps Creados, Derivaciones, etc).**
+* **Generación de top 10 (Usuarios con más derivaciones, Documentos más vinculados, etc).**
+* **Gráficos intercalables (Torta o Barras) usando Chart.js + DataLabels.**
+* **Administración (Solo Admins): Alta, Baja y Modificación (ABM) de Usuarios y Áreas.**
 
 
-🚀 Instalación y Uso Local
+### 🚀 Instalación y Uso Local
 Debido a los estrictos controles de seguridad de los navegadores modernos (Políticas CORS), este proyecto no debe abrirse haciendo doble clic en el archivo HTML (file:///...). Debe ejecutarse a través de un servidor local.
 
 Prerrequisitos
-Visual Studio Code (recomendado).
+* **Visual Studio Code (recomendado).**
+* **Extensión Live Server instalada en tu editor.**
 
-Extensión Live Server instalada en tu editor.
-
-Pasos
+* **Pasos:**
 Clona este repositorio:
 
 ``Bash
 git clone [https://github.com/TU_USUARIO/sistema-gde-web.git](https://github.com/TU_USUARIO/sistema-gde-web.git)
 ``
+
 Abre la carpeta del proyecto en Visual Studio Code.
-
 Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server".
-
 El navegador se abrirá automáticamente en http://127.0.0.1:5500.
 
-Credenciales de Prueba
+* **Credenciales de Prueba**
 Para ingresar al sistema, utiliza las siguientes credenciales predefinidas:
 
-Email: admin@gde.com
+* **Email:** admin@gde.com
+* **Contraseña:** 123
 
-Contraseña: 123
 (Puedes loguearte también como juan@gde.com o maria@gde.com usando la misma contraseña para probar la interacción entre distintas áreas).
