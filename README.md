@@ -97,6 +97,79 @@ graph TD
     
     H -->|Anular| K((ANULADO))
 ```
+### 🗄️ Diagrama Entidad-Relación (ERD)
+
+El sistema utiliza un modelo de base de datos híbrido en MySQL. Combina el poder de las relaciones tradicionales (Claves Foráneas) para las entidades principales, con la flexibilidad de las **columnas JSON** para almacenar metadatos anidados (como arrays de fojas, archivos adjuntos, firmantes y destinatarios múltiples), evitando la sobrepoblación de tablas intermedias.
+
+```mermaid
+erDiagram
+    AREAS {
+        VARCHAR(50) id PK
+        VARCHAR(100) name
+    }
+    
+    USERS {
+        VARCHAR(50) id PK
+        VARCHAR(100) name
+        VARCHAR(100) email UK
+        VARCHAR(255) password "Hashed (bcrypt)"
+        VARCHAR(50) area_id FK
+        ENUM role "admin / user"
+    }
+    
+    DOCUMENTS {
+        VARCHAR(50) id PK
+        VARCHAR(50) number UK "Generado al firmar"
+        VARCHAR(50) doc_type
+        VARCHAR(255) subject
+        TEXT content
+        VARCHAR(50) creator_id FK
+        VARCHAR(50) current_owner_id
+        VARCHAR(50) status
+        JSON owners "Array IDs (Propietarios)"
+        JSON recipients "Array IDs (Destinatarios)"
+        JSON signatories "Array IDs (Pendientes de firma)"
+        JSON signed_by "Array Objetos (Firmas con fecha)"
+        JSON related_docs "Array IDs (Docs relacionados)"
+        JSON attachments "Array Objetos (Archivos subidos)"
+        DATETIME created_at
+    }
+    
+    EXPEDIENTES {
+        VARCHAR(50) id PK
+        VARCHAR(50) number UK
+        VARCHAR(255) subject
+        VARCHAR(50) creator_id FK
+        VARCHAR(50) current_owner_id
+        VARCHAR(50) status
+        BOOLEAN is_public
+        JSON auth_areas "Array IDs (Permisos Área)"
+        JSON auth_users "Array IDs (Permisos Usuario)"
+        JSON linked_docs "Array IDs (Fojas/Docs vinculados)"
+        JSON sealed_docs "Array IDs (Fojas selladas)"
+        DATETIME created_at
+    }
+    
+    HISTORY {
+        INT id PK
+        VARCHAR(50) item_id "ID Doc o Exp"
+        ENUM item_type "documento / expediente"
+        VARCHAR(50) user_id FK
+        VARCHAR(100) action
+        TEXT notes
+        DATETIME created_at
+    }
+
+    %% Relaciones Físicas (Foreign Keys)
+    AREAS ||--o{ USERS : "tiene"
+    USERS ||--o{ DOCUMENTS : "crea"
+    USERS ||--o{ EXPEDIENTES : "crea"
+    USERS ||--o{ HISTORY : "realiza_accion"
+
+    %% Relaciones Lógicas (A través de IDs o JSON)
+    DOCUMENTS ||--o{ HISTORY : "registra_en (item_id)"
+    EXPEDIENTES ||--o{ HISTORY : "registra_en (item_id)"
+```
 
 ### 🏗️ Estructura y Arquitectura Full Stack
 El proyecto implementa una arquitectura moderna cliente-servidor:
