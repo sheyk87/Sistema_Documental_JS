@@ -98,7 +98,7 @@ graph TD
     
     H -->|Anular| K((ANULADO))
 ```
-### 3.🗄️ Diagrama Entidad-Relación (ERD)
+### 3. Diagrama Entidad-Relación (ERD)
 
 El sistema utiliza un modelo de base de datos híbrido en MySQL. Combina el poder de las relaciones tradicionales (Claves Foráneas) para las entidades principales, con la flexibilidad de las **columnas JSON** para almacenar metadatos anidados (como arrays de fojas, archivos adjuntos, firmantes y destinatarios múltiples), evitando la sobrepoblación de tablas intermedias.
 
