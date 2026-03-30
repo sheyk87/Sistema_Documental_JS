@@ -257,9 +257,9 @@ npm run dev
 ```
 
 **Paso 2: Ejecutar el Frontend**
-1- Abre la carpeta del Frontend (donde están index.html y app.js) en Visual Studio Code.
-2- Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server". (Requiere la extensión Live Server).
-3- El navegador se abrirá mostrando el sistema.
+* 1- Abre la carpeta del Frontend (donde están index.html y app.js) en Visual Studio Code.
+* 2- Haz clic derecho sobre el archivo index.html y selecciona "Open with Live Server". (Requiere la extensión Live Server).
+* 3- El navegador se abrirá mostrando el sistema.
 
 **Credenciales de Prueba**
 El script de inicialización crea los siguientes usuarios por defecto (todas las contraseñas son 123):
@@ -267,3 +267,9 @@ El script de inicialización crea los siguientes usuarios por defecto (todas las
 * **Admin:** `admin@gde.com` (Sistemas - Rol Admin)
 * **User 1:** `juan@gde.com` (Dirección General)
 * **User 2:** `maria@gde.com` (Recursos Humanos)
+
+**Puntos a tener en cuenta para desplegar**
+* **config/db.js:** Cambiar el límite de conexiones de la DB, línea `connectionLimit: 10`
+* **Usar PM2 en el servidor:** En el servidor real, debes instalar PM2. Es un administrador que mantiene a Node.js vivo para siempre y lo reinicia automáticamente si se cae. Además, si le pasas el comando `pm2 start server.js -i max`, creará un "clon" de tu backend por cada núcleo de CPU que tenga tu servidor, duplicando su capacidad de respuesta.
+* **Límite de tamaño de subida (Multer):** Debes ponerle un límite a multer en `routes/docRoutes.js`, línea `limits: { fileSize: 10 * 1024 * 1024 }`
+* **Se pueden filtrar los tipos de archivos a subir:** Actualmente en el archivo `routes/docRoutes.js` se encuentra comentado el filtro de tipos de archivos permitidos para adjuntar.

@@ -13,7 +13,15 @@ const storage = multer.diskStorage({
         cb(null, Date.now() + '-' + file.originalname.replace(/\s+/g, '_'));
     }
 });
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10MB
+    // fileFilter: (req, file, cb) => {
+    //     const allowedTypes = /jpeg|jpg|png|pdf/;
+    //     const isAllowed = allowedTypes.test(file.mimetype);
+    //     cb(null, isAllowed);
+    // }
+});
 
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
