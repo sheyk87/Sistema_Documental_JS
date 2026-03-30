@@ -178,12 +178,13 @@ async function generatePDFBlob(doc) {
     tempDiv.style.fontFamily = 'Georgia, serif';
     tempDiv.style.color = '#333';
     
-    // 1. Buscamos las referencias (Expedientes y Documentos Relacionados)
+    // 1. Buscamos las referencias (Expedientes, Relacionados y Adjuntos)
     const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
     const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
+    const adjuntos = doc.attachments || [];
 
     let referenciasHtml = '';
-    if (vinculados.length > 0 || relacionados.length > 0) {
+    if (vinculados.length > 0 || relacionados.length > 0 || adjuntos.length > 0) {
         referenciasHtml = `
             <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e2e8f0; page-break-inside: avoid;">
                 <h3 style="color: #475569; font-size: 13px; font-family: sans-serif; margin-bottom: 15px; letter-spacing: 1px;">REFERENCIAS DEL DOCUMENTO</h3>
@@ -203,16 +204,23 @@ async function generatePDFBlob(doc) {
                         </ul>
                     </div>
                 ` : ''}
+                ${adjuntos.length > 0 ? `
+                    <div style="margin-bottom: 15px;">
+                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Archivos Adjuntos (Anexos):</strong>
+                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
+                            ${adjuntos.map(a => `<li>${a.originalname} <span style="font-size: 10px; color: #94a3b8;">(${(a.size / 1024).toFixed(1)} KB)</span></li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
 
-    // 2. Lógica para el campo PROMOTOR
+    // 2. Logica para el campo PROMOTOR
     const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
     let promotorHtml = '';
     
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
-        // Tomamos el último elemento del arreglo de firmas
         const lastSignerId = doc.signedBy[doc.signedBy.length - 1].id;
         const lastSignerUser = state.db.users.find(u => u.id === lastSignerId);
         const promotorArea = lastSignerUser ? getAreaName(lastSignerUser.areaId) : 'Desconocida';
@@ -253,12 +261,16 @@ async function generatePDFBlob(doc) {
             ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
         </div>
         
-        <div style="font-size: 14px; white-space: pre-wrap; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
+        <div style="font-size: 14px; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
         
-        ${firmasHtml}
         ${referenciasHtml}
+        ${firmasHtml}
     `;
     
+    const style = document.createElement('style');
+    style.innerHTML = `table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 8px; }`;
+    tempDiv.prepend(style);
+
     const opt = {
         margin: 20,
         filename: `${doc.number || 'Borrador'}.pdf`,
