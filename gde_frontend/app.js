@@ -52,6 +52,25 @@ let state = {
     modal: null
 };
 
+function initTinyMCE(selector) {
+    if (window.tinymce) {
+        tinymce.remove(selector);
+        tinymce.init({
+            selector: selector,
+            language: 'es',
+            plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
+            toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table link code | removeformat | fullscreen preview',
+            menubar: 'file edit view insert format tools table help',
+            height: 500,
+            promotion: false,
+            content_style: 'body { font-family: Times New Roman, serif; font-size: 16px; color: #1e293b; line-height: 1.6; } table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #cbd5e1; padding: 8px; }',
+            setup: function (editor) {
+                editor.on('change', function () { editor.save(); });
+            }
+        });
+    }
+}
+
 let chartInstances = {}, currentStatsData = {}, activeInputSelector = null, isChartLoading = false;
 const appRoot = document.getElementById('app-root');
 
@@ -574,6 +593,11 @@ function renderApp() {
     else appRoot.innerHTML = renderMainLayout();
     restoreInputFocus(); if (window.lucide) lucide.createIcons();
     if (state.currentView === 'stats') drawCharts();
+
+    // NUEVAS LÍNEAS PARA TINYMCE
+    if (document.getElementById('create-doc-content')) { initTinyMCE('#create-doc-content'); } 
+    else if (document.getElementById('edit-doc-content')) { initTinyMCE('#edit-doc-content'); } 
+    else { if (window.tinymce) tinymce.remove(); }
 }
 
 function renderMenuSection(id, title, icon, itemsHtml) {
@@ -693,7 +717,7 @@ function renderCreateDocument() {
     const filterOpts = (arr) => arr.filter(t => t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term));
     const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
 
-    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea required id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
+    return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
     <div id="dest-container" style="display:none;"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a=>({id:a.id, name:`[Área] ${a.name}`})), ...state.db.users.filter(u=>u.id!==state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
     <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
@@ -985,10 +1009,12 @@ document.addEventListener('submit', async (e) => {
         const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
         if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SOLO admite 1 destinatario inicial (area o usuario).");
         
+        const contentHTML = window.tinymce && tinymce.get('create-doc-content') ? tinymce.get('create-doc-content').getContent() : document.getElementById('create-doc-content').value;
+
         const newDoc = {
-            id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, content: document.getElementById('create-doc-content').value,
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests,
-            attachments: []
+            id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, 
+            content: contentHTML, // <-- Usamos el HTML capturado
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: []
         };
 
         fetch('http://localhost:3000/api/docs/create', {
@@ -1168,7 +1194,12 @@ document.addEventListener('click', async (e) => {
                 const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
                 if (docIdx > -1) { 
                     state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value; 
-                    state.db.documents[docIdx].content = document.getElementById('edit-doc-content').value; 
+                    
+                    const htmlContent = window.tinymce && tinymce.get('edit-doc-content') 
+                        ? tinymce.get('edit-doc-content').getContent() 
+                        : document.getElementById('edit-doc-content').value;
+                        
+                    state.db.documents[docIdx].content = htmlContent; 
                     await syncData(state.db.documents[docIdx], 'documento');
                 }
             }
