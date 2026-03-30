@@ -17,6 +17,7 @@ Esta aplicación separa claramente el Frontend (Vanilla JavaScript SPA) del Back
 - [Ciclo de Vida y Diagramas de Flujo](#-ciclo-de-vida-y-diagramas-de-flujo)
   - [Flujo de Documentos](#1-ciclo-de-vida-de-un-documento)
   - [Flujo de Expedientes](#2-ciclo-de-vida-de-un-expediente)
+  - [Diagrama Entidad-Relación (ERD)](#3-diagrama-entidad-relación-erd)
 - [Estructura y Arquitectura Full Stack](#-estructura-y-arquitectura-full-stack)
 - [Módulos del Sistema](#-módulos-del-sistema)
 - [Instalación y Uso Local](#-instalación-y-uso-local)
@@ -97,7 +98,7 @@ graph TD
     
     H -->|Anular| K((ANULADO))
 ```
-### 🗄️ Diagrama Entidad-Relación (ERD)
+### 3.🗄️ Diagrama Entidad-Relación (ERD)
 
 El sistema utiliza un modelo de base de datos híbrido en MySQL. Combina el poder de las relaciones tradicionales (Claves Foráneas) para las entidades principales, con la flexibilidad de las **columnas JSON** para almacenar metadatos anidados (como arrays de fojas, archivos adjuntos, firmantes y destinatarios múltiples), evitando la sobrepoblación de tablas intermedias.
 
