@@ -1,1 +1,8 @@
-- Cifrar archivos en disco o subirlos a la BBDD?
+- Archivo personal
+- Cifrar archivos en server o subirlos a la BBDD?
+- Usuario Multi-Area
+- Cargar usuarios y areas por CSV
+- Notificaciones
+- Envío de mails
+- Autenticación por LDAP
+- Firma con certificado
