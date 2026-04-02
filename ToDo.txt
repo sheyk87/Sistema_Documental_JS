@@ -4,6 +4,7 @@
 - Usuario Multi-Area
 - Cargar usuarios y areas por CSV
 - Notificaciones
+- Modo Oscuro
 - Envío de mails
 - Autenticación por LDAP
 - Firma con certificado
