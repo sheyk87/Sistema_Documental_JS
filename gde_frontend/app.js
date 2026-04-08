@@ -57,7 +57,7 @@ function initTinyMCE(selector) {
         tinymce.remove(selector);
         tinymce.init({
             selector: selector,
-            language: 'es',
+            // language: 'es',
             plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
             toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table link code | removeformat | fullscreen preview',
             menubar: 'file edit view insert format tools table help',
