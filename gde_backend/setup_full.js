@@ -53,6 +53,8 @@ async function setupFull() {
                 owners JSON,
                 recipients JSON,
                 signed_by JSON,
+                signatories JSON,
+                attachments JSON,
                 related_docs JSON,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (creator_id) REFERENCES users(id)
