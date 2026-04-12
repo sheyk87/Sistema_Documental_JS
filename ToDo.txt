@@ -1,11 +1,5 @@
-BUGS CORREGIDOS:
-1- Cuando edito un usuario en el ABM Usuarios, me obliga una contraseña.
-2- En el ABM de áreas, no se visualiza bien el contador de usuarios en cada área.
-
 Features:
-IMPLEMENTADO - Cargar usuarios y areas por CSV
-IMPLEMENTADO - ABM Áreas: Si se hace click en el número de cantidad de usuarios en un área, se pueda ver la lista de usuarios de esa área
-- Notificaciones
+IMPLEMENTADO - Notificaciones, el usuario recibe notificaciones, puede marcarlas como leídas y eliminar sus propias notificaciones
 - Modo Oscuro
 - Envío de mails
 - Autenticación por LDAP

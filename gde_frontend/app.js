@@ -57,6 +57,8 @@ let state = {
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
     ui: { sidebarOpen: true },
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
+    notifications: [], 
+    ui: { sidebarOpen: true, notificationsOpen: false }, // Agrega notificationsOpen aquí
     modal: null
 };
 
@@ -163,6 +165,69 @@ function isHiddenFromInbox(item, user) {
 function getDerivationsCount(item) { return item.history.filter(h => h.action.includes('Derivad')).length; }
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
 const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e']; return p[idx % p.length]; };
+
+async function notifyUsers(userIds, action, message, itemId, itemType) {
+    if(!userIds || userIds.length === 0) return;
+    try {
+        await fetch('http://localhost:3000/api/notifications/create', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({ userIds, action, message, itemId, itemType })
+        });
+    } catch(e) { console.error("Error notificando:", e); }
+}
+
+// Modificar fetchNotifications para que NO use renderApp()
+async function fetchNotifications() {
+    if (!state.currentUser) return;
+    try {
+        const res = await fetch('http://localhost:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+        if (res.ok) {
+            state.notifications = await res.json();
+            renderNotificationUI(); // <-- Solo actualiza la campana
+        }
+    } catch(e) { console.error(e); }
+}
+// Intervalo de Polling: Consulta nuevas notificaciones cada 60 segundos
+setInterval(fetchNotifications, 10000);
+
+function renderNotificationUI() {
+    const container = document.getElementById('notif-bell-container');
+    if (!container) return;
+
+    const unreadCount = state.notifications.filter(n => !n.is_read).length;
+    
+    // El botón siempre debe estar presente, lo que cambia es si se muestra el dropdown abajo
+    container.innerHTML = `
+        <button data-action="toggle-notifications" class="text-gray-500 hover:text-blue-600 outline-none relative mt-1">
+            <i data-lucide="bell" class="w-5 h-5"></i>
+            ${unreadCount > 0 ? `<span class="absolute -top-1 -right-1 flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-red-500 border-2 border-white"></span></span>` : ''}
+        </button>
+        
+        ${state.ui.notificationsOpen ? `
+            <div class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-[100]">
+                <div class="bg-slate-50 border-b px-4 py-3 flex justify-between items-center">
+                    <h3 class="font-bold text-slate-800 text-sm">Notificaciones</h3>
+                    ${state.notifications.length > 0 ? `
+                        <div class="flex items-center gap-3">
+                            ${state.notifications.some(n => !n.is_read) ? `<button data-action="clear-notifications" class="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1" title="Marcar todo como leído"><i data-lucide="check-check" class="w-3 h-3"></i></button>` : ''}
+                            <button data-action="delete-all-notifications" class="text-[10px] text-red-500 hover:text-red-700 font-bold flex items-center gap-1" title="Vaciar historial"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="max-h-96 overflow-y-auto">
+                    ${state.notifications.length === 0 ? '<p class="text-xs text-gray-500 text-center py-6">No tienes notificaciones.</p>' : state.notifications.map(n => `
+                        <div data-action="read-notification" data-notif-id="${n.id}" data-item-id="${n.item_id}" data-item-type="${n.item_type}" class="p-3 border-b hover:bg-blue-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-blue-50/30' : ''}">
+                            <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
+                            <p class="text-sm text-gray-800 mb-1">${n.message}</p>
+                            <div class="flex justify-between items-center text-[10px] text-gray-500"><span class="font-medium"><i data-lucide="user" class="w-3 h-3 inline"></i> ${n.sender_name}</span><span>${new Date(n.created_at).toLocaleString()}</span></div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        ` : ''}
+    `;
+    if (window.lucide) lucide.createIcons();
+}
 
 // ==========================================
 // 3. EXPORTACIÓN Y TABLAS
@@ -671,11 +736,16 @@ function buildChart(id, labels, data, bgColors, cType) {
 // ==========================================
 function renderApp() {
     if (!state.currentUser) appRoot.innerHTML = renderLogin();
-    else appRoot.innerHTML = renderMainLayout();
-    restoreInputFocus(); if (window.lucide) lucide.createIcons();
+    else {
+        appRoot.innerHTML = renderMainLayout();
+        // Dibujamos la campanita inmediatamente después de renderizar el layout principal
+        renderNotificationUI(); 
+    }
+    
+    restoreInputFocus(); 
+    if (window.lucide) lucide.createIcons();
     if (state.currentView === 'stats') drawCharts();
 
-    // NUEVAS LÍNEAS PARA TINYMCE
     if (document.getElementById('create-doc-content')) { initTinyMCE('#create-doc-content'); } 
     else if (document.getElementById('edit-doc-content')) { initTinyMCE('#edit-doc-content'); } 
     else { if (window.tinymce) tinymce.remove(); }
@@ -729,9 +799,31 @@ function renderMainLayout() {
                 </div>
             </div>
             <div class="flex-1 flex flex-col overflow-hidden relative">
-                <header class="bg-white shadow-sm h-14 flex items-center px-6 justify-between shrink-0">
+                <header class="bg-white shadow-sm h-14 flex items-center px-6 justify-between shrink-0 z-20">
                     <h2 class="text-lg font-semibold text-gray-700 capitalize">${state.selectedItem ? `Detalle de ${state.selectedItem.type}` : state.currentView.replace('_', ' ')}</h2>
-                    <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${getCurrentYear()}</span>
+                    <div class="flex items-center gap-4">
+                        <div class="relative">
+                            <button data-action="toggle-notifications" class="text-gray-500 hover:text-blue-600 outline-none relative mt-1">
+                                <div id="notif-bell-container" class="relative"></div>
+                                ${state.notifications.filter(n => !n.is_read).length > 0 ? `<span class="absolute -top-1 -right-1 flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-red-500 border-2 border-white"></span></span>` : ''}
+                            </button>
+                            ${state.ui.notificationsOpen ? `
+                                <div class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50">
+                                    <div class="bg-slate-50 border-b px-4 py-3 flex justify-between items-center"><h3 class="font-bold text-slate-800 text-sm">Notificaciones</h3></div>
+                                    <div class="max-h-96 overflow-y-auto">
+                                        ${state.notifications.length === 0 ? '<p class="text-xs text-gray-500 text-center py-6">No tienes notificaciones.</p>' : state.notifications.map(n => `
+                                            <div data-action="read-notification" data-notif-id="${n.id}" data-item-id="${n.item_id}" data-item-type="${n.item_type}" class="p-3 border-b hover:bg-blue-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-blue-50/30' : ''}">
+                                                <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
+                                                <p class="text-sm text-gray-800 mb-1">${n.message}</p>
+                                                <div class="flex justify-between items-center text-[10px] text-gray-500"><span class="font-medium"><i data-lucide="user" class="w-3 h-3 inline"></i> ${n.sender_name}</span><span>${new Date(n.created_at).toLocaleString()}</span></div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${getCurrentYear()}</span>
+                    </div>
                 </header>
                 <main class="flex-1 overflow-auto p-6 bg-slate-50/50">${getViewContent()}</main>
                 ${renderModalOverlay()}
@@ -1262,6 +1354,7 @@ document.addEventListener('submit', async (e) => {
                 }
             });
 
+            await fetchNotifications(); // Trae las notificaciones inmediatamente
             errorDiv.classList.add('hide');
             setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
 
@@ -1502,6 +1595,53 @@ document.addEventListener('click', async (e) => {
             return renderApp();
         }
 
+        if (action === 'toggle-notifications') {
+            state.ui.notificationsOpen = !state.ui.notificationsOpen;
+            return renderNotificationUI();
+        }
+
+        if (action === 'read-notification') {
+            const notifId = actionBtn.getAttribute('data-notif-id');
+            const itemId = actionBtn.getAttribute('data-item-id');
+            const itemType = actionBtn.getAttribute('data-item-type');
+            
+            // Marcar leída visualmente y en el servidor
+            const n = state.notifications.find(x => x.id == notifId);
+            if (n && !n.is_read) {
+                n.is_read = 1;
+                fetch(`http://localhost:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }});
+            }
+            
+            state.ui.notificationsOpen = false; // Cerramos el panel
+            
+            // Navegar al item
+            const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
+            if (item) { return setState({ selectedItem: { ...item, type: itemType } }); } 
+            else { alert("El elemento ya no está disponible en tu área de trabajo."); return setState({}); }
+        }
+
+        if (action === 'clear-notifications') {
+            fetch('http://localhost:3000/api/notifications/read-all', { 
+                method: 'PUT', 
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            });
+            state.notifications.forEach(n => n.is_read = 1);
+            return renderNotificationUI();
+        }
+
+        if (action === 'delete-all-notifications') {
+            if (!confirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?')) return;
+            
+            fetch('http://localhost:3000/api/notifications/delete-all', {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            });
+            
+            // Vaciamos el array en memoria local y repintamos la campana
+            state.notifications = [];
+            return renderNotificationUI();
+        }
+
         if (action === 'admin-del-user') { 
             if(confirm('¿Eliminar usuario?')) { 
                 const id = actionBtn.getAttribute('data-id');
@@ -1598,6 +1738,10 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
                 item.history.push(hEntry);
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
+
+                // --- NUEVO: NOTIFICACIÓN ---
+                await notifyUsers([m.selectedId], m.type === 'revisar' ? 'Revisión' : 'Derivación', m.type === 'revisar' ? 'Te envió un documento para revisar' : 'Te derivó un expediente', item.id, isExp ? 'expediente' : 'documento');
+
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
@@ -1609,6 +1753,10 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note);
                 item.history.push(hEntry);
                 await syncData(item, 'documento', hEntry); 
+
+                // --- NUEVO: NOTIFICACIÓN ---
+                await notifyUsers(m.selectionArr, 'Firma Pendiente', `Requiere tu firma en el documento`, item.id, 'documento');
+
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
 
@@ -1620,6 +1768,10 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note);
                 item.history.push(hEntry); 
                 await syncData(item, 'documento', hEntry); 
+
+                // --- NUEVO: NOTIFICACIÓN ---
+                await notifyUsers(m.selectionArr, 'Derivación', `Te derivó el documento ${item.number || ''}`, item.id, 'documento');
+
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
             
@@ -1668,6 +1820,12 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, actionName, m.note);
                 item.history.push(hEntry);
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
+
+                // --- NUEVO: NOTIFICACIÓN SOLO PARA RECHAZOS ---
+                if (m.type === 'rechazar_doc') {
+                    await notifyUsers([item.creatorId], 'Documento Rechazado', `Se rechazó tu borrador. Motivo: ${m.note}`, item.id, 'documento');
+                }
+
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
             if (action === 'doc-desarchivar') {
@@ -1717,6 +1875,9 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, m.signAction === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente');
                 item.history.push(hEntry);
                 await syncData(item, 'documento', hEntry); 
+                if (isConDest && item.recipients && item.recipients.length > 0) {
+                    await notifyUsers(item.recipients, 'Nuevo Documento', `Tienes un nuevo documento ${item.docType} (${item.number}) para tu área/usuario`, item.id, 'documento');
+                }
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
         }

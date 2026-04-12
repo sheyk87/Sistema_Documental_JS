@@ -98,6 +98,24 @@ async function setupFull() {
         `);
         console.log('- Tabla history creada.');
 
+        // 4. Tabla Notifications
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                sender_id VARCHAR(50) NOT NULL,
+                item_id VARCHAR(50) NOT NULL,
+                item_type ENUM('documento', 'expediente') NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                message VARCHAR(255) NOT NULL,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (sender_id) REFERENCES users(id)
+            )
+        `);
+        console.log('- Tabla notifications creada.');
+
         console.log('¡Todas las tablas fueron creadas con éxito!');
         process.exit();
     } catch (error) {

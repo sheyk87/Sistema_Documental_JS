@@ -36,9 +36,8 @@ const areaRoutes = require('./routes/areaRoutes');
 app.use('/api/users', userRoutes);
 app.use('/api/areas', areaRoutes);
 
-app.get('/api/test', (req, res) => {
-    res.json({ message: 'El servidor GDE está funcionando correctamente' });
-});
+const notificationRoutes = require('./routes/notificationRoutes');
+app.use('/api/notifications', notificationRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
