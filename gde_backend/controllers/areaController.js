@@ -21,3 +21,18 @@ exports.deleteArea = async (req, res) => {
         res.status(500).json({ message: 'No se puede eliminar un área que contiene usuarios.' });
     }
 };
+
+exports.bulkCreateAreas = async (req, res) => {
+    const { areas } = req.body;
+    if (!areas || !areas.length) return res.status(400).json({ message: 'No hay datos válidos' });
+    
+    try {
+        for (let a of areas) {
+            await pool.query(`INSERT IGNORE INTO areas (id, name) VALUES (?, ?)`, [a.id, a.name]);
+        }
+        res.status(201).json({ message: 'Áreas importadas exitosamente' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error en la importación masiva de áreas' });
+    }
+};

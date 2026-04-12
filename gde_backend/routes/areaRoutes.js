@@ -5,5 +5,6 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.post('/create', authMiddleware, areaController.createArea);
 router.delete('/delete/:id', authMiddleware, areaController.deleteArea);
+router.post('/bulk', authMiddleware, areaController.bulkCreateAreas);
 
 module.exports = router;

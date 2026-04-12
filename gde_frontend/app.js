@@ -756,11 +756,23 @@ function renderLogin() {
 }
 
 function renderAdminUsers() {
-    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminAreas() {
-    return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.areas.map(a => { const uCount = state.db.users.filter(u => u.areaId === a.id).length; return `<tr><td class="p-2 text-xs text-gray-500">${a.id}</td><td class="p-2 font-medium">${a.name}</td><td class="p-2 text-center font-bold text-blue-600">${uCount}</td><td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`; }).join('')}</tbody></table></div>`;
+    return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-areas" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead>
+    <tbody class="divide-y">${state.db.areas.map(a => { 
+        // Ahora buscamos si el ID del área existe dentro del array de áreas del usuario
+        const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length; 
+        return `<tr>
+            <td class="p-2 text-xs text-gray-500">${a.id}</td>
+            <td class="p-2 font-medium">${a.name}</td>
+            <td class="p-2 text-center font-bold text-blue-600">
+                <button data-action="open-modal" data-modal-type="ver_usuarios_area" data-id="${a.id}" class="hover:underline px-2 py-1 bg-blue-50 rounded" title="Ver usuarios">${uCount}</button>
+            </td>
+            <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
+            </tr>`; 
+    }).join('')}</tbody></table></div>`;
 }
 
 function renderInbox() {
@@ -976,7 +988,7 @@ function renderModalOverlay() {
             <div class="space-y-3 mb-4">
                 <div><label class="text-xs font-bold text-gray-600">Nombre</label><input type="text" data-modal-input="editUName" value="${m.editUName}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Email</label><input type="email" data-modal-input="editUEmail" value="${m.editUEmail}" class="w-full p-2 border rounded text-sm outline-none" /></div>
-                <div><label class="text-xs font-bold text-gray-600">Contraseña</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" class="w-full p-2 border rounded text-sm outline-none" /></div>
+                <div><label class="text-xs font-bold text-gray-600">Contraseña (Dejar en blanco para no cambiarla)</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" placeholder="***" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Áreas Asignadas</label>
                     <select data-modal-input="editUAreas" multiple class="w-full p-2 border rounded text-sm outline-none h-24">
                         ${state.db.areas.map(a => `<option value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'selected' : ''}>${a.name}</option>`).join('')}
@@ -1041,11 +1053,37 @@ function renderModalOverlay() {
         content = `<p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p><textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>`;
     }
 
+    else if (m.type === 'ver_usuarios_area') {
+        const areaInfo = state.db.areas.find(a => a.id === m.selectedId);
+        title = `Usuarios asignados a: ${areaInfo ? areaInfo.name : 'Área'}`;
+        // Filtramos a los usuarios que pertenecen a esta área
+        const usersInArea = state.db.users.filter(u => (u.areas || [u.areaId]).includes(m.selectedId));
+        
+        content = `
+            <div class="max-h-80 overflow-y-auto border rounded p-2 bg-gray-50 shadow-inner">
+                ${usersInArea.length > 0 ? usersInArea.map(u => `
+                    <div class="p-3 border-b border-gray-200 last:border-0 text-sm flex justify-between items-center bg-white mb-1 rounded shadow-sm">
+                        <div class="flex items-center gap-2"><i data-lucide="user" class="w-4 h-4 text-gray-400"></i> <span class="font-medium text-gray-800">${u.name}</span></div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-500">${u.email}</span>
+                            <span class="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase rounded border">${u.role}</span>
+                        </div>
+                    </div>
+                `).join('') : '<p class="text-xs text-gray-500 text-center py-4 italic">No hay usuarios asignados a esta área actualmente.</p>'}
+            </div>
+        `;
+    }
+
+    const confirmBtnHtml = m.type === 'ver_usuarios_area' ? '' : `<button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>`;
+
     return `
         <div class="absolute inset-0 bg-slate-900/40 z-50 flex items-center justify-center backdrop-blur-sm">
             <div class="bg-white rounded-xl p-6 w-[500px] shadow-2xl flex flex-col max-h-[90vh]">
                 <h3 class="font-bold text-lg mb-4 text-gray-800">${title}</h3>${content}
-                <div class="flex justify-end gap-2 mt-auto"><button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">Cancelar</button><button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button></div>
+                <div class="flex justify-end gap-2 mt-auto">
+                    <button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 border rounded">${m.type === 'ver_usuarios_area' ? 'Cerrar' : 'Cancelar'}</button>
+                    ${confirmBtnHtml}
+                </div>
             </div>
         </div>
     `;
@@ -1106,6 +1144,66 @@ document.addEventListener('change', (e) => {
         // Las funciones de filtrado harán el resto automáticamente.
         state.currentUser.areaId = e.target.value;
         return renderApp();
+    }
+
+    // --- LÓGICA DE IMPORTACIÓN CSV ---
+    if (e.target.id === 'csv-upload-areas') {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const lines = event.target.result.split('\n').filter(l => l.trim() !== '');
+            const areas = lines.slice(1).map(l => {
+                const [id, name] = l.split(',');
+                return { id: id?.trim(), name: name?.trim() };
+            }).filter(a => a.id && a.name);
+
+            if(areas.length === 0) return alert("Formato inválido. La primera fila debe ser la cabecera: id,name");
+            
+            const res = await fetch('http://localhost:3000/api/areas/bulk', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: JSON.stringify({ areas })
+            });
+            if (res.ok) {
+                alert(`${areas.length} áreas importadas.`);
+                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysData = await sysRes.json();
+                state.db.areas = sysData.areas; renderApp();
+            } else { alert("Error al importar áreas."); }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // Resetear input
+    }
+
+    if (e.target.id === 'csv-upload-users') {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const lines = event.target.result.split('\n').filter(l => l.trim() !== '');
+            const users = lines.slice(1).map(l => {
+                const [name, email, password, areaId, role, areas] = l.split(',');
+                return { 
+                    name: name?.trim(), email: email?.trim(), password: password?.trim(), 
+                    areaId: areaId?.trim(), role: role?.trim(), areas: areas?.trim() 
+                };
+            }).filter(u => u.name && u.email && u.areaId);
+
+            if(users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas");
+            
+            const res = await fetch('http://localhost:3000/api/users/bulk', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: JSON.stringify({ users })
+            });
+            if (res.ok) {
+                alert(`${users.length} usuarios importados.`);
+                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysData = await sysRes.json();
+                state.db.users = sysData.users; renderApp();
+            } else { alert("Error al importar usuarios."); }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // Resetear input
     }
 });
 
@@ -1444,12 +1542,8 @@ document.addEventListener('click', async (e) => {
             await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { 
-                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); 
-                mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; 
-                mState.editUPass = u.password; mState.editURole = u.role;
-                mState.editUAreas = u.areas || [u.areaId]; // <-- Cargar array
-            }
+            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role;mState.editUAreas = u.areas || [u.areaId]; }
+            if (type === 'ver_usuarios_area') {mState.selectedId = actionBtn.getAttribute('data-id');}
             return setState({ modal: mState });
         }
 
@@ -1459,10 +1553,11 @@ document.addEventListener('click', async (e) => {
             const m = state.modal;
             
             if (m.type === 'editar_usuario') {
-                if (!m.editUName || !m.editUEmail || !m.editUPass || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos y seleccione al menos un área.");
+                // Ya no exigimos !m.editUPass
+                if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
                 const updatedUser = { 
-                    name: m.editUName, email: m.editUEmail, password: m.editUPass, 
-                    areaId: m.editUAreas[0], // Tomamos la primera como principal
+                    name: m.editUName, email: m.editUEmail, password: m.editUPass, // Si está vacío, el backend lo ignorará
+                    areaId: m.editUAreas[0], 
                     areas: m.editUAreas, 
                     role: m.editURole 
                 };

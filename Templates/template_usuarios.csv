@@ -1,0 +1,3 @@
+name,email,password,areaId,role,areas
+Roberto Soto1,roberto1@gde.com,123,a4,user,a4
+Laura Diaz1,laura1@gde.com,123,a5,admin,a4-a5
