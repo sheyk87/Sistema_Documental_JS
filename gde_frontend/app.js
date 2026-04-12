@@ -134,12 +134,24 @@ function canViewExpediente(exp, user) {
 }
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
+    if (isHiddenFromInbox(d, user)) return false; // Filtramos si el usuario lo ocultó
     if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id;
     return d.owners?.includes(user.id);
 }
 function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) && d.owners?.includes(user.areaId); }
-function isPersonalExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.id; }
+function isPersonalExp(e, user) { 
+    if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status)) return false;
+    if (isHiddenFromInbox(e, user)) return false; // Filtramos si el usuario lo ocultó
+    return e.currentOwnerId === user.id; 
+}
 function isAreaExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.areaId; }
+// --- NUEVO: Motor de Limpieza de Bandeja Personal ---
+function isHiddenFromInbox(item, user) {
+    if (!item.history) return false;
+    // Buscamos si la última acción de visibilidad de ESTE usuario fue "Ocultado"
+    const visibilityActions = item.history.filter(h => h.userId === user.id && (h.action === 'Ocultado' || h.action === 'Restaurado'));
+    return visibilityActions.length > 0 ? visibilityActions[visibilityActions.length - 1].action === 'Ocultado' : false;
+}
 function getDerivationsCount(item) { return item.history.filter(h => h.action.includes('Derivad')).length; }
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
 const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e']; return p[idx % p.length]; };
@@ -747,7 +759,9 @@ function renderDocumentDetail() {
     const isOwner = doc.currentOwnerId === state.currentUser.id; const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
     const isBorradorOrRechazado = (doc.status === STATUS.BORRADOR || doc.status === STATUS.RECHAZADO) && isOwner; const canEdit = isBorradorOrRechazado || isMyTurnToSign;
     const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
+    // Variables de estado
     const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
+    const isHidden = isHiddenFromInbox(doc, state.currentUser);
 
     let promotorHTML = '';
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
@@ -808,7 +822,20 @@ function renderDocumentDetail() {
                     <div class="space-y-2">
                         ${isBorradorOrRechazado ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}<button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button><button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button><button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button><button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>` : ''}
                         ${isMyTurnToSign ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}<button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button><button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>` : ''}
-                        ${isSignedOrArchived ? `<button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Documento</button>` : ''}<button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>` : ''}
+                        ${isSignedOrArchived ? `
+                        <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>
+                        
+                        ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Central (Global)</button>` : ''}
+                        
+                        ${doc.status !== STATUS.ARCHIVADO && doc.status !== STATUS.ANULADO ? `
+                            ${isHidden ? 
+                                `<button data-action="item-restaurar" class="w-full py-2 bg-emerald-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Restaurar a mi Bandeja</button>` : 
+                                `<button data-action="item-ocultar" class="w-full py-2 bg-gray-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye-off" class="w-4 h-4"></i> Quitar de mi Bandeja</button>`
+                            }
+                        ` : ''}
+
+                        <button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>
+                        ` : ''}
                     </div>
                 </div>
                 ` : ''}
@@ -943,7 +970,8 @@ function renderModalOverlay() {
         `;
     }
     else if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
-        const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' }; title = titles[m.type];
+        const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' }; 
+        title = titles[m.type];
         content = `<p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p><textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>`;
     }
 
@@ -1392,12 +1420,20 @@ document.addEventListener('click', async (e) => {
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
                 if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
-                item.status = newStatus; if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
+                
+                item.status = newStatus; 
+                if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 
                 const hEntry = createHistoryEntry(state.currentUser.id, actionName, m.note);
                 item.history.push(hEntry);
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
+            }
+            if (action === 'doc-desarchivar') {
+                const hEntry = createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Recuperado a la bandeja personal');
+                item.history.push(hEntry);
+                await syncData(item, 'documento', hEntry);
+                return setState({ selectedItem: null, currentView: 'inbox' });
             }
             if (m.type === 'confirmar_firma') {
                 if (!item.signedBy) item.signedBy = []; 
@@ -1496,6 +1532,27 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo tramite');
                 item.history.push(hEntry); 
                 await syncData(item, 'expediente', hEntry); setState({ selectedItem: null, currentView: 'archive' }); 
+            }
+            if (action === 'item-ocultar') {
+                const isExp = state.selectedItem.type === 'expediente';
+                const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
+
+                const hEntry = createHistoryEntry(state.currentUser.id, 'Ocultado', 'Quitado de la bandeja personal');
+                item.history.push(hEntry);
+                await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
+                return setState({ selectedItem: null, currentView: 'inbox' });
+            }
+
+            if (action === 'item-restaurar') {
+                const isExp = state.selectedItem.type === 'expediente';
+                const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
+
+                const hEntry = createHistoryEntry(state.currentUser.id, 'Restaurado', 'Recuperado a la bandeja personal');
+                item.history.push(hEntry);
+                await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
+                return setState({}); // Simplemente repinta para cambiar los botones
             }
             else if (action === 'exp-unlink') {
                 const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
