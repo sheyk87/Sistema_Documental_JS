@@ -1,8 +1,5 @@
-BUGS: 
-CORREGIDO - Cuando descargo un documento anulado, no se ve la marca de agua "ANULADO"
-
 Features:
-- Paginación en las listas
+IMPLEMENTADO - Paginación en las listas
 - Cifrar archivos en server o subirlos a la BBDD?
 - Usuario Multi-Area
 - Cargar usuarios y areas por CSV

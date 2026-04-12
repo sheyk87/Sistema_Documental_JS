@@ -46,6 +46,14 @@ let state = {
         archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
     },
+    // --- NUEVO: Estado de paginación para cada tabla ---
+    pagination: {
+        inboxDoc: { page: 1, limit: 10 }, inboxExp: { page: 1, limit: 10 },
+        areaDoc: { page: 1, limit: 10 }, areaExp: { page: 1, limit: 10 },
+        drafts: { page: 1, limit: 10 }, search: { page: 1, limit: 10 },
+        archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
+        anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
+    },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
     ui: { sidebarOpen: true },
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
@@ -431,10 +439,42 @@ function sortItems(items, model) {
 }
 
 function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn = false) {
-    const sortedItems = sortItems(items, model); const s = state.sort[model] || { field: 'date', order: 'desc' };
+    const sortedItems = sortItems(items, model); 
+    const s = state.sort[model] || { field: 'date', order: 'desc' };
     const th = (label, field) => `<th class="p-4 font-medium border-b border-gray-200 cursor-pointer hover:bg-gray-100 whitespace-nowrap" data-sort="${model}" data-field="${field}">${label} <i data-lucide="${s.field === field ? (s.order === 'asc' ? 'chevron-up' : 'chevron-down') : 'minus'}" class="inline w-3 h-3 text-gray-400"></i></th>`;
 
     if (sortedItems.length === 0) return `<table class="w-full text-left border-collapse"><tbody><tr><td class="p-8 text-center text-gray-500 text-sm">${emptyMsg}</td></tr></tbody></table>`;
+
+    // Lógica Matemática de Paginación
+    const pagInfo = state.pagination[model] || { page: 1, limit: 10 };
+    const limit = parseInt(pagInfo.limit);
+    const totalItems = sortedItems.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    
+    // Auto-corrección si la búsqueda reduce los resultados
+    let currentPage = pagInfo.page;
+    if (currentPage > totalPages) currentPage = Math.max(totalPages, 1);
+    state.pagination[model].page = currentPage; 
+    
+    const startIndex = (currentPage - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedItems = sortedItems.slice(startIndex, endIndex);
+
+    const paginationControls = `
+        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
+            <div class="flex items-center gap-4">
+                <p class="text-sm text-gray-700">Mostrando <span class="font-medium">${startIndex + 1}</span> a <span class="font-medium">${Math.min(endIndex, totalItems)}</span> de <span class="font-medium">${totalItems}</span></p>
+                <select data-action="change-limit" data-model="${model}" class="border-gray-300 rounded-md text-sm py-1 px-2 outline-none border cursor-pointer hover:bg-gray-50">
+                    ${[10, 25, 50, 100].map(l => `<option value="${l}" ${limit === l ? 'selected' : ''}>${l} / pág</option>`).join('')}
+                </select>
+            </div>
+            <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm">
+                <button data-action="prev-page" data-model="${model}" ${currentPage === 1 ? 'disabled' : ''} class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-inset ring-gray-300">Pág ${currentPage} de ${totalPages}</span>
+                <button data-action="next-page" data-model="${model}" ${currentPage === totalPages ? 'disabled' : ''} class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+            </nav>
+        </div>
+    `;
 
     return `
         <div class="overflow-x-auto relative">
@@ -442,7 +482,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
             <table class="w-full text-left border-collapse mt-8">
                 <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${isExpList ? th('Acceso', 'acceso') : ''} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${showAcquireBtn ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
                 <tbody class="divide-y divide-gray-100 text-sm">
-                    ${sortedItems.map(item => `
+                    ${paginatedItems.map(item => `
                         <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
                             <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
                             <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
@@ -457,6 +497,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                     `).join('')}
                 </tbody>
             </table>
+            ${paginationControls}
         </div>
     `;
 }
@@ -1012,7 +1053,19 @@ async function syncData(item, type, historyEntry = null) {
 }
 
 document.addEventListener('input', (e) => {
-    if (e.target.hasAttribute('data-search-model')) { const model = e.target.getAttribute('data-search-model'); state.searchTerms[model] = e.target.value; activeInputSelector = `[data-search-model="${model}"]`; renderApp(); }
+    if (e.target.hasAttribute('data-search-model')) { 
+        const model = e.target.getAttribute('data-search-model'); 
+        state.searchTerms[model] = e.target.value; 
+        
+        // Resetear página a 1 según la vista que se esté filtrando
+        if (model === 'inbox') { state.pagination.inboxDoc.page = 1; state.pagination.inboxExp.page = 1; state.pagination.areaDoc.page = 1; state.pagination.areaExp.page = 1; }
+        else if (model === 'archive') { state.pagination.archiveDoc.page = 1; state.pagination.archiveExp.page = 1; }
+        else if (model === 'anulados') { state.pagination.anuladosDoc.page = 1; state.pagination.anuladosExp.page = 1; }
+        else if (state.pagination[model]) { state.pagination[model].page = 1; }
+        
+        activeInputSelector = `[data-search-model="${model}"]`; 
+        renderApp(); 
+    }
     if (e.target.hasAttribute('data-modal-input')) { const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value; if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); } }
     if (e.target.hasAttribute('data-local-search')) { const term = e.target.value.toLowerCase(); document.querySelectorAll('.dest-item').forEach(lbl => { const text = lbl.querySelector('.dest-text').textContent.toLowerCase(); lbl.style.display = text.includes(term) ? 'flex' : 'none'; }); }
 });
@@ -1023,6 +1076,12 @@ document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
     if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
+    if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'change-limit') {
+        const model = e.target.getAttribute('data-model');
+        state.pagination[model].limit = parseInt(e.target.value);
+        state.pagination[model].page = 1; // Reseteamos a página 1 al cambiar el límite
+        return renderApp();
+    }
 });
 
 document.addEventListener('submit', async (e) => {
@@ -1058,6 +1117,27 @@ document.addEventListener('submit', async (e) => {
 
             const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${data.token}` } });
             state.db.expedientes = await expsResponse.json();
+
+            // --- NUEVO: RECONSTRUCCIÓN DE CONTADORES ---
+            // Escaneamos la BD para continuar la numeración desde donde se quedó
+            state.db.counters = {};
+            const allItems = [...state.db.documents, ...state.db.expedientes];
+            
+            allItems.forEach(item => {
+                if (item.number) {
+                    // Formato esperado: YYYY-CODIGO-000000-AREA (ej: 2026-EX-000001-Sistemas)
+                    const parts = item.number.split('-');
+                    if (parts.length >= 3) {
+                        const key = `${parts[0]}-${parts[1]}`; // ej: "2026-EX"
+                        const currentNum = parseInt(parts[2], 10); // ej: 1
+                        
+                        // Si no existe la llave o encontramos un número mayor, lo actualizamos
+                        if (!state.db.counters[key] || currentNum > state.db.counters[key]) {
+                            state.db.counters[key] = currentNum;
+                        }
+                    }
+                }
+            });
 
             errorDiv.classList.add('hide');
             setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
@@ -1136,7 +1216,7 @@ document.addEventListener('submit', async (e) => {
 
 document.addEventListener('click', async (e) => {
     const thSort = e.target.closest('th[data-sort]');
-    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } return renderApp(); }
+    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } state.pagination[model].page = 1; return renderApp(); }
 
     const navBtn = e.target.closest('[data-target-view]');
     if (navBtn) return setState({ currentView: navBtn.getAttribute('data-target-view'), selectedItem: null, modal: null });
@@ -1278,6 +1358,17 @@ document.addEventListener('click', async (e) => {
                 }
             });
             return;
+        }
+
+        if (action === 'prev-page') {
+            const model = actionBtn.getAttribute('data-model');
+            if (state.pagination[model].page > 1) { state.pagination[model].page--; return renderApp(); }
+        }
+        
+        if (action === 'next-page') {
+            const model = actionBtn.getAttribute('data-model');
+            state.pagination[model].page++;
+            return renderApp();
         }
 
         if (action === 'admin-del-user') { 
