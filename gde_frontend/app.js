@@ -1154,13 +1154,20 @@ document.addEventListener('click', async (e) => {
             fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-                body: formData // No se envía 'Content-Type', el navegador lo auto-asigna para FormData
+                body: formData 
             }).then(async res => {
                 if (res.ok) {
                     const data = await res.json();
-                    if(!state.selectedItem.attachments) state.selectedItem.attachments = [];
-                    state.selectedItem.attachments.push(data.attachment);
-                    state.selectedItem.history.push(createHistoryEntry(state.currentUser.id, 'Archivo Adjuntado', fileInput.files[0].name));
+                    
+                    // Solo actualizamos la memoria central (el espejo se actualiza solo)
+                    const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                    if (docIdx > -1) {
+                        if(!state.db.documents[docIdx].attachments) state.db.documents[docIdx].attachments = [];
+                        state.db.documents[docIdx].attachments.push(data.attachment);
+                        state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Adjuntado', fileInput.files[0].name));
+                        
+                        state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
+                    }
                     setState({});
                 } else { alert("Error al subir el archivo."); }
             });
@@ -1177,8 +1184,15 @@ document.addEventListener('click', async (e) => {
             }).then(res => {
                 if (res.ok) {
                     const originalName = state.selectedItem.attachments.find(a => a.filename === filename)?.originalname || filename;
-                    state.selectedItem.attachments = state.selectedItem.attachments.filter(a => a.filename !== filename);
-                    state.selectedItem.history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
+                    
+                    // Solo actualizamos la memoria central
+                    const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                    if (docIdx > -1) {
+                        state.db.documents[docIdx].attachments = state.db.documents[docIdx].attachments.filter(a => a.filename !== filename);
+                        state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
+                        
+                        state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
+                    }
                     setState({});
                 } else { alert("Error al eliminar el archivo."); }
             });

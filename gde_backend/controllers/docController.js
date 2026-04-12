@@ -51,24 +51,28 @@ exports.getAllDocuments = async (req, res) => {
 exports.updateDocument = async (req, res) => {
     const { item, historyEntry } = req.body;
     try {
+        // Quitamos la columna 'attachments' de esta consulta para evitar 
+        // que el frontend sobrescriba los cambios hechos por upload/delete
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
-                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, attachments = ?, number = ?
+                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?
              WHERE id = ?`,
             [
                 item.subject, item.content, item.status, item.currentOwnerId,
                 JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
                 JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
-                JSON.stringify(item.signatories || []), JSON.stringify(item.attachments || []), item.number, item.id
+                JSON.stringify(item.signatories || []), item.number, item.id
             ]
         );
+
         if (historyEntry) {
             await pool.query(
                 `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, ?, ?)`,
                 [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes]
             );
         }
+
         res.json({ message: 'Documento actualizado' });
     } catch (error) {
         console.error(error);
