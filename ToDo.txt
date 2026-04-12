@@ -1,8 +1,7 @@
 BUGS: 
-- Cuando descargo un documento anulado, no se ve la marca de agua "ANULADO"
+CORREGIDO - Cuando descargo un documento anulado, no se ve la marca de agua "ANULADO"
 
 Features:
-IMPLEMENTADO - Archivo personal
 - Paginación en las listas
 - Cifrar archivos en server o subirlos a la BBDD?
 - Usuario Multi-Area

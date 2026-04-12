@@ -189,6 +189,7 @@ async function generatePDFBlob(doc) {
     tempDiv.style.padding = '40px';
     tempDiv.style.fontFamily = 'Georgia, serif';
     tempDiv.style.color = '#333';
+    tempDiv.style.position = 'relative'; // <-- NUEVO: Crítico para contener la marca de agua absoluta
     
     // 1. Buscamos las referencias (Expedientes, Relacionados y Adjuntos)
     const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
@@ -262,21 +263,32 @@ async function generatePDFBlob(doc) {
     }
 
     // 4. Compilamos todo el HTML
-    tempDiv.innerHTML = `
-        <h1 style="text-align:center; font-size: 22px; margin-bottom: 5px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">${doc.docType.toUpperCase()}</h1>
-        <h2 style="text-align:center; font-size: 16px; margin-bottom: 30px; color: #64748b; font-family: monospace;">Nro: ${doc.number || 'S/N (Borrador)'}</h2>
-        
-        <div style="margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px;">
-            <p style="margin: 0 0 8px 0; color: #334155;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
-            <p style="margin: 0 0 8px 0; color: #334155;"><strong>ASUNTO:</strong> ${doc.subject}</p>
-            ${promotorHtml}
-            ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
+    const watermarkHtml = doc.status === STATUS.ANULADO ? `
+        <div style="position: absolute; top: 400px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; opacity: 0.15; z-index: 0; pointer-events: none;">
+            <div style="transform: rotate(-45deg); border: 12px solid #dc2626; color: #dc2626; font-size: 110px; font-weight: 900; font-family: sans-serif; padding: 20px 40px; letter-spacing: 5px;">
+                ANULADO
+            </div>
         </div>
-        
-        <div style="font-size: 14px; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
-        
-        ${referenciasHtml}
-        ${firmasHtml}
+    ` : '';
+
+    tempDiv.innerHTML = `
+        ${watermarkHtml}
+        <div style="position: relative; z-index: 1;">
+            <h1 style="text-align:center; font-size: 22px; margin-bottom: 5px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">${doc.docType.toUpperCase()}</h1>
+            <h2 style="text-align:center; font-size: 16px; margin-bottom: 30px; color: #64748b; font-family: monospace;">Nro: ${doc.number || 'S/N (Borrador)'}</h2>
+            
+            <div style="margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px;">
+                <p style="margin: 0 0 8px 0; color: #334155;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
+                <p style="margin: 0 0 8px 0; color: #334155;"><strong>ASUNTO:</strong> ${doc.subject}</p>
+                ${promotorHtml}
+                ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
+            </div>
+            
+            <div style="font-size: 14px; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
+            
+            ${referenciasHtml}
+            ${firmasHtml}
+        </div>
     `;
     
     const style = document.createElement('style');
