@@ -156,3 +156,41 @@ exports.downloadAttachment = async (req, res) => {
         res.status(500).json({ message: 'Error al procesar la descarga' });
     }
 };
+
+// NUEVO: Eliminar Borrador y limpiar sus archivos adjuntos
+exports.deleteDocument = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Buscamos el documento para ver si tiene adjuntos
+        const [rows] = await pool.query('SELECT attachments, status FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado' });
+
+        const doc = rows[0];
+
+        // Medida de seguridad: Solo se pueden borrar físicamente los Borradores o Rechazados
+        if (doc.status !== 'Borrador' && doc.status !== 'Rechazado') {
+            return res.status(403).json({ message: 'No se puede eliminar un documento que ya está en circulación' });
+        }
+
+        // 2. Extraemos los adjuntos
+        const attachments = typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []);
+
+        // 3. Iteramos y borramos cada archivo físico del disco duro
+        attachments.forEach(file => {
+            const filePath = path.join(__dirname, '../uploads', file.filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath); // Elimina el archivo
+            }
+        });
+
+        // 4. Eliminamos el documento y su historial de la Base de Datos
+        await pool.query('DELETE FROM documents WHERE id = ?', [id]);
+        await pool.query('DELETE FROM history WHERE item_id = ?', [id]);
+
+        res.json({ message: 'Documento y archivos adjuntos eliminados correctamente' });
+    } catch (error) {
+        console.error("Error al eliminar documento:", error);
+        res.status(500).json({ message: 'Error al eliminar el documento' });
+    }
+};

@@ -31,6 +31,9 @@ router.put('/update/:id', authMiddleware, docController.updateDocument);
 router.post('/:id/attach', authMiddleware, upload.single('file'), docController.uploadAttachment);
 router.delete('/:id/attach/:filename', authMiddleware, docController.deleteAttachment);
 
+// NUEVA RUTA PARA ELIMINAR EL DOCUMENTO COMPLETO
+router.delete('/delete/:id', authMiddleware, docController.deleteDocument);
+
 // NUEVA RUTA PARA DESCARGA PROTEGIDA
 router.get('/download/:filename', authMiddleware, docController.downloadAttachment);
 

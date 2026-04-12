@@ -1436,12 +1436,29 @@ document.addEventListener('click', async (e) => {
                 item.history.push(hEntry);
                 await syncData(item, 'documento', hEntry); setState({ selectedItem: null, currentView: 'inbox' });
             }
-            else if (action === 'doc-delete') { 
-                if (!confirm('¿Eliminar este borrador permanentemente?')) return; 
-                item.status = STATUS.ELIMINADO; 
-                const hEntry = createHistoryEntry(state.currentUser.id, 'Eliminado', 'Borrador eliminado permanentemente');
-                item.history.push(hEntry); 
-                await syncData(item, 'documento', hEntry); setState({ selectedItem: null, currentView: 'drafts' }); 
+            else if (action === 'doc-delete') {
+                e.preventDefault();
+                if (!confirm('¿Seguro que desea eliminar este borrador de forma permanente? Se eliminarán también todos sus archivos adjuntos del servidor.')) return;
+                
+                const originalHtml = actionBtn.innerHTML;
+                actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
+                
+                fetch(`http://localhost:3000/api/docs/delete/${state.selectedItem.id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async res => {
+                    if (res.ok) {
+                        // Quitamos el documento de la memoria principal visual
+                        state.db.documents = state.db.documents.filter(d => d.id !== state.selectedItem.id);
+                        // Volvemos a la bandeja de borradores
+                        setState({ selectedItem: null, currentView: 'drafts' });
+                    } else {
+                        actionBtn.innerHTML = originalHtml;
+                        if (window.lucide) lucide.createIcons();
+                        alert("Error al eliminar el borrador.");
+                    }
+                });
+                return;
             }
             else if (action === 'doc-unrelate') { 
                 if (!confirm('¿Seguro que desea eliminar esta relación?')) return; 
