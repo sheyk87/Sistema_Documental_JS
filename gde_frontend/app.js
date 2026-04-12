@@ -55,7 +55,11 @@ let state = {
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
     },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
-    ui: { sidebarOpen: true },
+    ui: { 
+        sidebarOpen: true, 
+        notificationsOpen: false, 
+        darkMode: localStorage.getItem('gde_dark_mode') === 'true' // <-- NUEVO
+    },
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     notifications: [], 
     ui: { sidebarOpen: true, notificationsOpen: false }, // Agrega notificationsOpen aquí
@@ -65,15 +69,32 @@ let state = {
 function initTinyMCE(selector) {
     if (window.tinymce) {
         tinymce.remove(selector);
+        const isDark = state.ui.darkMode; // Verificamos el estado actual
+
         tinymce.init({
             selector: selector,
-            // language: 'es',
             plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
             toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table link code | removeformat | fullscreen preview',
             menubar: 'file edit view insert format tools table help',
             height: 500,
             promotion: false,
-            content_style: 'body { font-family: Times New Roman, serif; font-size: 16px; color: #1e293b; line-height: 1.6; } table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #cbd5e1; padding: 8px; }',
+            
+            // --- NUEVO: Configuración Dinámica de Tema ---
+            skin: isDark ? 'oxide-dark' : 'oxide',
+            content_css: isDark ? 'dark' : 'default',
+            content_style: `
+                body { 
+                    font-family: Times New Roman, serif; 
+                    font-size: 16px; 
+                    color: ${isDark ? '#e2e8f0' : '#1e293b'}; 
+                    background-color: ${isDark ? '#1e293b' : '#ffffff'};
+                    line-height: 1.6; 
+                } 
+                table { border-collapse: collapse; width: 100%; } 
+                td, th { border: 1px solid ${isDark ? '#334155' : '#cbd5e1'}; padding: 8px; }
+            `,
+            // ----------------------------------------------
+            
             setup: function (editor) {
                 editor.on('change', function () { editor.save(); });
             }
@@ -735,6 +756,9 @@ function buildChart(id, labels, data, bgColors, cType) {
 // 5. RENDERIZADO PRINCIPAL Y VISTAS
 // ==========================================
 function renderApp() {
+    if (state.ui.darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+
     if (!state.currentUser) appRoot.innerHTML = renderLogin();
     else {
         appRoot.innerHTML = renderMainLayout();
@@ -803,6 +827,9 @@ function renderMainLayout() {
                     <h2 class="text-lg font-semibold text-gray-700 capitalize">${state.selectedItem ? `Detalle de ${state.selectedItem.type}` : state.currentView.replace('_', ' ')}</h2>
                     <div class="flex items-center gap-4">
                         <div class="relative">
+                            <button data-action="toggle-dark-mode" class="text-gray-500 hover:text-blue-600 outline-none transition-colors" title="Alternar Modo Oscuro">
+                                <i data-lucide="${state.ui.darkMode ? 'sun' : 'moon'}" class="w-5 h-5"></i>
+                            </button>
                             <button data-action="toggle-notifications" class="text-gray-500 hover:text-blue-600 outline-none relative mt-1">
                                 <div id="notif-bell-container" class="relative"></div>
                                 ${state.notifications.filter(n => !n.is_read).length > 0 ? `<span class="absolute -top-1 -right-1 flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-red-500 border-2 border-white"></span></span>` : ''}
@@ -1640,6 +1667,12 @@ document.addEventListener('click', async (e) => {
             // Vaciamos el array en memoria local y repintamos la campana
             state.notifications = [];
             return renderNotificationUI();
+        }
+
+        if (action === 'toggle-dark-mode') {
+            state.ui.darkMode = !state.ui.darkMode;
+            localStorage.setItem('gde_dark_mode', state.ui.darkMode);
+            return renderApp();
         }
 
         if (action === 'admin-del-user') { 

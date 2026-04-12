@@ -15,3 +15,83 @@ html, body {
 .transition-view {
     transition: opacity 0.3s ease;
 }
+
+/* ==========================================
+   MODO OSCURO GLOBAL (Versión Final Pulida)
+   ========================================== */
+html.dark body { background-color: #0f172a; color: #e2e8f0; }
+
+/* Contenedores, Fondos y Tarjetas (INCLUYE bg-slate-50/50) */
+html.dark .bg-white, html.dark .bg-gray-50, html.dark .bg-slate-50, 
+html.dark .bg-slate-100, html.dark .bg-purple-50, html.dark .bg-blue-50,
+html.dark .bg-gray-100, html.dark .bg-slate-50\/50 { 
+    background-color: #1e293b !important; 
+    border-color: #334155 !important; 
+}
+
+/* Textos Base y Variantes */
+html.dark .text-gray-800, html.dark .text-gray-700, html.dark .text-slate-800, html.dark .text-slate-700 { color: #f8fafc !important; }
+html.dark .text-gray-600, html.dark .text-gray-500, html.dark .text-slate-600, html.dark .text-slate-500 { color: #cbd5e1 !important; }
+
+/* Botón Exportar CSV (Específico) */
+html.dark [data-action="export-csv"] {
+    background-color: #334155 !important;
+    color: #f1f5f9 !important;
+    border: 1px solid #475569 !important;
+}
+html.dark [data-action="export-csv"]:hover {
+    background-color: #475569 !important;
+}
+
+/* Pestañas de Estadísticas */
+html.dark [data-action="set-stats-tab"] {
+    color: #94a3b8 !important; /* Gris claro legible */
+}
+html.dark [data-action="set-stats-tab"].text-blue-600 {
+    color: #60a5fa !important; /* Azul claro para la activa */
+    border-bottom-color: #60a5fa !important;
+}
+
+/* Corrección de Tonalidades en Modales y Listas */
+html.dark .text-blue-700, html.dark .text-blue-600, html.dark .text-blue-900 { color: #60a5fa !important; }
+html.dark .text-purple-700, html.dark .text-purple-600, html.dark .text-purple-900 { color: #c084fc !important; }
+
+/* Bordes y Tablas */
+html.dark th, html.dark td, html.dark tr.border-b, html.dark .border-slate-200, html.dark .border-purple-200 { 
+    border-color: #334155 !important; 
+}
+html.dark .border-gray-200 { border-color: #334155 !important; }
+
+/* Inputs, Formularios y Selectores Múltiples */
+html.dark input, html.dark select, html.dark textarea { 
+    background-color: #0f172a !important; 
+    color: #f8fafc !important; 
+    border-color: #475569 !important; 
+    color-scheme: dark; 
+}
+
+/* Color de las opciones del select multiple (Stats y Modales) */
+html.dark select option {
+    background-color: #0f172a;
+    color: #f8fafc;
+    padding: 4px; /* Para que respiren un poco */
+}
+
+/* TRUCO: Forzar el color de la opción SELECCIONADA en navegadores Chromium */
+html.dark select option:checked {
+    background: linear-gradient(#2563eb, #2563eb) !important;
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+}
+
+/* Hover States (Solución definitiva a filas invisibles) */
+html.dark .hover\:bg-gray-100:hover, 
+html.dark .hover\:bg-blue-50:hover, 
+html.dark .hover\:bg-white:hover,
+html.dark .hover\:bg-slate-200:hover,
+html.dark tr:hover td { 
+    background-color: #334155 !important; 
+}
+
+/* Hovers de textos */
+html.dark .hover\:text-gray-700:hover { color: #f8fafc !important; }

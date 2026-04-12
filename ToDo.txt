@@ -1,6 +1,5 @@
 Features:
-IMPLEMENTADO - Notificaciones, el usuario recibe notificaciones, puede marcarlas como leídas y eliminar sus propias notificaciones
-- Modo Oscuro
+IMPLEMENTADO - Modo Oscuro
 - Envío de mails
 - Autenticación por LDAP
 - Firma con certificado
