@@ -1,5 +1,5 @@
 BUGS: 
-- Se pueden acceder a los archivos adjuntos con la URL sin estar autenticado en el sistema, y sin control de permisos.
+CORREGIDO - Se pueden acceder a los archivos adjuntos con la URL sin estar autenticado en el sistema, y sin control de permisos.
 - Cuando en un documento borrador elimino un archivo adjunto, se elimina del server pero no la referencia en la base de datos, asique si salgo del borrador o lo envío "A Firmar" "A Revisar" o "Rechazar Firma", sigue estando ese archivo cuando abro el borrador nuevamente para seguir editandolo (aunque en el servidor ese archivo ya no existe).
 - Si elimino un borrador que tenia adjuntos, esos adjuntos no se eliminan del servidor.
 

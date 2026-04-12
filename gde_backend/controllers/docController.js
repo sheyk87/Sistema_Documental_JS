@@ -133,3 +133,22 @@ exports.deleteAttachment = async (req, res) => {
         res.status(500).json({ message: 'Error al eliminar el archivo' });
     }
 };
+
+// NUEVO: Descargar archivo protegiendo con Token
+exports.downloadAttachment = async (req, res) => {
+    try {
+        const { filename } = req.params;
+        // El usuario está verificado porque pasó por el authMiddleware
+        const filePath = path.join(__dirname, '../uploads', filename);
+        
+        if (fs.existsSync(filePath)) {
+            // res.download envía el archivo físico al navegador del usuario
+            res.download(filePath);
+        } else {
+            res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al procesar la descarga' });
+    }
+};

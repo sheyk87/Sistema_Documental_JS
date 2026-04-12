@@ -298,7 +298,9 @@ async function downloadDocumentArchive(docId) {
         const attFolder = zip.folder("Archivos_Adjuntos");
         for (let att of doc.attachments) {
             try {
-                const resp = await fetch(`http://localhost:3000/uploads/${att.filename}`);
+                const resp = await fetch(`http://localhost:3000/api/docs/download/${att.filename}`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                });
                 const blob = await resp.blob();
                 attFolder.file(att.originalname, blob);
             } catch(e) { console.error("Error al descargar adjunto:", e); }
@@ -343,7 +345,9 @@ async function downloadFullExpediente(expId) {
                     const attFolder = docFolder.folder("Adjuntos");
                     for (let att of doc.attachments) {
                         try {
-                            const resp = await fetch(`http://localhost:3000/uploads/${att.filename}`);
+                            const resp = await fetch(`http://localhost:3000/api/docs/download/${att.filename}`, {
+                                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                            });
                             const blob = await resp.blob();
                             attFolder.file(att.originalname, blob);
                         } catch(e) { console.error(e); }
@@ -783,8 +787,8 @@ function renderDocumentDetail() {
                                 <ul class="space-y-2">
                                     ${doc.attachments && doc.attachments.length > 0 ? doc.attachments.map(att => `
                                         <li class="flex items-center justify-between p-3 bg-white border border-gray-200 shadow-sm rounded-lg group">
-                                            <a href="http://localhost:3000/uploads/${att.filename}" target="_blank" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-2 text-sm"><i data-lucide="paperclip" class="w-4 h-4"></i> ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span></a>
-                                            ${canEdit ? `<button data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                                            <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-2 text-sm outline-none"><i data-lucide="paperclip" class="w-4 h-4"></i> ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span></button>
+                                            ${canEdit ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
                                         </li>
                                     `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
                                 </ul>
@@ -1177,6 +1181,38 @@ document.addEventListener('click', async (e) => {
                     state.selectedItem.history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
                     setState({});
                 } else { alert("Error al eliminar el archivo."); }
+            });
+            return;
+        }
+
+        if (action === 'download-single-file') {
+            e.preventDefault();
+            const filename = actionBtn.getAttribute('data-filename');
+            const originalName = actionBtn.getAttribute('data-original');
+            
+            // Le ponemos un spinner al botón para que el usuario sepa que está descargando
+            const originalHtml = actionBtn.innerHTML;
+            actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
+            
+            fetch(`http://localhost:3000/api/docs/download/${filename}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            }).then(async res => {
+                actionBtn.innerHTML = originalHtml; // Restauramos el botón
+                if (window.lucide) lucide.createIcons();
+                
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = originalName; 
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    alert("Error: Sesión expirada o archivo no encontrado.");
+                }
             });
             return;
         }

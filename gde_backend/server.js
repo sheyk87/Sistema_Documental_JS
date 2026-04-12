@@ -14,7 +14,7 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir);
 }
-app.use('/uploads', express.static(uploadsDir));
+// app.use('/uploads', express.static(uploadsDir));
 
 // Importamos las rutas
 const authRoutes = require('./routes/authRoutes');
