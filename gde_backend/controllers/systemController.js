@@ -3,11 +3,15 @@ const pool = require('../config/db');
 
 exports.getInitialData = async (req, res) => {
     try {
-        // Traemos todas las áreas
         const [areas] = await pool.query('SELECT id, name FROM areas');
+        // Agregamos la columna 'areas' a la consulta
+        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas FROM users');
         
-        // Traemos los usuarios (¡SIN LA CONTRASEÑA!) y renombramos area_id a areaId para que coincida con tu Frontend
-        const [users] = await pool.query('SELECT id, name, email, area_id AS areaId, role FROM users');
+        // Parseamos el JSON para el frontend
+        const users = usersRows.map(u => ({
+            ...u,
+            areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId])
+        }));
         
         res.json({ areas, users });
     } catch (error) {

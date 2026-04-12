@@ -2,12 +2,12 @@ const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 
 exports.createUser = async (req, res) => {
-    const { id, name, email, password, areaId, role } = req.body;
+    const { id, name, email, password, areaId, role, areas } = req.body; // <-- Agregar areas
     try {
-        const hash = await bcrypt.hash(password, 10); // Encriptamos la contraseña
+        const hash = await bcrypt.hash(password, 10);
         await pool.query(
-            `INSERT INTO users (id, name, email, password, area_id, role) VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, name, email, hash, areaId, role]
+            `INSERT INTO users (id, name, email, password, area_id, role, areas) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [id, name, email, hash, areaId, role, JSON.stringify(areas || [areaId])] // <-- Guardar JSON
         );
         res.status(201).json({ message: 'Usuario creado exitosamente' });
     } catch (error) {
@@ -18,12 +18,12 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, email, password, areaId, role } = req.body;
+    const { name, email, password, areaId, role, areas } = req.body; // <-- Agregar areas
     try {
-        const hash = await bcrypt.hash(password, 10); // Encriptamos la nueva contraseña
+        const hash = await bcrypt.hash(password, 10);
         await pool.query(
-            `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ? WHERE id = ?`,
-            [name, email, hash, areaId, role, id]
+            `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ? WHERE id = ?`,
+            [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), id] // <-- Guardar JSON
         );
         res.json({ message: 'Usuario actualizado exitosamente' });
     } catch (error) {

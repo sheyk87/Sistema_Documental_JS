@@ -1,6 +1,5 @@
 Features:
-IMPLEMENTADO - Cifrar archivos en server con AES-256
-- Usuario Multi-Area
+IMPLEMENTADO - Usuario Multi-Area
 - Cargar usuarios y areas por CSV
 - Notificaciones
 - Modo Oscuro

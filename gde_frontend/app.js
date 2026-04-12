@@ -708,7 +708,16 @@ function renderMainLayout() {
                     <div class="flex items-center gap-2 ${!sbo ? 'hidden' : ''}"><i data-lucide="building" class="text-blue-400"></i><h1 class="text-xl font-bold text-blue-400">GDE</h1></div>
                     <button data-action="toggle-sidebar" class="text-slate-400 hover:text-white outline-none ${!sbo ? 'mx-auto' : ''}" title="${!sbo ? 'Expandir menú' : 'Contraer menú'}"><i data-lucide="menu"></i></button>
                 </div>
-                ${sbo ? `<div class="p-4 border-b border-slate-800"><p class="text-xs text-slate-400 truncate">${getUserName(state.currentUser.id)}</p><p class="text-xs text-slate-500 truncate">${getAreaName(state.currentUser.areaId)}</p></div>` : ''}
+                ${sbo ? `
+                    <div class="p-4 border-b border-slate-800">
+                        <p class="text-xs text-slate-400 truncate font-bold">${getUserName(state.currentUser.id)}</p>
+                        ${state.currentUser.areas && state.currentUser.areas.length > 1 ? `
+                            <select data-action="switch-active-area" class="mt-1 w-full bg-slate-800 text-xs text-slate-300 border border-slate-700 rounded p-1 outline-none cursor-pointer hover:bg-slate-700 transition-colors">
+                                ${state.currentUser.areas.map(aId => `<option value="${aId}" ${state.currentUser.areaId === aId ? 'selected' : ''}>${getAreaName(aId)}</option>`).join('')}
+                            </select>
+                        ` : `<p class="text-xs text-slate-500 truncate mt-1">${getAreaName(state.currentUser.areaId)}</p>`}
+                    </div>
+                ` : ''}
                 <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden ${!sbo ? 'px-3 pt-6' : ''}">
                     ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
@@ -747,7 +756,7 @@ function renderLogin() {
 }
 
 function renderAdminUsers() {
-    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" class="w-48 px-3 py-2 border rounded outline-none">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10"><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminAreas() {
@@ -968,7 +977,11 @@ function renderModalOverlay() {
                 <div><label class="text-xs font-bold text-gray-600">Nombre</label><input type="text" data-modal-input="editUName" value="${m.editUName}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Email</label><input type="email" data-modal-input="editUEmail" value="${m.editUEmail}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Contraseña</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" class="w-full p-2 border rounded text-sm outline-none" /></div>
-                <div><label class="text-xs font-bold text-gray-600">Área</label><select data-modal-input="editUArea" class="w-full p-2 border rounded text-sm outline-none">${state.db.areas.map(a => `<option value="${a.id}" ${m.editUArea === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}</select></div>
+                <div><label class="text-xs font-bold text-gray-600">Áreas Asignadas</label>
+                    <select data-modal-input="editUAreas" multiple class="w-full p-2 border rounded text-sm outline-none h-24">
+                        ${state.db.areas.map(a => `<option value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'selected' : ''}>${a.name}</option>`).join('')}
+                    </select>
+                </div>
                 <div><label class="text-xs font-bold text-gray-600">Rol</label><select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none"><option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option></select></div>
             </div>
         `;
@@ -1072,7 +1085,13 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-modal-toggle')) { const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value; if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val); }
-    if (e.target.hasAttribute('data-modal-input')) { state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; }
+    if (e.target.hasAttribute('data-modal-input')) { 
+        if (e.target.multiple) {
+            state.modal[e.target.getAttribute('data-modal-input')] = Array.from(e.target.selectedOptions).map(o => o.value);
+        } else {
+            state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; 
+        }
+    }
     if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
     if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
@@ -1080,6 +1099,12 @@ document.addEventListener('change', (e) => {
         const model = e.target.getAttribute('data-model');
         state.pagination[model].limit = parseInt(e.target.value);
         state.pagination[model].page = 1; // Reseteamos a página 1 al cambiar el límite
+        return renderApp();
+    }
+    if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'switch-active-area') {
+        // Al cambiar de área, mutamos el estado global y repintamos toda la app.
+        // Las funciones de filtrado harán el resto automáticamente.
+        state.currentUser.areaId = e.target.value;
         return renderApp();
     }
 });
@@ -1207,7 +1232,15 @@ document.addEventListener('submit', async (e) => {
     }
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault(); 
-        const newUser = { id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, email: document.getElementById('admin-u-email').value, areaId: document.getElementById('admin-u-area').value, role: document.getElementById('admin-u-role').value, password: document.getElementById('admin-u-pass').value }; 
+        const selectedAreas = Array.from(document.getElementById('admin-u-area').selectedOptions).map(o => o.value);
+        const newUser = { 
+            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, 
+            email: document.getElementById('admin-u-email').value, 
+            areaId: selectedAreas[0], // La primera que seleccione será su área principal
+            areas: selectedAreas,     // Array con todas sus áreas
+            role: document.getElementById('admin-u-role').value, 
+            password: document.getElementById('admin-u-pass').value 
+        };
         fetch('http://localhost:3000/api/users/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newUser)
         }).then(res => { if(res.ok) { state.db.users.push(newUser); setState({}); } });
@@ -1411,7 +1444,12 @@ document.addEventListener('click', async (e) => {
             await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = u.password; mState.editUArea = u.areaId; mState.editURole = u.role; }
+            if (type === 'editar_usuario') { 
+                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); 
+                mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; 
+                mState.editUPass = u.password; mState.editURole = u.role;
+                mState.editUAreas = u.areas || [u.areaId]; // <-- Cargar array
+            }
             return setState({ modal: mState });
         }
 
@@ -1421,8 +1459,13 @@ document.addEventListener('click', async (e) => {
             const m = state.modal;
             
             if (m.type === 'editar_usuario') {
-                if (!m.editUName || !m.editUEmail || !m.editUPass) return alert("Complete todos los campos.");
-                const updatedUser = { name: m.editUName, email: m.editUEmail, password: m.editUPass, areaId: m.editUArea, role: m.editURole };
+                if (!m.editUName || !m.editUEmail || !m.editUPass || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos y seleccione al menos un área.");
+                const updatedUser = { 
+                    name: m.editUName, email: m.editUEmail, password: m.editUPass, 
+                    areaId: m.editUAreas[0], // Tomamos la primera como principal
+                    areas: m.editUAreas, 
+                    role: m.editURole 
+                };
                 
                 fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(updatedUser)
@@ -1569,13 +1612,10 @@ document.addEventListener('click', async (e) => {
 
                 const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest) {
-                    let fU = new Set(); 
-                    item.recipients.forEach(r => { 
-                        if (r.startsWith('u')) fU.add(r); 
-                        if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); 
-                    });
-                    item.owners = Array.from(fU);
+                    // Asignamos el ID del área o usuario directamente, sin desglosarlo
+                    item.owners = [...item.recipients];
                 } else { 
+                    // Si no tiene destinatario explícito, el dueño es el creador
                     item.owners = [item.creatorId]; 
                 }
 

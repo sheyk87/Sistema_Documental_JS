@@ -19,6 +19,7 @@ async function setupFull() {
                 email VARCHAR(100) NOT NULL UNIQUE,
                 password VARCHAR(255) NOT NULL,
                 area_id VARCHAR(50) NOT NULL,
+                areas JSON,
                 role ENUM('admin', 'user') DEFAULT 'user',
                 FOREIGN KEY (area_id) REFERENCES areas(id)
             )

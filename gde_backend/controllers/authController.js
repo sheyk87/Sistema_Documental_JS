@@ -30,6 +30,10 @@ exports.login = async (req, res) => {
             { expiresIn: '8h' } // El token expira en 8 horas
         );
 
+        // Parseamos las áreas permitidas
+        user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
+        user.areaId = user.area_id; // Unificamos nomenclatura
+
         // 4. Quitamos la contraseña del objeto antes de enviarlo al frontend
         delete user.password;
 
