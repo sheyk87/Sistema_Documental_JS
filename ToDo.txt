@@ -1,8 +1,8 @@
 BUGS: 
-CORREGIDO - Si elimino un borrador que tenia adjuntos, esos adjuntos no se eliminan del servidor.
+- Cuando descargo un documento anulado, no se ve la marca de agua "ANULADO"
 
 Features:
-- Confirmación para Firmar
+IMPLEMENTADO - Confirmación para Firmar
 - Archivo personal
 - Paginación en las listas
 - Cifrar archivos en server o subirlos a la BBDD?

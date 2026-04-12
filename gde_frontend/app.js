@@ -933,6 +933,15 @@ function renderModalOverlay() {
             </div>
         `;
     }
+    else if (m.type === 'confirmar_firma') {
+        title = 'Confirmar Firma Digital';
+        content = `
+            <div class="mb-4 text-sm text-gray-700 bg-blue-50 p-4 rounded border border-blue-100">
+                <p class="font-bold mb-2">¿Está seguro que desea aplicar su firma a este documento?</p>
+                <p class="text-xs text-gray-600">Al confirmar, se registrará su identidad, la estampa de tiempo actual y el documento avanzará en su ciclo de vida. Esta acción es irreversible.</p>
+            </div>
+        `;
+    }
     else if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
         const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' }; title = titles[m.type];
         content = `<p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p><textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>`;
@@ -1390,31 +1399,23 @@ document.addEventListener('click', async (e) => {
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
-        }
+            if (m.type === 'confirmar_firma') {
+                if (!item.signedBy) item.signedBy = []; 
+                item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
 
-        if (state.selectedItem) {
-            const isExp = state.selectedItem.type === 'expediente';
-            const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
-            const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
-
-            if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                await saveEdits(); const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
-                if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
-                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SOLO admite 1 destinatario (area o usuario).");
-                
-                if (!item.signedBy) item.signedBy = []; item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
-
-                if (action === 'doc-sign-pending') {
+                if (m.signAction === 'doc-sign-pending') {
                     item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
                     if (item.signatories.length > 0) {
                         item.currentOwnerId = item.signatories[0]; 
                         const hEntry = createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante');
                         item.history.push(hEntry);
-                        await syncData(item, 'documento', hEntry); return setState({ selectedItem: null, currentView: 'inbox' });
+                        await syncData(item, 'documento', hEntry); 
+                        return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
                     }
                 }
 
-                item.status = STATUS.FIRMADO; if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+                item.status = STATUS.FIRMADO; 
+                if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
 
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
                     for (let relId of item.relatedDocs) { 
@@ -1427,14 +1428,38 @@ document.addEventListener('click', async (e) => {
                     }
                 }
 
+                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest) {
-                    let fU = new Set(); item.recipients.forEach(r => { if (r.startsWith('u')) fU.add(r); if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); });
+                    let fU = new Set(); 
+                    item.recipients.forEach(r => { 
+                        if (r.startsWith('u')) fU.add(r); 
+                        if (r.startsWith('a')) state.db.users.filter(u => u.areaId === r).forEach(u => fU.add(u.id)); 
+                    });
                     item.owners = Array.from(fU);
-                } else { item.owners = [item.creatorId]; }
+                } else { 
+                    item.owners = [item.creatorId]; 
+                }
 
-                const hEntry = createHistoryEntry(state.currentUser.id, action === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente');
+                const hEntry = createHistoryEntry(state.currentUser.id, m.signAction === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente');
                 item.history.push(hEntry);
-                await syncData(item, 'documento', hEntry); setState({ selectedItem: null, currentView: 'inbox' });
+                await syncData(item, 'documento', hEntry); 
+                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+            }
+        }
+
+        if (state.selectedItem) {
+            const isExp = state.selectedItem.type === 'expediente';
+            const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+            const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
+
+            if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
+                await saveEdits(); 
+                const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+                if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
+                if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SOLO admite 1 destinatario (área o usuario).");
+                
+                // Interceptamos la ejecución directa y abrimos el modal, guardando la acción original
+                return setState({ modal: { type: 'confirmar_firma', signAction: action } });
             }
             else if (action === 'doc-delete') {
                 e.preventDefault();
