@@ -1,6 +1,8 @@
 const pool = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto'); // <-- NUEVO
+const ENCRYPTION_KEY = process.env.FILE_SECRET || 'unaclavesupersecretaexactamented'; // 32 bytes
 
 exports.createDocument = async (req, res) => {
     const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients } = req.body;
@@ -80,31 +82,53 @@ exports.updateDocument = async (req, res) => {
     }
 };
 
-// NUEVO: Subir archivo
+// NUEVO: Subir archivo y Cifrarlo en el Servidor
 exports.uploadAttachment = async (req, res) => {
     try {
         const { id } = req.params;
         const file = req.file;
-        const userId = req.user.id; // Viene del token
+        const userId = req.user.id; 
 
         if (!file) return res.status(400).json({ message: 'No se subió ningún archivo' });
 
+        // 1. Configuración Criptográfica
+        const iv = crypto.randomBytes(16); // Vector de inicialización único por archivo
+        const ivHex = iv.toString('hex');
+        // El nuevo nombre del archivo contendrá el IV para poder descifrarlo sin consultar la BD
+        const encryptedFilename = `${ivHex}-${file.filename}.enc`; 
+        const encryptedFilePath = path.join(__dirname, '../uploads', encryptedFilename);
+
+        // 2. Ciframos el archivo usando Streams
+        const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+        const input = fs.createReadStream(file.path);
+        const output = fs.createWriteStream(encryptedFilePath);
+
+        await new Promise((resolve, reject) => {
+            input.pipe(cipher).pipe(output);
+            output.on('finish', resolve);
+            output.on('error', reject);
+        });
+
+        // 3. Borramos el archivo original sin cifrar
+        fs.unlinkSync(file.path);
+
+        // 4. Guardamos la referencia en la Base de Datos
         const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
         let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
         
-        const newAttachment = { filename: file.filename, originalname: file.originalname, size: file.size };
+        const newAttachment = { filename: encryptedFilename, originalname: file.originalname, size: file.size };
         attachments.push(newAttachment);
 
         await pool.query('UPDATE documents SET attachments = ? WHERE id = ?', [JSON.stringify(attachments), id]);
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, 'Archivo Adjuntado', ?)`,
+            `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, 'Archivo Adjuntado (Cifrado)', ?)`,
             [id, userId, file.originalname]
         );
 
         res.json({ attachment: newAttachment });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error al subir el archivo' });
+        res.status(500).json({ message: 'Error al subir y cifrar el archivo' });
     }
 };
 
@@ -138,22 +162,39 @@ exports.deleteAttachment = async (req, res) => {
     }
 };
 
-// NUEVO: Descargar archivo protegiendo con Token
+// NUEVO: Descargar archivo Descifrando "On the Fly"
 exports.downloadAttachment = async (req, res) => {
     try {
         const { filename } = req.params;
-        // El usuario está verificado porque pasó por el authMiddleware
         const filePath = path.join(__dirname, '../uploads', filename);
         
-        if (fs.existsSync(filePath)) {
-            // res.download envía el archivo físico al navegador del usuario
-            res.download(filePath);
-        } else {
-            res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
         }
+
+        // Extraemos el IV que escondimos en el nombre del archivo
+        const parts = filename.split('-');
+        const ivHex = parts[0];
+
+        // Compatibilidad hacia atrás: si no tiene el formato de IV (archivos viejos), lo mandamos directo
+        if (ivHex.length !== 32) {
+            return res.download(filePath); 
+        }
+
+        const iv = Buffer.from(ivHex, 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+        const input = fs.createReadStream(filePath);
+
+        // Configuramos las cabeceras para que el navegador lo interprete como descarga binaria
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename.substring(33).replace('.enc', '')}"`);
+
+        // Desciframos y enviamos directamente al cliente (Stream)
+        input.pipe(decipher).pipe(res);
+
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Error al procesar la descarga' });
+        console.error("Error en descarga:", error);
+        res.status(500).json({ message: 'Error al descifrar y procesar la descarga' });
     }
 };
 
