@@ -1,4 +1,3 @@
 Features:
-IMPLEMENTADO - Envío de mails
-- Autenticación por LDAP
+IMPLEMENTADO - Autenticación por LDAP (Consulta Anónimas sin autenticar)
 - Firma con certificado
