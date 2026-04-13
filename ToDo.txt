@@ -1,5 +1,4 @@
 Features:
-IMPLEMENTADO - Modo Oscuro
-- Envío de mails
+IMPLEMENTADO - Envío de mails
 - Autenticación por LDAP
 - Firma con certificado

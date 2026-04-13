@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const emailService = require('../services/emailService');
 
 exports.createNotification = async (req, res) => {
     const { userIds, action, message, itemId, itemType } = req.body;
@@ -19,17 +20,44 @@ exports.createNotification = async (req, res) => {
             }
         }
 
-        // Evitamos auto-notificarnos
-        expandedUserIds.delete(senderId);
-
+        expandedUserIds.delete(senderId); // Evitamos auto-notificarnos
         if (expandedUserIds.size === 0) return res.json({ message: 'Nadie a quien notificar' });
 
-        const values = Array.from(expandedUserIds).map(uId => [uId, senderId, itemId, itemType, action, message]);
+        const userIdsArray = Array.from(expandedUserIds);
+        const values = userIdsArray.map(uId => [uId, senderId, itemId, itemType, action, message]);
         
+        // 1. Guardar notificaciones en la BD
         await pool.query(
             `INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message) VALUES ?`,
             [values]
         );
+
+        // --- NUEVO: DISPARADOR DE CORREOS ELECTRÓNICOS ---
+        if (process.env.EMAIL_ENABLED === 'true') {
+            // Buscamos los emails y nombres de los destinatarios
+            const [recipients] = await pool.query('SELECT email, name FROM users WHERE id IN (?)', [userIdsArray]);
+            
+            // Enviamos los correos de forma asíncrona (sin await para no demorar la respuesta de la interfaz)
+            recipients.forEach(u => {
+                const mailSubject = `GDE - Notificación: ${action}`;
+                const mailHtml = `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; max-width: 600px;">
+                        <h2 style="color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Sistema GDE</h2>
+                        <p style="font-size: 16px; color: #334155;">Hola <strong>${u.name}</strong>,</p>
+                        <p style="font-size: 16px; color: #334155;">Tienes una nueva notificación en el sistema:</p>
+                        <div style="background-color: #f8fafc; padding: 15px; border-left: 4px solid #3b82f6; margin: 20px 0;">
+                            <p style="margin: 0; font-weight: bold; color: #1e293b;">Acción: ${action}</p>
+                            <p style="margin: 5px 0 0 0; color: #475569;">${message}</p>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b; margin-top: 30px;">Inicia sesión en tu plataforma GDE para ver los detalles y continuar el trámite.</p>
+                        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 10px;">Este es un mensaje automático, por favor no respondas a este correo.</p>
+                    </div>
+                `;
+                // Enviamos usando nuestro servicio
+                emailService.sendMail(u.email, mailSubject, message, mailHtml);
+            });
+        }
+        // -------------------------------------------------
 
         res.status(201).json({ message: 'Notificaciones enviadas' });
     } catch (error) {
