@@ -389,15 +389,41 @@ async function generatePDFBlob(doc) {
     style.innerHTML = `table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 8px; }`;
     tempDiv.prepend(style);
 
+    // Configuración estándar de html2pdf
     const opt = {
-        margin: 20,
-        filename: `${doc.number || 'Borrador'}.pdf`,
+        margin: 10,
+        filename: 'temp.pdf',
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: { scale: 2 },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    
-    return await html2pdf().set(opt).from(tempDiv).outputPdf('blob');
+
+    try {
+        // 1. Generamos el Blob (PDF crudo sin firmar)
+        const rawBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
+
+        // 2. Lo empaquetamos para enviarlo al servidor
+        const formData = new FormData();
+        formData.append('pdf', rawBlob, 'doc_crudo.pdf');
+
+        // 3. Solicitamos el sellado criptográfico al servidor
+        const res = await fetch('http://localhost:3000/api/docs/cryptosign', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: formData
+        });
+
+        if (!res.ok) throw new Error('Fallo en el sellado del servidor');
+
+        // 4. Recibimos el PDF blindado y LO RETORNAMOS (sin forzar descarga individual)
+        const signedBlob = await res.blob();
+        return signedBlob;
+
+    } catch (error) {
+        console.error("Error generando/firmando el PDF:", error);
+        alert("Ocurrió un error al intentar firmar el documento.");
+        return null;
+    }
 }
 
 // Empaqueta el PDF y sus adjuntos en un ZIP

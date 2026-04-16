@@ -23,6 +23,9 @@ const upload = multer({
     // }
 });
 
+// Configuración para mantener el archivo en memoria sin guardarlo en disco
+const uploadMemory = multer({ storage: multer.memoryStorage() });
+
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
 router.put('/update/:id', authMiddleware, docController.updateDocument);
@@ -36,5 +39,8 @@ router.delete('/delete/:id', authMiddleware, docController.deleteDocument);
 
 // NUEVA RUTA PARA DESCARGA PROTEGIDA
 router.get('/download/:filename', authMiddleware, docController.downloadAttachment);
+
+// NUEVA RUTA PARA FIRMA:
+router.post('/cryptosign', authMiddleware, uploadMemory.single('pdf'), docController.cryptographicSign);
 
 module.exports = router;

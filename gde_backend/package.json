@@ -20,6 +20,7 @@
     "ldapjs": "^3.0.7",
     "multer": "^2.1.1",
     "mysql2": "^3.20.0",
+    "node-signpdf": "^3.0.0",
     "nodemailer": "^8.0.5"
   },
   "devDependencies": {

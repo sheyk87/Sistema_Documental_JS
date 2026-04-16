@@ -1,5 +1,7 @@
 // server.js
 require('dotenv').config();
+// Forzar la Zona Horaria para el motor de Node y la criptografía
+process.env.TZ = 'America/Argentina/Buenos_Aires';
 const express = require('express');
 const cors = require('cors');
 const path = require('path');

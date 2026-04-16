@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); // <-- NUEVO
 const ENCRYPTION_KEY = process.env.FILE_SECRET || 'unaclavesupersecretaexactamented'; // 32 bytes
+const signatureService = require('../services/signatureService');
 
 exports.createDocument = async (req, res) => {
     const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients } = req.body;
@@ -233,5 +234,23 @@ exports.deleteDocument = async (req, res) => {
     } catch (error) {
         console.error("Error al eliminar documento:", error);
         res.status(500).json({ message: 'Error al eliminar el documento' });
+    }
+};
+
+exports.cryptographicSign = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF crudo' });
+
+        // req.file.buffer contiene el PDF generado por html2pdf en el frontend
+        const signedBuffer = signatureService.signPdfBuffer(req.file.buffer);
+
+        // Configuramos las cabeceras para forzar la descarga del binario
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="documento_sellado.pdf"');
+        
+        res.send(signedBuffer);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error interno al aplicar firma criptográfica' });
     }
 };

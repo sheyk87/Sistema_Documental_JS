@@ -1,3 +1,7 @@
 Features:
-IMPLEMENTADO - Autenticación por LDAP (Consulta Anónimas sin autenticar)
-- Firma con certificado
+IMPLEMENTADO - Firma con certificado
+- Sesiones únicas por navegador
+- ADMIN - Configuración de servicios por navegador (Correo, Ldap)
+- USUARIOS - Configuraciones personales (Contraseña, Correo, Notificaciones (Web, Correo))
+- Olvidé mi contraseña
+- 2FA

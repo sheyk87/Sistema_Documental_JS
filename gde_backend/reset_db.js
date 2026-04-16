@@ -11,6 +11,7 @@ async function resetData() {
         await pool.query('TRUNCATE TABLE history');
         await pool.query('TRUNCATE TABLE documents');
         await pool.query('TRUNCATE TABLE expedientes');
+        await pool.query('TRUNCATE TABLE notifications');
 
         // Volvemos a activar las restricciones de seguridad
         await pool.query('SET FOREIGN_KEY_CHECKS = 1;');
