@@ -44,7 +44,7 @@ exports.login = async (req, res) => {
 
         // 5. Generamos el Token JWT
         delete user.password;
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret_key', { expiresIn: '8h' });
+        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret_key', { expiresIn: '10h' });
         
         res.json({ token, user });
     } catch (error) {

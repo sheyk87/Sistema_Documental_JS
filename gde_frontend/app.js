@@ -250,6 +250,57 @@ function renderNotificationUI() {
     if (window.lucide) lucide.createIcons();
 }
 
+// Limpia todos los rastros de la sesión
+function clearSession() {
+    localStorage.removeItem('gde_token');
+    localStorage.removeItem('gde_login_time');
+    // Destruye la cookie configurando una fecha en el pasado
+    document.cookie = "gde_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    state.currentUser = null;
+}
+
+// Inicializa la app comprobando si hay una sesión viva
+async function initSession() {
+    const token = localStorage.getItem('gde_token');
+    const loginTime = localStorage.getItem('gde_login_time');
+    const hasSessionCookie = document.cookie.includes('gde_session=active');
+    
+    const tenHoursInMs = 10 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    // Validamos: ¿Falta el token? ¿Se cerró el navegador (no hay cookie)? ¿Pasaron 10 horas?
+    if (!token || !hasSessionCookie || !loginTime || (now - parseInt(loginTime) > tenHoursInMs)) {
+        clearSession();
+        return renderApp(); // Renderiza el Login por defecto
+    }
+
+    try {
+        // El token y el navegador son válidos, recuperamos el usuario silenciosamente
+        const res = await fetch('http://localhost:3000/api/users/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            state.currentUser = data.user;
+            state.currentView = 'inbox'; 
+            
+            // Llenamos las notificaciones antes de renderizar (Feature 7)
+            await fetchNotifications(); 
+            
+            renderApp(); // Entra directo al sistema
+        } else {
+            // Si el token expiró o es inválido
+            clearSession();
+            renderApp();
+        }
+    } catch (error) {
+        console.error("Error validando sesión:", error);
+        clearSession();
+        renderApp();
+    }
+}
+
 // ==========================================
 // 3. EXPORTACIÓN Y TABLAS
 // ==========================================
@@ -1407,6 +1458,9 @@ document.addEventListener('submit', async (e) => {
                 }
             });
 
+            localStorage.setItem('gde_login_time', Date.now());
+            document.cookie = "gde_session=active; path=/";
+
             await fetchNotifications(); // Trae las notificaciones inmediatamente
             errorDiv.classList.add('hide');
             setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
@@ -1507,7 +1561,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
-        if (action === 'logout') { localStorage.removeItem('gde_token'); return setState({ currentUser: null, currentView: 'inbox', selectedItem: null }); }
+        if (action === 'logout') { clearSession(); return renderApp(); }
 
         if (action === 'download-doc-zip') {
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';
@@ -2036,4 +2090,5 @@ document.addEventListener('click', async (e) => {
     }
 });
 
-renderApp();
+//renderApp();
+initSession()

@@ -74,3 +74,23 @@ exports.bulkCreateUsers = async (req, res) => {
         res.status(500).json({ message: 'Error en la importación masiva de usuarios' });
     }
 };
+
+exports.getMe = async (req, res) => {
+    try {
+        // req.user.id viene del authMiddleware (el token decodificado)
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+
+        let user = rows[0];
+        delete user.password;
+        
+        // Parseamos las áreas igual que en el login
+        user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
+        user.areaId = user.area_id; 
+
+        res.json({ user });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al recuperar la sesión' });
+    }
+};

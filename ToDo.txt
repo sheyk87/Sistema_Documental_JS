@@ -1,7 +1,6 @@
 Features:
-IMPLEMENTADO - Firma con certificado
-- Sesiones únicas por navegador
-- ADMIN - Configuración de servicios por navegador (Correo, Ldap)
-- USUARIOS - Configuraciones personales (Contraseña, Correo, Notificaciones (Web, Correo))
-- Olvidé mi contraseña
-- 2FA
+IMPLEMENTADO - Sesiones únicas por navegador, máximo 10hs 
+- ADMIN - Panel configuración de "Servicios" desde navegador (Correo, Ldap)
+- USUARIOS - Configuraciones personales (Cambiar Contraseña, Cambiar Correo, Activar/Desactivar Notificaciones (Web, Correo))
+- Olvidé mi contraseña: para validar la solicitud de restablecimiento de contraseña, genera un correo con un código de 8 carácteres de 15 min de validez.
+- 2FA para login, el admin debe poder Activar/Desactivar 2FA del usuario, y poder activar/desactivar el Servicio 2FA como obligatorio para todos
