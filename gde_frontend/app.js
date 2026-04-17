@@ -60,6 +60,7 @@ let state = {
         notificationsOpen: false, 
         darkMode: localStorage.getItem('gde_dark_mode') === 'true' // <-- NUEVO
     },
+    servicesConfig: null,
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     notifications: [], 
     ui: { sidebarOpen: true, notificationsOpen: false }, // Agrega notificationsOpen aquí
@@ -893,7 +894,7 @@ function renderMainLayout() {
                     ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
-                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas')) : ''}
+                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
@@ -944,7 +945,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); default: return renderInbox(); }
 }
 
 function renderLogin() {
@@ -969,6 +970,58 @@ function renderAdminAreas() {
             <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
             </tr>`; 
     }).join('')}</tbody></table></div>`;
+}
+
+function renderAdminServices() {
+    const c = state.servicesConfig || {};
+    
+    const renderToggle = (id, label, checked) => `
+        <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-lg">
+            <span class="text-sm font-bold text-gray-700">${label}</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="${id}" class="sr-only peer" ${checked ? 'checked' : ''}>
+                <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+        </div>
+    `;
+
+    return `
+        <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="server" class="w-6 h-6"></i> Configuración de Servicios Core</h2>
+            
+            <form id="form-admin-services" class="space-y-8">
+                <div>
+                    <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="mail"></i> Correo Electrónico (SMTP)</h3>
+                    ${renderToggle('EMAIL_ENABLED', 'Habilitar Notificaciones por Correo', c.EMAIL_ENABLED)}
+                    
+                    <div class="grid grid-cols-2 gap-4 mt-4">
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Host del Servidor</label><input type="text" id="EMAIL_HOST" value="${c.EMAIL_HOST}" placeholder="ej: smtp.gmail.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (25, 465, 587)</label><input type="number" id="EMAIL_PORT" value="${c.EMAIL_PORT}" placeholder="587" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Usuario / Email</label><input type="email" id="EMAIL_USER" value="${c.EMAIL_USER}" placeholder="usuario@correo.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Contraseña (o App Password)</label><input type="password" id="EMAIL_PASS" value="${c.EMAIL_PASS}" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div class="col-span-2"><label class="block text-xs font-bold text-gray-600 mb-1">Remitente (From)</label><input type="text" id="EMAIL_FROM" value="${c.EMAIL_FROM}" placeholder='"Sistema GDE" <usuario@correo.com>' class="w-full p-2 border rounded outline-none text-sm" /></div>
+                    </div>
+                    <div class="mt-4">
+                        ${renderToggle('EMAIL_SECURE', 'Usar Conexión Segura Estricta (Activar solo para puerto 465)', c.EMAIL_SECURE)}
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="network"></i> Directorio Activo (LDAP)</h3>
+                    ${renderToggle('LDAP_ENABLED', 'Habilitar Autenticación LDAP', c.LDAP_ENABLED)}
+                    
+                    <div class="grid grid-cols-2 gap-4 mt-4">
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">URL de Conexión</label><input type="text" id="LDAP_URL" value="${c.LDAP_URL}" placeholder="ldap://192.168.1.200:389" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Dominio (Ej: midominio.local)</label><input type="text" id="LDAP_DOMAIN" value="${c.LDAP_DOMAIN}" placeholder="midominio.local" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                    </div>
+                </div>
+
+                <div class="pt-6 border-t flex justify-end">
+                    <button type="submit" class="px-6 py-3 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Aplicar y Reiniciar Servicios</button>
+                </div>
+            </form>
+        </div>
+    `;
 }
 
 function renderInbox() {
@@ -1528,6 +1581,42 @@ document.addEventListener('submit', async (e) => {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify({ id, name })
         }).then(res => { if(res.ok) { state.db.areas.push({ id, name }); setState({}); } });
     }
+    else if (e.target.id === 'form-admin-services') {
+        e.preventDefault();
+        
+        const payload = {
+            EMAIL_ENABLED: document.getElementById('EMAIL_ENABLED').checked,
+            EMAIL_HOST: document.getElementById('EMAIL_HOST').value,
+            EMAIL_PORT: document.getElementById('EMAIL_PORT').value,
+            EMAIL_SECURE: document.getElementById('EMAIL_SECURE').checked,
+            EMAIL_USER: document.getElementById('EMAIL_USER').value,
+            EMAIL_PASS: document.getElementById('EMAIL_PASS').value,
+            EMAIL_FROM: document.getElementById('EMAIL_FROM').value,
+            LDAP_ENABLED: document.getElementById('LDAP_ENABLED').checked,
+            LDAP_URL: document.getElementById('LDAP_URL').value,
+            LDAP_DOMAIN: document.getElementById('LDAP_DOMAIN').value,
+        };
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
+
+        fetch('http://localhost:3000/api/system/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify(payload)
+        }).then(async res => {
+            if (res.ok) {
+                alert("Configuración aplicada exitosamente. Los servicios se han recargado en caliente.");
+                state.servicesConfig = payload; // Actualizamos el estado local
+                renderApp();
+            } else {
+                alert("Error al actualizar la configuración.");
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        });
+    }
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault(); 
         const selectedAreas = Array.from(document.getElementById('admin-u-area').selectedOptions).map(o => o.value);
@@ -1550,7 +1639,21 @@ document.addEventListener('click', async (e) => {
     if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } state.pagination[model].page = 1; return renderApp(); }
 
     const navBtn = e.target.closest('[data-target-view]');
-    if (navBtn) return setState({ currentView: navBtn.getAttribute('data-target-view'), selectedItem: null, modal: null });
+    if (navBtn) {
+        const view = navBtn.getAttribute('data-target-view');
+        
+        // Si entramos a servicios, hacemos un fetch previo a la API
+        if (view === 'admin_services') {
+            fetch('http://localhost:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
+                .then(res => res.json())
+                .then(data => {
+                    state.servicesConfig = data;
+                    setState({ currentView: view, selectedItem: null, modal: null });
+                });
+            return;
+        }
+        return setState({ currentView: view, selectedItem: null, modal: null });
+    }
 
     const actionBtn = e.target.closest('[data-action]');
     if (actionBtn) {

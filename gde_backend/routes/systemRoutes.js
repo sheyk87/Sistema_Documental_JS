@@ -6,5 +6,7 @@ const authMiddleware = require('../middlewares/authMiddleware'); // Importamos a
 
 // Esta ruta está PROTEGIDA por el authMiddleware
 router.get('/init', authMiddleware, systemController.getInitialData);
+router.get('/settings', authMiddleware, systemController.getSettings);
+router.put('/settings', authMiddleware, systemController.updateSettings);
 
 module.exports = router;

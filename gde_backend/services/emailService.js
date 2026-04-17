@@ -1,42 +1,44 @@
 const nodemailer = require('nodemailer');
 
-const isEnabled = process.env.EMAIL_ENABLED === 'true';
-
 let transporter;
 
-if (isEnabled) {
-    const port = parseInt(process.env.EMAIL_PORT) || 587;
-    const isSecure = process.env.EMAIL_SECURE === 'true'; 
+exports.initTransporter = () => {
+    const isEnabled = process.env.EMAIL_ENABLED === 'true';
+    
+    if (isEnabled) {
+        const port = parseInt(process.env.EMAIL_PORT) || 587;
+        const isSecure = process.env.EMAIL_SECURE === 'true'; 
 
-    transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: port,
-        secure: isSecure, // false para 587 (STARTTLS) y 25. true para 465.
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-        },
-        tls: {
-            // Evita errores con certificados auto-firmados en servidores locales puerto 25
-            rejectUnauthorized: false 
-        }
-    });
+        transporter = nodemailer.createTransport({
+            host: process.env.EMAIL_HOST,
+            port: port,
+            secure: isSecure,
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+            },
+            tls: { rejectUnauthorized: false }
+        });
 
-    // Verificamos la conexión al iniciar el servidor
-    transporter.verify().then(() => {
-        console.log('✅ Servicio SMTP configurado y listo para enviar correos.');
-    }).catch(console.error);
-}
+        transporter.verify().then(() => {
+            console.log('✅ Servicio SMTP configurado y listo.');
+        }).catch(err => console.error('⚠️ Error al configurar SMTP:', err.message));
+    } else {
+        transporter = null; // Destruimos el transporter si se desactiva
+        console.log('⏸️ Servicio SMTP desactivado.');
+    }
+};
+
+// Inicializamos al arrancar el servidor
+exports.initTransporter();
 
 exports.sendMail = async (to, subject, text, html) => {
-    if (!isEnabled || !transporter) return; // Si está apagado en el .env, se aborta silenciosamente
+    const isEnabled = process.env.EMAIL_ENABLED === 'true';
+    if (!isEnabled || !transporter) return; 
     try {
         await transporter.sendMail({
             from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-            to,
-            subject,
-            text,
-            html
+            to, subject, text, html
         });
     } catch (error) {
         console.error("❌ Error al enviar correo a", to, ":", error.message);
