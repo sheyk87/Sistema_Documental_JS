@@ -54,6 +54,7 @@ let state = {
         archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
     },
+    forgotPass: { step: 1, email: '', maskedEmail: '', code: '' },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
         sidebarOpen: true, 
@@ -837,10 +838,15 @@ function renderApp() {
     if (state.ui.darkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
 
-    if (!state.currentUser) appRoot.innerHTML = renderLogin();
+    // NUEVO: Manejo de la vista de recuperación de contraseña antes del layout
+    if (state.currentView === 'forgot_password') {
+        appRoot.innerHTML = renderForgotPassword();
+    } 
+    else if (!state.currentUser) {
+        appRoot.innerHTML = renderLogin();
+    } 
     else {
         appRoot.innerHTML = renderMainLayout();
-        // Dibujamos la campanita inmediatamente después de renderizar el layout principal
         renderNotificationUI(); 
     }
     
@@ -950,7 +956,31 @@ function getViewContent() {
 }
 
 function renderLogin() {
-    return `<div class="min-h-screen bg-slate-900 flex items-center justify-center p-4"><div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6"><div class="text-center"><div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4"><i data-lucide="building" class="text-blue-600 w-8 h-8"></i></div><h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2></div><div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide"></div><form id="form-login" class="space-y-4"><input type="email" id="login-email" value="admin@gde.com" class="w-full px-4 py-2 border rounded-lg outline-none" /><input type="password" id="login-password" value="123" class="w-full px-4 py-2 border rounded-lg outline-none" /><button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema</button></form></div></div>`;
+    return `
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+                <div class="text-center">
+                    <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                        <i data-lucide="building" class="text-blue-600 w-8 h-8"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2>
+                </div>
+                <div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide"></div>
+                <form id="form-login" class="space-y-4">
+                    <input type="email" id="login-email" value="admin@gde.com" placeholder="Correo electrónico" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
+                    <input type="password" id="login-password" value="123" placeholder="Contraseña" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
+
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2">
+                        <i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema
+                    </button>
+
+                    <div class="flex justify-end">
+                        <button type="button" data-action="go-forgot-password" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">¿Olvidé mi contraseña?</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
 }
 
 function renderAdminUsers() {
@@ -1381,6 +1411,65 @@ function renderModalOverlay() {
     `;
 }
 
+function renderForgotPassword() {
+    const f = state.forgotPass;
+    let content = '';
+
+    if (f.step === 1) {
+        content = `
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-900">Recuperar Contraseña</h2>
+                <p class="text-sm text-gray-500 mt-2">Ingrese su usuario / correo electrónico para recibir un código de validación de 8 caracteres.</p>
+            </div>
+            <form id="form-forgot-step1" class="space-y-4">
+                <input type="email" id="forgot-email" placeholder="usuario@correo.com" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center" />
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md">Enviar Código</button>
+            </form>
+        `;
+    } else if (f.step === 2) {
+        content = `
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-900">Validar Código</h2>
+                <p class="text-sm text-gray-600 mt-2 bg-blue-50 p-2 rounded border border-blue-100">
+                    Se ha enviado un código a:<br><strong class="text-blue-700 tracking-wider">${f.maskedEmail}</strong>
+                </p>
+                <p class="text-xs text-gray-500 mt-2">Revise su bandeja de entrada e ingrese el código de 8 caracteres. (Válido por 15 min)</p>
+            </div>
+            <form id="form-forgot-step2" class="space-y-4">
+                <input type="text" id="forgot-code" placeholder="Ej: A1B2C3D4" maxlength="8" required class="w-full px-4 py-3 border rounded-lg outline-none focus:border-blue-500 text-center text-xl tracking-[0.5em] font-mono uppercase" />
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md">Verificar Código</button>
+            </form>
+        `;
+    } else if (f.step === 3) {
+        content = `
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-900">Nueva Contraseña</h2>
+                <p class="text-sm text-gray-500 mt-2">El código ha sido validado con éxito. Ingrese su nueva contraseña.</p>
+            </div>
+            <form id="form-forgot-step3" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Nueva contraseña</label>
+                    <input type="password" id="forgot-pass1" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Confirme la nueva contraseña</label>
+                    <input type="password" id="forgot-pass2" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" />
+                </div>
+                <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-5 h-5"></i> Restablecer Contraseña</button>
+            </form>
+        `;
+    }
+
+    return `
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 relative relative">
+                <button data-action="cancel-forgot-password" class="absolute top-4 left-4 text-gray-400 hover:text-gray-700 flex items-center gap-1 text-xs font-bold"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+                <div class="mt-4">${content}</div>
+            </div>
+        </div>
+    `;
+}
+
 // ==========================================
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
@@ -1712,6 +1801,72 @@ document.addEventListener('submit', async (e) => {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newUser)
         }).then(res => { if(res.ok) { state.db.users.push(newUser); setState({}); } });
     }
+    else if (e.target.id === 'form-forgot-step1') {
+        e.preventDefault();
+        const email = document.getElementById('forgot-email').value;
+        const btn = e.target.querySelector('button');
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
+
+        fetch('http://localhost:3000/api/auth/forgot-password', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+        }).then(async res => {
+            if (res.ok) {
+                const data = await res.json();
+                state.forgotPass.email = email;
+                state.forgotPass.maskedEmail = data.maskedEmail;
+                state.forgotPass.step = 2;
+                renderApp();
+            } else {
+                const err = await res.json();
+                alert(err.message);
+                btn.innerHTML = 'Enviar Código';
+            }
+        });
+    }
+    else if (e.target.id === 'form-forgot-step2') {
+        e.preventDefault();
+        const code = document.getElementById('forgot-code').value.trim();
+        const btn = e.target.querySelector('button');
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
+
+        fetch('http://localhost:3000/api/auth/validate-reset-code', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code })
+        }).then(async res => {
+            if (res.ok) {
+                state.forgotPass.code = code;
+                state.forgotPass.step = 3;
+                renderApp();
+            } else {
+                const err = await res.json();
+                alert(err.message);
+                btn.innerHTML = 'Verificar Código';
+            }
+        });
+    }
+    else if (e.target.id === 'form-forgot-step3') {
+        e.preventDefault();
+        const pass1 = document.getElementById('forgot-pass1').value;
+        const pass2 = document.getElementById('forgot-pass2').value;
+
+        if (pass1 !== pass2) return alert("Las contraseñas no coinciden. Verifique e intente nuevamente.");
+
+        const btn = e.target.querySelector('button');
+        const origHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
+
+        fetch('http://localhost:3000/api/auth/reset-password', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code: state.forgotPass.code, newPassword: pass1 })
+        }).then(async res => {
+            if (res.ok) {
+                alert("Contraseña restablecida con éxito. Ya puede iniciar sesión.");
+                setState({ currentView: 'inbox' }); // Vuelve al login
+            } else {
+                const err = await res.json();
+                alert(err.message);
+                btn.innerHTML = origHtml;
+            }
+        });
+    }
 });
 
 document.addEventListener('click', async (e) => {
@@ -1745,6 +1900,14 @@ document.addEventListener('click', async (e) => {
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') { clearSession(); return renderApp(); }
+
+        if (action === 'go-forgot-password') {
+            state.forgotPass = { step: 1, email: '', maskedEmail: '', code: '' };
+            return setState({ currentView: 'forgot_password' });
+        }
+        if (action === 'cancel-forgot-password') {
+            return setState({ currentView: 'inbox' }); // Esto forzará volver al Login al no haber currentUser
+        }
 
         if (action === 'download-doc-zip') {
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';

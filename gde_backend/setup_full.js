@@ -23,6 +23,8 @@ async function setupFull() {
                 role ENUM('admin', 'user') DEFAULT 'user',
                 web_notifications BOOLEAN DEFAULT TRUE,
                 email_notifications BOOLEAN DEFAULT TRUE,
+                reset_code VARCHAR(8) DEFAULT NULL, 
+                reset_expires DATETIME DEFAULT NULL;
                 FOREIGN KEY (area_id) REFERENCES areas(id)
             )
         `);
