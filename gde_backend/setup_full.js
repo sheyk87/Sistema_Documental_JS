@@ -21,6 +21,8 @@ async function setupFull() {
                 area_id VARCHAR(50) NOT NULL,
                 areas JSON,
                 role ENUM('admin', 'user') DEFAULT 'user',
+                web_notifications BOOLEAN DEFAULT TRUE,
+                email_notifications BOOLEAN DEFAULT TRUE,
                 FOREIGN KEY (area_id) REFERENCES areas(id)
             )
         `);

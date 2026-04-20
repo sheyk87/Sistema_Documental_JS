@@ -54,7 +54,7 @@ let state = {
         archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
     },
-    menus: { trabajo: true, nuevo: true, consultas: true, admin: true, inboxPersonal: true, inboxArea: true },
+    menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
         sidebarOpen: true, 
         notificationsOpen: false, 
@@ -894,6 +894,7 @@ function renderMainLayout() {
                     ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
+                    ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
                     ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
@@ -945,7 +946,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
 function renderLogin() {
@@ -1018,6 +1019,48 @@ function renderAdminServices() {
 
                 <div class="pt-6 border-t flex justify-end">
                     <button type="submit" class="px-6 py-3 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Aplicar y Reiniciar Servicios</button>
+                </div>
+            </form>
+        </div>
+    `;
+}
+
+function renderUserSettings() {
+    const u = state.currentUser;
+    // Si es undefined o 1, está activado. Solo es falso si es estrictamente 0
+    const webNotif = u.web_notifications !== 0; 
+    const emailNotif = u.email_notifications !== 0;
+
+    const renderToggle = (id, label, checked) => `
+        <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-lg">
+            <span class="text-sm font-bold text-gray-700">${label}</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="${id}" class="sr-only peer" ${checked ? 'checked' : ''}>
+                <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+        </div>
+    `;
+
+    return `
+        <div class="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="settings" class="w-6 h-6"></i> Configuración de mi Perfil</h2>
+            <form id="form-user-settings" class="space-y-6">
+                <div>
+                    <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="user"></i> Credenciales de Acceso</h3>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico</label><input type="email" id="profile-email" value="${u.email}" required class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label><input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="bell"></i> Preferencias de Notificaciones</h3>
+                    <div class="space-y-4">
+                        ${renderToggle('profile-web-notif', 'Recibir Notificaciones en la Web (Campanita)', webNotif)}
+                        ${renderToggle('profile-email-notif', 'Recibir Correos Electrónicos transaccionales', emailNotif)}
+                    </div>
+                </div>
+                <div class="pt-6 border-t flex justify-end">
+                    <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Guardar Configuración</button>
                 </div>
             </form>
         </div>
@@ -1572,6 +1615,43 @@ document.addEventListener('submit', async (e) => {
                 }); 
                 setState({ currentView: 'inbox' });
             } else { const errData = await res.json(); alert(`Error del servidor: ${errData.message}`); }
+        });
+    }
+    else if (e.target.id === 'form-user-settings') {
+        e.preventDefault();
+        
+        const payload = {
+            email: document.getElementById('profile-email').value,
+            newPassword: document.getElementById('profile-password').value,
+            webNotifications: document.getElementById('profile-web-notif').checked,
+            emailNotifications: document.getElementById('profile-email-notif').checked
+        };
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
+
+        fetch('http://localhost:3000/api/users/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify(payload)
+        }).then(async res => {
+            if (res.ok) {
+                alert("Perfil actualizado correctamente.");
+                // Actualizamos el estado local sin necesidad de recargar toda la página
+                state.currentUser.email = payload.email;
+                state.currentUser.web_notifications = payload.webNotifications ? 1 : 0;
+                state.currentUser.email_notifications = payload.emailNotifications ? 1 : 0;
+                
+                document.getElementById('profile-password').value = ''; // Vaciamos el input del password
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            } else {
+                const err = await res.json();
+                alert(`Error: ${err.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
         });
     }
     else if (e.target.id === 'form-admin-area') { 

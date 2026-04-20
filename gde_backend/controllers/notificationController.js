@@ -10,7 +10,6 @@ exports.createNotification = async (req, res) => {
     try {
         const expandedUserIds = new Set();
         
-        // Expandimos las áreas a usuarios individuales
         for (let id of userIds) {
             if (id.startsWith('a')) {
                 const [users] = await pool.query('SELECT id FROM users WHERE area_id = ? OR JSON_CONTAINS(areas, ?)', [id, `"${id}"`]);
@@ -20,25 +19,41 @@ exports.createNotification = async (req, res) => {
             }
         }
 
-        expandedUserIds.delete(senderId); // Evitamos auto-notificarnos
+        expandedUserIds.delete(senderId); 
         if (expandedUserIds.size === 0) return res.json({ message: 'Nadie a quien notificar' });
 
         const userIdsArray = Array.from(expandedUserIds);
-        const values = userIdsArray.map(uId => [uId, senderId, itemId, itemType, action, message]);
-        
-        // 1. Guardar notificaciones en la BD
-        await pool.query(
-            `INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message) VALUES ?`,
-            [values]
+
+        // --- NUEVO: OBTENER PREFERENCIAS DE LOS USUARIOS ---
+        const [usersConfigs] = await pool.query(
+            'SELECT id, email, name, web_notifications, email_notifications FROM users WHERE id IN (?)', 
+            [userIdsArray]
         );
 
-        // --- NUEVO: DISPARADOR DE CORREOS ELECTRÓNICOS ---
-        if (process.env.EMAIL_ENABLED === 'true') {
-            // Buscamos los emails y nombres de los destinatarios
-            const [recipients] = await pool.query('SELECT email, name FROM users WHERE id IN (?)', [userIdsArray]);
-            
-            // Enviamos los correos de forma asíncrona (sin await para no demorar la respuesta de la interfaz)
-            recipients.forEach(u => {
+        const webValues = [];
+        const emailRecipients = [];
+
+        usersConfigs.forEach(u => {
+            // 1 para MySQL significa TRUE (Activado)
+            if (u.web_notifications !== 0) {
+                webValues.push([u.id, senderId, itemId, itemType, action, message]);
+            }
+            if (u.email_notifications !== 0) {
+                emailRecipients.push(u);
+            }
+        });
+
+        // 1. Guardar notificaciones web SOLO a quienes las tienen activadas
+        if (webValues.length > 0) {
+            await pool.query(
+                `INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message) VALUES ?`,
+                [webValues]
+            );
+        }
+
+        // 2. Disparar correos SOLO a quienes los tienen activados
+        if (process.env.EMAIL_ENABLED === 'true' && emailRecipients.length > 0) {
+            emailRecipients.forEach(u => {
                 const mailSubject = `GDE - Notificación: ${action}`;
                 const mailHtml = `
                     <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; max-width: 600px;">
@@ -49,20 +64,16 @@ exports.createNotification = async (req, res) => {
                             <p style="margin: 0; font-weight: bold; color: #1e293b;">Acción: ${action}</p>
                             <p style="margin: 5px 0 0 0; color: #475569;">${message}</p>
                         </div>
-                        <p style="font-size: 14px; color: #64748b; margin-top: 30px;">Inicia sesión en tu plataforma GDE para ver los detalles y continuar el trámite.</p>
-                        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 10px;">Este es un mensaje automático, por favor no respondas a este correo.</p>
                     </div>
                 `;
-                // Enviamos usando nuestro servicio
                 emailService.sendMail(u.email, mailSubject, message, mailHtml);
             });
         }
-        // -------------------------------------------------
 
-        res.status(201).json({ message: 'Notificaciones enviadas' });
+        res.status(201).json({ message: 'Notificaciones procesadas' });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error al enviar notificaciones' });
+        res.status(500).json({ message: 'Error al procesar notificaciones' });
     }
 };
 

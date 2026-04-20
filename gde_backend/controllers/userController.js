@@ -94,3 +94,32 @@ exports.getMe = async (req, res) => {
         res.status(500).json({ message: 'Error al recuperar la sesión' });
     }
 };
+
+exports.updateProfile = async (req, res) => {
+    const { email, newPassword, webNotifications, emailNotifications } = req.body;
+    const userId = req.user.id;
+
+    try {
+        let query = `UPDATE users SET email = ?, web_notifications = ?, email_notifications = ?`;
+        let params = [email, webNotifications, emailNotifications];
+
+        if (newPassword && newPassword.trim() !== '') {
+            const hash = await bcrypt.hash(newPassword, 10);
+            query += `, password = ?`;
+            params.push(hash);
+        }
+
+        query += ` WHERE id = ?`;
+        params.push(userId);
+
+        await pool.query(query, params);
+
+        res.json({ message: 'Perfil actualizado exitosamente' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: 'El correo ingresado ya está en uso' });
+        }
+        res.status(500).json({ message: 'Error al actualizar el perfil' });
+    }
+};
