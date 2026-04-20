@@ -1,172 +1,253 @@
-// controllers/authController.js
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const ldapService = require('../services/ldapService');
 const crypto = require('crypto');
 const emailService = require('../services/emailService');
+const qrcode = require('qrcode');
+
+// ============================================================================
+// MOTOR TOTP NATIVO (Cero dependencias) - Compatible con Google Authenticator
+// ============================================================================
+function generateBase32Secret(length = 20) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const bytes = crypto.randomBytes(length);
+    let secret = '';
+    for (let i = 0; i < length; i++) {
+        secret += alphabet[bytes[i] % 32];
+    }
+    return secret;
+}
+
+function base32ToBuffer(base32) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const cleanStr = base32.replace(/=+$/, '').replace(/\s+/g, '').toUpperCase();
+    let bits = 0;
+    let value = 0;
+    const output = [];
+    for (let i = 0; i < cleanStr.length; i++) {
+        const val = alphabet.indexOf(cleanStr[i]);
+        if (val === -1) throw new Error("Invalid base32 character");
+        value = (value << 5) | val;
+        bits += 5;
+        if (bits >= 8) {
+            output.push((value >>> (bits - 8)) & 255);
+            bits -= 8;
+        }
+    }
+    return Buffer.from(output);
+}
+
+function generateTOTP(secret, windowOffset = 0) {
+    const key = base32ToBuffer(secret);
+    const time = Math.floor(Date.now() / 1000 / 30) + windowOffset;
+    const timeBuffer = Buffer.alloc(8);
+    timeBuffer.writeUInt32BE(Math.floor(time / 0x100000000), 0);
+    timeBuffer.writeUInt32BE(time & 0xffffffff, 4);
+    
+    const hmac = crypto.createHmac('sha1', key).update(timeBuffer).digest();
+    const offset = hmac[19] & 0xf;
+    const code = (hmac.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+    return code.toString().padStart(6, '0');
+}
+
+function verifyTOTP(token, secret) {
+    // Comprueba el ciclo de tiempo actual (0), el anterior (-1) y el siguiente (1)
+    // Esto da un margen de error de +- 30 segundos (sincronizacion de reloj)
+    for (let i = -1; i <= 1; i++) {
+        if (generateTOTP(secret, i) === token) return true;
+    }
+    return false;
+}
+// ============================================================================
+
+function maskEmail(email) {
+    const [local, domainExt] = email.split('@');
+    if (!domainExt) return email;
+    const domainParts = domainExt.split('.');
+    const domain = domainParts[0];
+    const tld = domainParts.slice(1).join('.');
+    let maskedLocal = local;
+    if (local.length > 2) maskedLocal = local[0] + '*'.repeat(local.length - 2) + local[local.length - 1];
+    else if (local.length === 2) maskedLocal = local[0] + '*';
+    let maskedDomain = domain;
+    if (domain.length > 1) maskedDomain = domain[0] + '*'.repeat(domain.length - 1);
+    return `${maskedLocal}@${maskedDomain}.${tld}`;
+}
 
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Faltan credenciales' });
 
     try {
-        // 1. Verificamos que el usuario exista en nuestra BD (Necesitamos su Área y Rol)
         const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado en el sistema local' });
+        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
         
         let user = rows[0];
         let isAuthenticated = false;
 
-        // 2. Intentamos Autenticación LDAP si está habilitado
         if (process.env.LDAP_ENABLED === 'true') {
             try {
                 await ldapService.authenticateLDAP(email, password);
                 isAuthenticated = true;
-                console.log(`✅ [LDAP] Usuario autenticado por Directorio Activo: ${email}`);
-            } catch (ldapError) {
-                console.log(`⚠️ [LDAP] Falló autenticación para ${email}. Motivo: ${ldapError.message}`);
-                // No retornamos error aún, hacemos Fallback a la BD local
-            }
+            } catch (ldapError) {}
         }
 
-        // 3. Fallback a BD Local (Si LDAP está apagado, falló, o es un usuario admin externo)
         if (!isAuthenticated) {
             const validPassword = await bcrypt.compare(password, user.password);
-            if (!validPassword) {
-                return res.status(401).json({ message: 'Credenciales inválidas' });
-            }
-            isAuthenticated = true;
-            console.log(`✅ [LOCAL] Usuario autenticado por BD Local: ${email}`);
+            if (!validPassword) return res.status(401).json({ message: 'Credenciales invalidas' });
         }
 
-        // 4. Parseamos las áreas permitidas (Feature 5)
+        // LOGICA 2FA
+        const global2FA = process.env.TWO_FACTOR_GLOBAL_ENABLED === 'true';
+        const mandatory2FA = process.env.TWO_FACTOR_MANDATORY === 'true';
+        const user2FAEnabled = user.two_factor_enabled === 1;
+
+        let requires2FA = false;
+        if (global2FA && (mandatory2FA || user2FAEnabled)) {
+            requires2FA = true;
+        }
+
+        if (requires2FA) {
+            // Verificamos que tenga un secreto válido
+            const isConfigured = user.two_factor_secret && user.two_factor_secret.length >= 16;
+            const tempToken = jwt.sign({ id: user.id, isTemp: true }, process.env.JWT_SECRET, { expiresIn: '15m' });
+            return res.json({ requires2FA: true, isConfigured, tempToken, message: 'Validacion 2FA requerida' });
+        }
+
+        // Flujo sin 2FA
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
-
-        // 5. Generamos el Token JWT
         delete user.password;
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret_key', { expiresIn: '10h' });
-        
+        delete user.two_factor_secret;
+
+        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
         res.json({ token, user });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error en el servidor durante el login' });
+        res.status(500).json({ message: 'Error en el servidor' });
     }
 };
 
-// Función auxiliar para enmascarar el correo según la regla solicitada
-function maskEmail(email) {
-    const [local, domainExt] = email.split('@');
-    if (!domainExt) return email;
-    
-    const domainParts = domainExt.split('.');
-    const domain = domainParts[0];
-    const tld = domainParts.slice(1).join('.');
+exports.setup2FA = async (req, res) => {
+    try {
+        const userId = req.user.id; 
+        const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [userId]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
 
-    let maskedLocal = local;
-    if (local.length > 2) {
-        maskedLocal = local[0] + '*'.repeat(local.length - 2) + local[local.length - 1];
-    } else if (local.length === 2) {
-        maskedLocal = local[0] + '*';
+        // Generamos el secreto base32 nativamente
+        const secret = generateBase32Secret(20);
+        const emailEncoded = encodeURIComponent(rows[0].email);
+        const otpauth = `otpauth://totp/SistemaGDE:${emailEncoded}?secret=${secret}&issuer=SistemaGDE`;
+        
+        const qrCodeUrl = await qrcode.toDataURL(otpauth);
+
+        await pool.query('UPDATE users SET two_factor_secret = ? WHERE id = ?', [secret, userId]);
+
+        res.json({ qrCodeUrl, secret });
+    } catch (error) {
+        console.error("Error en setup2FA:", error);
+        res.status(500).json({ message: 'Error al generar configuracion 2FA' });
     }
+};
 
-    let maskedDomain = domain;
-    if (domain.length > 1) {
-        maskedDomain = domain[0] + '*'.repeat(domain.length - 1);
-    }
-
-    return `${maskedLocal}@${maskedDomain}.${tld}`;
-}
-
-exports.forgotPassword = async (req, res) => {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Ingrese su usuario / correo electrónico' });
+exports.verify2FA = async (req, res) => {
+    const { code } = req.body;
+    const userId = req.user.id;
 
     try {
-        const [rows] = await pool.query('SELECT id, name, email FROM users WHERE email = ?', [email]);
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
         if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
 
         const user = rows[0];
-        // Genera código alfanumérico de 8 caracteres
-        const code = crypto.randomBytes(4).toString('hex').toUpperCase(); 
-        
-        // Expiración en 15 minutos exactos
-        const expires = new Date(Date.now() + 15 * 60 * 1000); 
+        const secret = user.two_factor_secret;
 
-        await pool.query('UPDATE users SET reset_code = ?, reset_expires = ? WHERE id = ?', [code, expires, user.id]);
-
-        if (process.env.EMAIL_ENABLED === 'true') {
-            const mailSubject = 'GDE - Código de recuperación de contraseña';
-            const mailHtml = `
-                <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                    <h2 style="color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Recuperación de Contraseña</h2>
-                    <p style="color: #334155;">Hola <strong>${user.name}</strong>,</p>
-                    <p style="color: #334155;">Has solicitado restablecer tu contraseña. Tu código de validación de 8 caracteres es:</p>
-                    <div style="background: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-                        <h1 style="margin: 0; letter-spacing: 8px; color: #2563eb; font-family: monospace;">${code}</h1>
-                    </div>
-                    <p style="color: #334155;">Este código es válido por <strong>15 minutos</strong>.</p>
-                    <p style="color: #dc2626; font-size: 13px; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-                        <strong>Aviso de Seguridad:</strong> Si no es una solicitud real, por favor desestime este correo y contemple cambiar su contraseña actual desde el panel de configuración de su cuenta para mantener su seguridad.
-                    </p>
-                </div>
-            `;
-            emailService.sendMail(user.email, mailSubject, `Tu código es: ${code}`, mailHtml);
+        if (!secret || secret.length < 16) {
+            return res.status(400).json({ message: 'Servicio 2FA no configurado o corrupto. Contacte al Administrador.' });
         }
 
-        res.json({ message: 'Código generado y enviado', maskedEmail: maskEmail(user.email) });
+        const tokenStr = String(code).trim();
+        
+        console.log(`\n=== VERIFICACIÓN 2FA NATIVA ===`);
+        console.log(`Usuario: ${user.email}`);
+        console.log(`Código Celular: ${tokenStr}`);
+        console.log(`Código Node (Actual): ${generateTOTP(secret, 0)}`);
+        console.log(`===============================\n`);
+
+        // Validación Nativa (Soporta margen de tiempo)
+        const isValid = verifyTOTP(tokenStr, secret);
+
+        if (!isValid) {
+            return res.status(401).json({ message: 'Codigo 2FA incorrecto o expirado.' });
+        }
+
+        // ÉXITO
+        user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
+        user.areaId = user.area_id; 
+        delete user.password;
+        delete user.two_factor_secret;
+
+        const tokenJWT = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
+        res.json({ token: tokenJWT, user });
+
+    } catch (error) {
+        console.error("Error en verify2FA:", error);
+        res.status(500).json({ message: 'Error interno al verificar 2FA.' });
+    }
+};
+
+exports.forgotPassword = async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Ingrese su usuario / correo electronico' });
+    try {
+        const [rows] = await pool.query('SELECT id, name, email FROM users WHERE email = ?', [email]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+        const user = rows[0];
+        const code = crypto.randomBytes(4).toString('hex').toUpperCase(); 
+        const expires = new Date(Date.now() + 15 * 60 * 1000); 
+        await pool.query('UPDATE users SET reset_code = ?, reset_expires = ? WHERE id = ?', [code, expires, user.id]);
+        if (process.env.EMAIL_ENABLED === 'true') {
+            const mailSubject = 'GDE - Codigo de recuperacion de contrasena';
+            const mailHtml = `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;"><h2 style="color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Recuperacion de Contrasena</h2><p style="color: #334155;">Hola <strong>${user.name}</strong>,</p><p style="color: #334155;">Has solicitado restablecer tu contrasena. Tu codigo de validacion de 8 caracteres es:</p><div style="background: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;"><h1 style="margin: 0; letter-spacing: 8px; color: #2563eb; font-family: monospace;">${code}</h1></div><p style="color: #334155;">Este codigo es valido por <strong>15 minutos</strong>.</p><p style="color: #dc2626; font-size: 13px; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>Aviso de Seguridad:</strong> Si no es una solicitud real, por favor desestime este correo y contemple cambiar su contrasena actual desde el panel de configuracion de su cuenta para mantener su seguridad.</p></div>`;
+            emailService.sendMail(user.email, mailSubject, `Tu codigo es: ${code}`, mailHtml);
+        }
+        res.json({ message: 'Codigo generado y enviado', maskedEmail: maskEmail(user.email) });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error interno al generar código de recuperación' });
+        res.status(500).json({ message: 'Error interno' });
     }
 };
 
 exports.validateResetCode = async (req, res) => {
     const { email, code } = req.body;
     if (!email || !code) return res.status(400).json({ message: 'Faltan datos' });
-
     try {
         const [rows] = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE email = ?', [email]);
         if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
-
         const user = rows[0];
-        
-        if (!user.reset_code || user.reset_code !== code.toUpperCase()) {
-            return res.status(400).json({ message: 'Código inválido o incorrecto' });
-        }
-        if (new Date() > new Date(user.reset_expires)) {
-            return res.status(400).json({ message: 'El código ha expirado (pasaron más de 15 minutos)' });
-        }
-
-        res.json({ message: 'Código válido' });
+        if (!user.reset_code || user.reset_code !== code.toUpperCase()) return res.status(400).json({ message: 'Codigo invalido' });
+        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El codigo ha expirado' });
+        res.json({ message: 'Codigo valido' });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error interno al validar el código' });
+        res.status(500).json({ message: 'Error interno' });
     }
 };
 
 exports.resetPassword = async (req, res) => {
     const { email, code, newPassword } = req.body;
     if (!email || !code || !newPassword) return res.status(400).json({ message: 'Faltan datos' });
-
     try {
         const [rows] = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE email = ?', [email]);
         if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
-
         const user = rows[0];
-
-        // Doble validación por seguridad antes de impactar la base de datos
-        if (!user.reset_code || user.reset_code !== code.toUpperCase()) return res.status(400).json({ message: 'Código inválido' });
-        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El código ha expirado' });
-
+        if (!user.reset_code || user.reset_code !== code.toUpperCase()) return res.status(400).json({ message: 'Codigo invalido' });
+        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El codigo ha expirado' });
         const hash = await bcrypt.hash(newPassword, 10);
-        // Actualizamos contraseña y limpiamos los códigos de recuperación
         await pool.query('UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE id = ?', [hash, user.id]);
-
-        res.json({ message: 'Contraseña actualizada exitosamente' });
+        res.json({ message: 'Contrasena actualizada' });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error interno al restablecer contraseña' });
+        res.status(500).json({ message: 'Error interno' });
     }
 };

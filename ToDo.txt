@@ -1,3 +1,3 @@
 Features: 
-IMPLEMENTADO - Olvidé mi contraseña: para validar la solicitud de restablecimiento de contraseña, genera un correo con un código de 8 carácteres de 15 min de validez.
-- 2FA para login, el admin debe poder Activar/Desactivar 2FA del usuario, y poder activar/desactivar el Servicio 2FA como obligatorio para todos
+IMPLEMENTADO - 2FA para login, el admin debe poder Activar/Desactivar 2FA de cada usuario, y poder activar/desactivar el Servicio 2FA en sí, y que sea o no obligatorio para todos
+- Códigos de recuperación de 1 sólo uso para los usuarios.

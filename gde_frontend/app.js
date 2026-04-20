@@ -55,6 +55,7 @@ let state = {
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
     },
     forgotPass: { step: 1, email: '', maskedEmail: '', code: '' },
+    loginFlow: { step: 1, tempToken: null, qrCodeUrl: null },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
         sidebarOpen: true, 
@@ -956,35 +957,68 @@ function getViewContent() {
 }
 
 function renderLogin() {
+    const f = state.loginFlow;
+    
+    let content = '';
+    if (f.step === 1) {
+        content = `
+            <div class="text-center mb-6">
+                <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                    <i data-lucide="building" class="text-blue-600 w-8 h-8"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2>
+            </div>
+            <div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide mb-4"></div>
+            <form id="form-login" class="space-y-4">
+                <input type="email" id="login-email" value="admin@gde.com" placeholder="Correo electronico" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
+                <input type="password" id="login-password" value="123" placeholder="Contrasena" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
+                <div class="flex justify-end"><button type="button" data-action="go-forgot-password" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">Olvide mi contrasena</button></div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar</button>
+            </form>
+        `;
+    } else if (f.step === 2) {
+        content = `
+            <div class="text-center mb-6">
+                <h2 class="text-xl font-bold text-gray-900">Configurar 2FA</h2>
+                <p class="text-sm text-gray-500 mt-2">Escanea este codigo QR con Google Authenticator o Authy.</p>
+                <div class="flex justify-center my-4 bg-white p-2 rounded-lg border border-gray-200 inline-block">
+                    <img src="${f.qrCodeUrl}" alt="QR Code" class="w-48 h-48 mx-auto" />
+                </div>
+            </div>
+            <form id="form-verify-2fa" class="space-y-4">
+                <input type="text" id="login-2fa-code" placeholder="Ingresa los 6 digitos" maxlength="6" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center tracking-widest text-xl font-mono" required />
+                <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="shield-check" class="w-5 h-5"></i> Verificar y Continuar</button>
+                <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Cancelar</button>
+            </form>
+        `;
+    } else if (f.step === 3) {
+        content = `
+            <div class="text-center mb-6">
+                <div class="mx-auto w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 border border-blue-100">
+                    <i data-lucide="smartphone" class="text-blue-600 w-8 h-8"></i>
+                </div>
+                <h2 class="text-xl font-bold text-gray-900">Verificacion de 2 Pasos</h2>
+                <p class="text-sm text-gray-500 mt-2">Ingresa el codigo generado por tu aplicacion autenticadora.</p>
+            </div>
+            <form id="form-verify-2fa" class="space-y-4">
+                <input type="text" id="login-2fa-code" placeholder="------" maxlength="6" class="w-full px-4 py-3 border rounded-lg outline-none focus:border-blue-500 text-center tracking-[0.5em] text-2xl font-mono" required autofocus />
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="unlock" class="w-5 h-5"></i> Autenticar</button>
+                <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Volver al inicio</button>
+            </form>
+        `;
+    }
+
     return `
         <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
-                <div class="text-center">
-                    <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                        <i data-lucide="building" class="text-blue-600 w-8 h-8"></i>
-                    </div>
-                    <h2 class="text-2xl font-bold text-gray-900">Sistema GDE</h2>
-                </div>
-                <div id="login-error" class="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-200 hide"></div>
-                <form id="form-login" class="space-y-4">
-                    <input type="email" id="login-email" value="admin@gde.com" placeholder="Correo electrónico" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
-                    <input type="password" id="login-password" value="123" placeholder="Contraseña" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
-
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2">
-                        <i data-lucide="log-in" class="w-5 h-5"></i> Ingresar al Sistema
-                    </button>
-
-                    <div class="flex justify-end">
-                        <button type="button" data-action="go-forgot-password" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">¿Olvidé mi contraseña?</button>
-                    </div>
-                </form>
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 transition-all duration-300">
+                ${content}
             </div>
         </div>
     `;
 }
 
 function renderAdminUsers() {
-    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2 uppercase text-xs">${u.role}</td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol / 2FA</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2"><span class="uppercase text-xs font-bold block">${u.role}</span><span class="text-[10px] ${u.twoFactorEnabled ? 'text-emerald-600' : 'text-gray-400'}">${u.twoFactorEnabled ? '2FA Activo' : '2FA Inactivo'}</span></td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminAreas() {
@@ -1045,6 +1079,15 @@ function renderAdminServices() {
                         <div><label class="block text-xs font-bold text-gray-600 mb-1">URL de Conexión</label><input type="text" id="LDAP_URL" value="${c.LDAP_URL}" placeholder="ldap://192.168.1.200:389" class="w-full p-2 border rounded outline-none text-sm" /></div>
                         <div><label class="block text-xs font-bold text-gray-600 mb-1">Dominio (Ej: midominio.local)</label><input type="text" id="LDAP_DOMAIN" value="${c.LDAP_DOMAIN}" placeholder="midominio.local" class="w-full p-2 border rounded outline-none text-sm" /></div>
                     </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-bold text-emerald-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="shield-check"></i> Autenticacion de Dos Factores (2FA)</h3>
+                    ${renderToggle('TWO_FACTOR_GLOBAL_ENABLED', 'Habilitar Servicio 2FA a nivel Sistema', c.TWO_FACTOR_GLOBAL_ENABLED)}
+                    <div class="mt-4">
+                        ${renderToggle('TWO_FACTOR_MANDATORY', 'Hacer 2FA Obligatorio para TODOS los usuarios', c.TWO_FACTOR_MANDATORY)}
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Nota: Si el servicio esta deshabilitado, nadie usara 2FA. Si es obligatorio, forzara la configuracion a quienes no lo tengan.</p>
                 </div>
 
                 <div class="pt-6 border-t flex justify-end">
@@ -1316,6 +1359,12 @@ function renderModalOverlay() {
                         ${state.db.areas.map(a => `<option value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'selected' : ''}>${a.name}</option>`).join('')}
                     </select>
                 </div>
+
+                <div class="flex items-center justify-between p-2 bg-gray-50 border rounded mb-3">
+                    <label class="text-xs font-bold text-gray-600">Habilitar 2FA</label>
+                    <input type="checkbox" data-modal-input="editU2FA" ${m.editU2FA ? 'checked' : ''} class="w-4 h-4 cursor-pointer" />
+                </div>
+
                 <div><label class="text-xs font-bold text-gray-600">Rol</label><select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none"><option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option></select></div>
             </div>
         `;
@@ -1507,6 +1556,9 @@ document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-modal-input')) { 
         if (e.target.multiple) {
             state.modal[e.target.getAttribute('data-modal-input')] = Array.from(e.target.selectedOptions).map(o => o.value);
+        } else if (e.target.type === 'checkbox') {
+            // --- NUEVO: CAPTURAR ESTADO DE LOS CHECKBOX EN EL MODAL ---
+            state.modal[e.target.getAttribute('data-modal-input')] = e.target.checked;
         } else {
             state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; 
         }
@@ -1588,72 +1640,117 @@ document.addEventListener('change', (e) => {
     }
 });
 
+async function initializeAppWithToken(token, user) {
+    localStorage.setItem('gde_token', token);
+    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+        method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+    });
+    if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
+    const sysData = await sysResponse.json();
+    state.db.areas = sysData.areas;
+    state.db.users = sysData.users;
+    const docsResponse = await fetch('http://localhost:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    state.db.documents = await docsResponse.json();
+    const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    state.db.expedientes = await expsResponse.json();
+
+    state.db.counters = {};
+    const allItems = [...state.db.documents, ...state.db.expedientes];
+    allItems.forEach(item => {
+        if (item.number) {
+            const parts = item.number.split('-');
+            if (parts.length >= 3) {
+                const key = `${parts[0]}-${parts[1]}`;
+                const currentNum = parseInt(parts[2], 10);
+                if (!state.db.counters[key] || currentNum > state.db.counters[key]) {
+                    state.db.counters[key] = currentNum;
+                }
+            }
+        }
+    });
+
+    localStorage.setItem('gde_login_time', Date.now());
+    document.cookie = "gde_session=active; path=/";
+    await fetchNotifications();
+    
+    state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
+    setState({ currentUser: user, currentView: 'inbox', selectedItem: null });
+}
+
 document.addEventListener('submit', async (e) => {
     if (e.target.id === 'form-login') {
         e.preventDefault();
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
         const errorDiv = document.getElementById('login-error');
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalBtnHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Validando...';
 
         try {
             const response = await fetch('http://localhost:3000/api/auth/login', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
             });
 
-            if (!response.ok) throw new Error('Credenciales invalidas');
-
             const data = await response.json();
-            data.user.areaId = data.user.area_id;
-            localStorage.setItem('gde_token', data.token);
+            if (!response.ok) throw new Error(data.message || 'Credenciales invalidas');
 
-            const sysResponse = await fetch('http://localhost:3000/api/system/init', {
-                method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${data.token}` }
-            });
+            // Logica para manejar 2FA
+            if (data.requires2FA) {
+                state.loginFlow.tempToken = data.tempToken;
+                
+                if (!data.isConfigured) {
+                    // Si no esta configurado, solicitamos el QR al backend usando el tempToken
+                    const setupRes = await fetch('http://localhost:3000/api/auth/2fa/setup', {
+                        method: 'POST', headers: { 'Authorization': `Bearer ${data.tempToken}` }
+                    });
+                    const setupData = await setupRes.json();
+                    
+                    // NUEVO: Validación estricta. Si el servidor falla, abortamos y mostramos el error.
+                    if (!setupRes.ok) throw new Error(setupData.message || 'Error al generar el QR de 2FA');
 
-            if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
-            const sysData = await sysResponse.json();
-
-            state.db.areas = sysData.areas;
-            state.db.users = sysData.users;
-            
-            const docsResponse = await fetch('http://localhost:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${data.token}` } });
-            state.db.documents = await docsResponse.json();
-
-            const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${data.token}` } });
-            state.db.expedientes = await expsResponse.json();
-
-            // --- NUEVO: RECONSTRUCCIÓN DE CONTADORES ---
-            // Escaneamos la BD para continuar la numeración desde donde se quedó
-            state.db.counters = {};
-            const allItems = [...state.db.documents, ...state.db.expedientes];
-            
-            allItems.forEach(item => {
-                if (item.number) {
-                    // Formato esperado: YYYY-CODIGO-000000-AREA (ej: 2026-EX-000001-Sistemas)
-                    const parts = item.number.split('-');
-                    if (parts.length >= 3) {
-                        const key = `${parts[0]}-${parts[1]}`; // ej: "2026-EX"
-                        const currentNum = parseInt(parts[2], 10); // ej: 1
-                        
-                        // Si no existe la llave o encontramos un número mayor, lo actualizamos
-                        if (!state.db.counters[key] || currentNum > state.db.counters[key]) {
-                            state.db.counters[key] = currentNum;
-                        }
-                    }
+                    state.loginFlow.qrCodeUrl = setupData.qrCodeUrl;
+                    state.loginFlow.step = 2; // Vista de generacion de QR
+                } else {
+                    state.loginFlow.step = 3; 
                 }
-            });
+                return renderApp();
+            }
 
-            localStorage.setItem('gde_login_time', Date.now());
-            document.cookie = "gde_session=active; path=/";
-
-            await fetchNotifications(); // Trae las notificaciones inmediatamente
-            errorDiv.classList.add('hide');
-            setState({ currentUser: data.user, currentView: 'inbox', selectedItem: null });
+            // Flujo normal sin 2FA
+            data.user.areaId = data.user.area_id;
+            await initializeAppWithToken(data.token, data.user);
 
         } catch (error) {
             console.error(error);
-            errorDiv.textContent = 'Credenciales invalidas o error de servidor.';
+            errorDiv.textContent = error.message;
             errorDiv.classList.remove('hide');
+            btn.innerHTML = originalBtnHtml;
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+    else if (e.target.id === 'form-verify-2fa') {
+        e.preventDefault();
+        const code = document.getElementById('login-2fa-code').value.trim();
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalBtnHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Verificando...';
+
+        try {
+            const response = await fetch('http://localhost:3000/api/auth/2fa/verify', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.loginFlow.tempToken}` }, body: JSON.stringify({ code })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Codigo invalido');
+
+            data.user.areaId = data.user.area_id;
+            await initializeAppWithToken(data.token, data.user);
+
+        } catch (error) {
+            alert(error.message);
+            btn.innerHTML = originalBtnHtml;
+            if (window.lucide) lucide.createIcons();
         }
     }
     else if (e.target.id === 'form-create-doc') {
@@ -1764,6 +1861,8 @@ document.addEventListener('submit', async (e) => {
             LDAP_ENABLED: document.getElementById('LDAP_ENABLED').checked,
             LDAP_URL: document.getElementById('LDAP_URL').value,
             LDAP_DOMAIN: document.getElementById('LDAP_DOMAIN').value,
+            TWO_FACTOR_GLOBAL_ENABLED: document.getElementById('TWO_FACTOR_GLOBAL_ENABLED').checked,
+            TWO_FACTOR_MANDATORY: document.getElementById('TWO_FACTOR_MANDATORY').checked,
         };
 
         const btn = e.target.querySelector('button[type="submit"]');
@@ -1904,6 +2003,10 @@ document.addEventListener('click', async (e) => {
         if (action === 'go-forgot-password') {
             state.forgotPass = { step: 1, email: '', maskedEmail: '', code: '' };
             return setState({ currentView: 'forgot_password' });
+        }
+        if (action === 'cancel-login') {
+            state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
+            return renderApp();
         }
         if (action === 'cancel-forgot-password') {
             return setState({ currentView: 'inbox' }); // Esto forzará volver al Login al no haber currentUser
@@ -2141,7 +2244,7 @@ document.addEventListener('click', async (e) => {
             await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role;mState.editUAreas = u.areas || [u.areaId]; }
+            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role;mState.editUAreas = u.areas || [u.areaId]; mState.editU2FA = !!u.twoFactorEnabled; }
             if (type === 'ver_usuarios_area') {mState.selectedId = actionBtn.getAttribute('data-id');}
             return setState({ modal: mState });
         }
@@ -2158,7 +2261,8 @@ document.addEventListener('click', async (e) => {
                     name: m.editUName, email: m.editUEmail, password: m.editUPass, // Si está vacío, el backend lo ignorará
                     areaId: m.editUAreas[0], 
                     areas: m.editUAreas, 
-                    role: m.editURole 
+                    role: m.editURole,
+                    twoFactorEnabled: m.editU2FA
                 };
                 
                 fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {

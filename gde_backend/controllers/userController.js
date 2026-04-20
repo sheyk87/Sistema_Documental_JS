@@ -18,20 +18,22 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, email, password, areaId, role, areas } = req.body;
+    const { name, email, password, areaId, role, areas, twoFactorEnabled } = req.body;
     try {
+        const is2FAEnabled = twoFactorEnabled ? 1 : 0;
+        // Si el admin desactiva el 2FA, anulamos el secreto para que requiera nueva configuracion si se reactiva
+        const secretQuery = is2FAEnabled === 0 ? ", two_factor_secret = NULL" : "";
+
         if (password && password.trim() !== '') {
-            // Si enviaron una contraseña nueva, la encriptamos y la guardamos
             const hash = await bcrypt.hash(password, 10);
             await pool.query(
-                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ? WHERE id = ?`,
-                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), id]
+                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?${secretQuery} WHERE id = ?`,
+                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, id]
             );
         } else {
-            // Si está vacía, actualizamos todo MENOS la contraseña
             await pool.query(
-                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ? WHERE id = ?`,
-                [name, email, areaId, role, JSON.stringify(areas || [areaId]), id]
+                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?${secretQuery} WHERE id = ?`,
+                [name, email, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, id]
             );
         }
         res.json({ message: 'Usuario actualizado exitosamente' });

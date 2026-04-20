@@ -7,12 +7,11 @@ const emailService = require('../services/emailService');
 exports.getInitialData = async (req, res) => {
     try {
         const [areas] = await pool.query('SELECT id, name FROM areas');
-        // Agregamos la columna 'areas' a la consulta
-        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas FROM users');
+        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled FROM users');
         
-        // Parseamos el JSON para el frontend
         const users = usersRows.map(u => ({
             ...u,
+            twoFactorEnabled: u.two_factor_enabled === 1,
             areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId])
         }));
         
@@ -36,7 +35,9 @@ exports.getSettings = (req, res) => {
         EMAIL_FROM: process.env.EMAIL_FROM || '',
         LDAP_ENABLED: process.env.LDAP_ENABLED === 'true',
         LDAP_URL: process.env.LDAP_URL || '',
-        LDAP_DOMAIN: process.env.LDAP_DOMAIN || ''
+        LDAP_DOMAIN: process.env.LDAP_DOMAIN || '',
+        TWO_FACTOR_GLOBAL_ENABLED: process.env.TWO_FACTOR_GLOBAL_ENABLED === 'true',
+        TWO_FACTOR_MANDATORY: process.env.TWO_FACTOR_MANDATORY === 'true'
     });
 };
 
