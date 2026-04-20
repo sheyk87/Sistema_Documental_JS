@@ -1,3 +1,3 @@
 Features: 
-IMPLEMENTADO - 2FA para login, el admin debe poder Activar/Desactivar 2FA de cada usuario, y poder activar/desactivar el Servicio 2FA en sí, y que sea o no obligatorio para todos
-- Códigos de recuperación de 1 sólo uso para los usuarios.
+IMPLEMENTADO - Códigos de recuperación de 1 sólo uso para los usuarios.
+- Correo informando que se cambio la contraseña, correo informando cuando se activa/desactiva el 2FA y en que dispositivo fue activado y los códigos de recuperación que se generaron, correo informando cuando se regeneran los códigos de recuperación y cuáles son.

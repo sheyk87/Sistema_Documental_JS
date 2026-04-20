@@ -55,7 +55,7 @@ let state = {
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
     },
     forgotPass: { step: 1, email: '', maskedEmail: '', code: '' },
-    loginFlow: { step: 1, tempToken: null, qrCodeUrl: null },
+    loginFlow: { step: 1, tempToken: null, qrCodeUrl: null, recoveryCodes: [] },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
         sidebarOpen: true, 
@@ -978,15 +978,22 @@ function renderLogin() {
         `;
     } else if (f.step === 2) {
         content = `
-            <div class="text-center mb-6">
+            <div class="text-center mb-4">
                 <h2 class="text-xl font-bold text-gray-900">Configurar 2FA</h2>
-                <p class="text-sm text-gray-500 mt-2">Escanea este codigo QR con Google Authenticator o Authy.</p>
-                <div class="flex justify-center my-4 bg-white p-2 rounded-lg border border-gray-200 inline-block">
-                    <img src="${f.qrCodeUrl}" alt="QR Code" class="w-48 h-48 mx-auto" />
+                <p class="text-sm text-gray-500 mt-2">Escanee este codigo QR con su aplicacion.</p>
+                <div class="flex justify-center mt-2 bg-white p-2 rounded-lg border border-gray-200 inline-block">
+                    <img src="${f.qrCodeUrl}" alt="QR Code" class="w-32 h-32 mx-auto" />
+                </div>
+                <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-left">
+                    <p class="text-xs font-bold text-amber-800 mb-2"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> Codigos de Recuperacion:</p>
+                    <div class="grid grid-cols-2 gap-2 font-mono text-[11px] text-gray-700 bg-white p-2 rounded border">
+                        ${(f.recoveryCodes || []).map(c => `<div>${c}</div>`).join('')}
+                    </div>
+                    <p class="text-[10px] text-amber-700 mt-2 leading-tight">Guardelos. Solo se mostraran esta vez. Sirven por si pierde su dispositivo.</p>
                 </div>
             </div>
             <form id="form-verify-2fa" class="space-y-4">
-                <input type="text" id="login-2fa-code" placeholder="Ingresa los 6 digitos" maxlength="6" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center tracking-widest text-xl font-mono" required />
+                <input type="text" id="login-2fa-code" placeholder="Ingrese 6 digitos" maxlength="8" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center tracking-widest text-xl font-mono uppercase" required />
                 <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="shield-check" class="w-5 h-5"></i> Verificar y Continuar</button>
                 <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Cancelar</button>
             </form>
@@ -997,11 +1004,11 @@ function renderLogin() {
                 <div class="mx-auto w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 border border-blue-100">
                     <i data-lucide="smartphone" class="text-blue-600 w-8 h-8"></i>
                 </div>
-                <h2 class="text-xl font-bold text-gray-900">Verificacion de 2 Pasos</h2>
-                <p class="text-sm text-gray-500 mt-2">Ingresa el codigo generado por tu aplicacion autenticadora.</p>
+                <h2 class="text-xl font-bold text-gray-900">Verificacion de Seguridad</h2>
+                <p class="text-sm text-gray-500 mt-2">Ingrese el codigo de su aplicacion o un codigo de recuperacion de 8 caracteres.</p>
             </div>
             <form id="form-verify-2fa" class="space-y-4">
-                <input type="text" id="login-2fa-code" placeholder="------" maxlength="6" class="w-full px-4 py-3 border rounded-lg outline-none focus:border-blue-500 text-center tracking-[0.5em] text-2xl font-mono" required autofocus />
+                <input type="text" id="login-2fa-code" placeholder="Codigo" maxlength="8" class="w-full px-4 py-3 border rounded-lg outline-none focus:border-blue-500 text-center tracking-[0.5em] text-2xl font-mono uppercase" required autofocus />
                 <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="unlock" class="w-5 h-5"></i> Autenticar</button>
                 <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Volver al inicio</button>
             </form>
@@ -1705,12 +1712,11 @@ document.addEventListener('submit', async (e) => {
                         method: 'POST', headers: { 'Authorization': `Bearer ${data.tempToken}` }
                     });
                     const setupData = await setupRes.json();
-                    
-                    // NUEVO: Validación estricta. Si el servidor falla, abortamos y mostramos el error.
                     if (!setupRes.ok) throw new Error(setupData.message || 'Error al generar el QR de 2FA');
 
                     state.loginFlow.qrCodeUrl = setupData.qrCodeUrl;
-                    state.loginFlow.step = 2; // Vista de generacion de QR
+                    state.loginFlow.recoveryCodes = setupData.recoveryCodes; // <-- NUEVO GUARDADO
+                    state.loginFlow.step = 2;
                 } else {
                     state.loginFlow.step = 3; 
                 }

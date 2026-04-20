@@ -27,6 +27,7 @@ async function setupFull() {
                 reset_expires DATETIME DEFAULT NULL;
                 two_factor_secret VARCHAR(255) DEFAULT NULL,
                 two_factor_enabled BOOLEAN DEFAULT FALSE;
+                two_factor_recovery_codes JSON DEFAULT NULL;
                 FOREIGN KEY (area_id) REFERENCES areas(id)
             )
         `);

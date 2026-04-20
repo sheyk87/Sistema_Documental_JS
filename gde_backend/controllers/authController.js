@@ -135,16 +135,19 @@ exports.setup2FA = async (req, res) => {
         const [rows] = await pool.query('SELECT email FROM users WHERE id = ?', [userId]);
         if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
 
-        // Generamos el secreto base32 nativamente
         const secret = generateBase32Secret(20);
         const emailEncoded = encodeURIComponent(rows[0].email);
         const otpauth = `otpauth://totp/SistemaGDE:${emailEncoded}?secret=${secret}&issuer=SistemaGDE`;
         
         const qrCodeUrl = await qrcode.toDataURL(otpauth);
 
-        await pool.query('UPDATE users SET two_factor_secret = ? WHERE id = ?', [secret, userId]);
+        // NUEVO: Generamos 6 códigos de recuperación alfanuméricos de 8 caracteres
+        const recoveryCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
 
-        res.json({ qrCodeUrl, secret });
+        // Guardamos tanto el secreto como los códigos en la BD
+        await pool.query('UPDATE users SET two_factor_secret = ?, two_factor_recovery_codes = ? WHERE id = ?', [secret, JSON.stringify(recoveryCodes), userId]);
+
+        res.json({ qrCodeUrl, secret, recoveryCodes });
     } catch (error) {
         console.error("Error en setup2FA:", error);
         res.status(500).json({ message: 'Error al generar configuracion 2FA' });
@@ -166,19 +169,29 @@ exports.verify2FA = async (req, res) => {
             return res.status(400).json({ message: 'Servicio 2FA no configurado o corrupto. Contacte al Administrador.' });
         }
 
-        const tokenStr = String(code).trim();
-        
-        console.log(`\n=== VERIFICACIÓN 2FA NATIVA ===`);
-        console.log(`Usuario: ${user.email}`);
-        console.log(`Código Celular: ${tokenStr}`);
-        console.log(`Código Node (Actual): ${generateTOTP(secret, 0)}`);
-        console.log(`===============================\n`);
+        const tokenStr = String(code).trim().toUpperCase(); // Forzamos mayúsculas por si ingresan un código de recuperación
+        let isValid = false;
 
-        // Validación Nativa (Soporta margen de tiempo)
-        const isValid = verifyTOTP(tokenStr, secret);
+        // NUEVO: Extraemos los códigos de recuperación de la BD
+        let recoveryCodes = [];
+        try {
+            recoveryCodes = typeof user.two_factor_recovery_codes === 'string' ? JSON.parse(user.two_factor_recovery_codes) : (user.two_factor_recovery_codes || []);
+        } catch(e) {}
+
+        // Verificamos si el usuario ingresó un código de recuperación válido (8 caracteres)
+        if (tokenStr.length === 8 && recoveryCodes.includes(tokenStr)) {
+            isValid = true;
+            // Como es de un solo uso, lo eliminamos del array y actualizamos la base de datos
+            recoveryCodes = recoveryCodes.filter(c => c !== tokenStr);
+            await pool.query('UPDATE users SET two_factor_recovery_codes = ? WHERE id = ?', [JSON.stringify(recoveryCodes), userId]);
+            console.log(`[2FA] Usuario ${user.email} ingreso usando codigo de recuperacion.`);
+        } else {
+            // Si no es un código de recuperación, intentamos la Validación Nativa TOTP normal (6 dígitos)
+            isValid = verifyTOTP(tokenStr, secret);
+        }
 
         if (!isValid) {
-            return res.status(401).json({ message: 'Codigo 2FA incorrecto o expirado.' });
+            return res.status(401).json({ message: 'Codigo 2FA o codigo de recuperacion incorrecto.' });
         }
 
         // ÉXITO
@@ -186,6 +199,7 @@ exports.verify2FA = async (req, res) => {
         user.areaId = user.area_id; 
         delete user.password;
         delete user.two_factor_secret;
+        delete user.two_factor_recovery_codes;
 
         const tokenJWT = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
         res.json({ token: tokenJWT, user });
