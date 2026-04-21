@@ -1107,7 +1107,6 @@ function renderAdminServices() {
 
 function renderUserSettings() {
     const u = state.currentUser;
-    // Si es undefined o 1, está activado. Solo es falso si es estrictamente 0
     const webNotif = u.web_notifications !== 0; 
     const emailNotif = u.email_notifications !== 0;
 
@@ -1122,27 +1121,47 @@ function renderUserSettings() {
     `;
 
     return `
-        <div class="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-200">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="settings" class="w-6 h-6"></i> Configuración de mi Perfil</h2>
-            <form id="form-user-settings" class="space-y-6">
-                <div>
-                    <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="user"></i> Credenciales de Acceso</h3>
-                    <div class="grid grid-cols-1 gap-4">
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico</label><input type="email" id="profile-email" value="${u.email}" required class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label><input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+        <div class="max-w-3xl mx-auto space-y-6">
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="settings" class="w-6 h-6"></i> Configuración de mi Perfil</h2>
+                
+                <form id="form-user-settings" class="space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="user"></i> Credenciales de Acceso</h3>
+                        <div class="grid grid-cols-1 gap-4">
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico</label><input type="email" id="profile-email" value="${u.email}" required class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label><input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        </div>
                     </div>
-                </div>
-                <div>
-                    <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="bell"></i> Preferencias de Notificaciones</h3>
-                    <div class="space-y-4">
-                        ${renderToggle('profile-web-notif', 'Recibir Notificaciones en la Web (Campanita)', webNotif)}
-                        ${renderToggle('profile-email-notif', 'Recibir Correos Electrónicos transaccionales', emailNotif)}
+
+                    <div>
+                        <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-4 flex items-center gap-2"><i data-lucide="bell"></i> Preferencias de Notificaciones</h3>
+                        <div class="space-y-4">
+                            ${renderToggle('profile-web-notif', 'Recibir Notificaciones en la Web (Campanita)', webNotif)}
+                            ${renderToggle('profile-email-notif', 'Recibir Correos Electrónicos transaccionales', emailNotif)}
+                        </div>
                     </div>
+
+                    <div class="pt-6 border-t flex justify-end">
+                        <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 shadow-md"><i data-lucide="save" class="w-4 h-4"></i> Guardar Cambios del Perfil</button>
+                    </div>
+                </form>
+            </div>
+
+            ${u.twoFactorEnabled ? `
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-emerald-100">
+                <h3 class="text-lg font-bold text-emerald-800 mb-4 flex items-center gap-2"><i data-lucide="shield-check"></i> Seguridad Avanzada (2FA)</h3>
+                <div class="p-4 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-bold text-emerald-900">Códigos de Recuperación</p>
+                        <p class="text-xs text-emerald-700">Genere un nuevo set de 6 códigos si perdió los anteriores o sospecha que fueron comprometidos.</p>
+                    </div>
+                    <button type="button" data-action="ask-password-regenerate-2fa" class="px-4 py-2 bg-white border border-emerald-200 text-emerald-700 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-colors shadow-sm outline-none">
+                        Regenerar Códigos
+                    </button>
                 </div>
-                <div class="pt-6 border-t flex justify-end">
-                    <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Guardar Configuración</button>
-                </div>
-            </form>
+            </div>
+            ` : ''}
         </div>
     `;
 }
@@ -1372,6 +1391,12 @@ function renderModalOverlay() {
                     <input type="checkbox" data-modal-input="editU2FA" ${m.editU2FA ? 'checked' : ''} class="w-4 h-4 cursor-pointer" />
                 </div>
 
+                ${m.editU2FA ? `
+                <div class="mt-2 text-right">
+                    <button type="button" data-action="admin-regenerate-user-2fa-codes" data-user-id="${m.editUId}" class="text-[10px] font-bold text-blue-600 hover:underline">Reestablecer códigos de respaldo del usuario</button>
+                </div>
+                ` : ''}
+
                 <div><label class="text-xs font-bold text-gray-600">Rol</label><select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none"><option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option></select></div>
             </div>
         `;
@@ -1524,6 +1549,25 @@ function renderForgotPassword() {
             </div>
         </div>
     `;
+}
+
+// Función para mostrar los nuevos códigos (Solo una vez)
+function showNewRecoveryCodes(codes) {
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 bg-slate-900/80 z-[300] flex items-center justify-center backdrop-blur-sm p-4";
+    modal.innerHTML = `
+        <div class="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center">
+            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600"><i data-lucide="key"></i></div>
+            <h3 class="text-lg font-bold text-gray-900 mb-2">Nuevos Códigos Guardados</h3>
+            <p class="text-xs text-gray-500 mb-6">Guárdelos en un lugar seguro. Se han cifrado en la base de datos y no podrá volver a verlos.</p>
+            <div class="grid grid-cols-2 gap-2 mb-8 font-mono text-sm">
+                ${codes.map(c => `<div class="bg-gray-50 border p-2 rounded">${c}</div>`).join('')}
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" class="w-full py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700">He copiado los códigos</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    if (window.lucide) lucide.createIcons();
 }
 
 // ==========================================
@@ -2228,6 +2272,38 @@ document.addEventListener('click', async (e) => {
                 });
             } 
             return; 
+        }
+
+        // Caso 1: Usuario pide regenerar los suyos (Pedimos contraseña)
+        if (action === 'ask-password-regenerate-2fa') {
+            const pass = prompt("Para regenerar sus códigos de seguridad, ingrese su contraseña actual:");
+            if (!pass) return;
+
+            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: JSON.stringify({ password: pass })
+            }).then(async res => {
+                const data = await res.json();
+                if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
+                else alert(data.message);
+            });
+        }
+
+        // Caso 2: Admin regenera a otro usuario (No pide contraseña, el admin ya está autenticado)
+        if (action === 'admin-regenerate-user-2fa-codes') {
+            const targetUserId = actionBtn.getAttribute('data-user-id');
+            if (!confirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?")) return;
+
+            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: JSON.stringify({ targetUserId })
+            }).then(async res => {
+                const data = await res.json();
+                if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
+                else alert(data.message);
+            });
         }
         
         const saveEdits = async () => {

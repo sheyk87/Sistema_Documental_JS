@@ -12,5 +12,6 @@ router.post('/validate-reset-code', authController.validateResetCode);
 router.post('/reset-password', authController.resetPassword);   
 router.post('/2fa/setup', authMiddleware, authController.setup2FA); // Protegido por el tempToken
 router.post('/2fa/verify', authMiddleware, authController.verify2FA); // Protegido por el tempToken
+router.post('/2fa/regenerate-codes', authMiddleware, authController.regenerateRecoveryCodes);
 
 module.exports = router;

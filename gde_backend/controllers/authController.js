@@ -118,6 +118,7 @@ exports.login = async (req, res) => {
         // Flujo sin 2FA
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
+        user.twoFactorEnabled = user.two_factor_enabled === 1;
         delete user.password;
         delete user.two_factor_secret;
 
@@ -129,6 +130,7 @@ exports.login = async (req, res) => {
     }
 };
 
+// NUEVO: Generar Secreto y QR con códigos CIFRADOS
 exports.setup2FA = async (req, res) => {
     try {
         const userId = req.user.id; 
@@ -138,22 +140,23 @@ exports.setup2FA = async (req, res) => {
         const secret = generateBase32Secret(20);
         const emailEncoded = encodeURIComponent(rows[0].email);
         const otpauth = `otpauth://totp/SistemaGDE:${emailEncoded}?secret=${secret}&issuer=SistemaGDE`;
-        
         const qrCodeUrl = await qrcode.toDataURL(otpauth);
 
-        // NUEVO: Generamos 6 códigos de recuperación alfanuméricos de 8 caracteres
-        const recoveryCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+        // Generamos códigos, los enviamos en claro una vez y guardamos el HASH
+        const plainCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+        const hashedCodes = await Promise.all(plainCodes.map(c => bcrypt.hash(c, 10)));
 
-        // Guardamos tanto el secreto como los códigos en la BD
-        await pool.query('UPDATE users SET two_factor_secret = ?, two_factor_recovery_codes = ? WHERE id = ?', [secret, JSON.stringify(recoveryCodes), userId]);
+        await pool.query('UPDATE users SET two_factor_secret = ?, two_factor_recovery_codes = ? WHERE id = ?', 
+            [secret, JSON.stringify(hashedCodes), userId]);
 
-        res.json({ qrCodeUrl, secret, recoveryCodes });
+        res.json({ qrCodeUrl, secret, recoveryCodes: plainCodes });
     } catch (error) {
         console.error("Error en setup2FA:", error);
         res.status(500).json({ message: 'Error al generar configuracion 2FA' });
     }
 };
 
+// ACTUALIZADO: Verificación con soporte para códigos HASHED
 exports.verify2FA = async (req, res) => {
     const { code } = req.body;
     const userId = req.user.id;
@@ -164,49 +167,91 @@ exports.verify2FA = async (req, res) => {
 
         const user = rows[0];
         const secret = user.two_factor_secret;
+        if (!secret || secret.length < 16) return res.status(400).json({ message: 'Servicio 2FA no configurado.' });
 
-        if (!secret || secret.length < 16) {
-            return res.status(400).json({ message: 'Servicio 2FA no configurado o corrupto. Contacte al Administrador.' });
-        }
-
-        const tokenStr = String(code).trim().toUpperCase(); // Forzamos mayúsculas por si ingresan un código de recuperación
+        const tokenStr = String(code).trim().toUpperCase();
         let isValid = false;
 
-        // NUEVO: Extraemos los códigos de recuperación de la BD
-        let recoveryCodes = [];
+        // Recuperamos los hashes de la BD
+        let hashedCodes = [];
         try {
-            recoveryCodes = typeof user.two_factor_recovery_codes === 'string' ? JSON.parse(user.two_factor_recovery_codes) : (user.two_factor_recovery_codes || []);
+            hashedCodes = typeof user.two_factor_recovery_codes === 'string' ? JSON.parse(user.two_factor_recovery_codes) : (user.two_factor_recovery_codes || []);
         } catch(e) {}
 
-        // Verificamos si el usuario ingresó un código de recuperación válido (8 caracteres)
-        if (tokenStr.length === 8 && recoveryCodes.includes(tokenStr)) {
-            isValid = true;
-            // Como es de un solo uso, lo eliminamos del array y actualizamos la base de datos
-            recoveryCodes = recoveryCodes.filter(c => c !== tokenStr);
-            await pool.query('UPDATE users SET two_factor_recovery_codes = ? WHERE id = ?', [JSON.stringify(recoveryCodes), userId]);
-            console.log(`[2FA] Usuario ${user.email} ingreso usando codigo de recuperacion.`);
+        if (tokenStr.length === 8) {
+            // Buscamos si el código ingresado coincide con algún hash guardado
+            let foundIdx = -1;
+            for (let i = 0; i < hashedCodes.length; i++) {
+                const match = await bcrypt.compare(tokenStr, hashedCodes[i]);
+                if (match) {
+                    foundIdx = i;
+                    break;
+                }
+            }
+
+            if (foundIdx !== -1) {
+                isValid = true;
+                hashedCodes.splice(foundIdx, 1);
+                await pool.query('UPDATE users SET two_factor_recovery_codes = ? WHERE id = ?', [JSON.stringify(hashedCodes), userId]);
+            }
         } else {
-            // Si no es un código de recuperación, intentamos la Validación Nativa TOTP normal (6 dígitos)
             isValid = verifyTOTP(tokenStr, secret);
         }
 
-        if (!isValid) {
-            return res.status(401).json({ message: 'Codigo 2FA o codigo de recuperacion incorrecto.' });
-        }
+        if (!isValid) return res.status(401).json({ message: 'Codigo 2FA o de recuperacion incorrecto.' });
 
-        // ÉXITO
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
+        user.twoFactorEnabled = user.two_factor_enabled === 1;
         delete user.password;
         delete user.two_factor_secret;
         delete user.two_factor_recovery_codes;
 
         const tokenJWT = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
         res.json({ token: tokenJWT, user });
-
     } catch (error) {
         console.error("Error en verify2FA:", error);
         res.status(500).json({ message: 'Error interno al verificar 2FA.' });
+    }
+};
+
+// NUEVA FEATURE: Regenerar códigos de recuperación (Usuario o Admin)
+exports.regenerateRecoveryCodes = async (req, res) => {
+    const { targetUserId, password } = req.body;
+    const callerId = req.user.id;
+    const isSelf = !targetUserId || targetUserId === callerId;
+    const finalUserId = isSelf ? callerId : targetUserId;
+
+    try {
+        // Seguridad: Si es el propio usuario, validamos su contraseña actual
+        if (isSelf) {
+            if (!password) return res.status(400).json({ message: 'Se requiere su contraseña actual para confirmar esta acción.' });
+            const [uRows] = await pool.query('SELECT password FROM users WHERE id = ?', [callerId]);
+            const passMatch = await bcrypt.compare(password, uRows[0].password);
+            if (!passMatch) return res.status(401).json({ message: 'Contraseña incorrecta.' });
+        } else {
+            // Seguridad: Si es el admin, comprobamos su rol
+            if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado.' });
+        }
+
+        // Generamos 6 nuevos códigos de 8 caracteres
+        const plainCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+        // Los ciframos antes de guardar en la DB
+        const hashedCodes = await Promise.all(plainCodes.map(c => bcrypt.hash(c, 10)));
+
+        const [result] = await pool.query(
+            'UPDATE users SET two_factor_recovery_codes = ? WHERE id = ? AND two_factor_enabled = 1', 
+            [JSON.stringify(hashedCodes), finalUserId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(400).json({ message: 'No se pudo generar: el usuario no tiene 2FA activo.' });
+        }
+
+        res.json({ recoveryCodes: plainCodes });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error interno al regenerar códigos.' });
     }
 };
 
