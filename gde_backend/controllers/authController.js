@@ -52,14 +52,21 @@ function generateTOTP(secret, windowOffset = 0) {
 }
 
 function verifyTOTP(token, secret) {
-    // Comprueba el ciclo de tiempo actual (0), el anterior (-1) y el siguiente (1)
-    // Esto da un margen de error de +- 30 segundos (sincronizacion de reloj)
     for (let i = -1; i <= 1; i++) {
         if (generateTOTP(secret, i) === token) return true;
     }
     return false;
 }
 // ============================================================================
+
+function getDeviceFromAgent(agent = '') {
+    if (agent.includes('Windows')) return 'Windows PC';
+    if (agent.includes('Mac')) return 'Mac OS';
+    if (agent.includes('Linux')) return 'Linux';
+    if (agent.includes('Android')) return 'Android';
+    if (agent.includes('iPhone') || agent.includes('iPad')) return 'iOS / Apple Device';
+    return 'Dispositivo Desconocido';
+}
 
 function maskEmail(email) {
     const [local, domainExt] = email.split('@');
@@ -98,7 +105,6 @@ exports.login = async (req, res) => {
             if (!validPassword) return res.status(401).json({ message: 'Credenciales invalidas' });
         }
 
-        // LOGICA 2FA
         const global2FA = process.env.TWO_FACTOR_GLOBAL_ENABLED === 'true';
         const mandatory2FA = process.env.TWO_FACTOR_MANDATORY === 'true';
         const user2FAEnabled = user.two_factor_enabled === 1;
@@ -109,13 +115,11 @@ exports.login = async (req, res) => {
         }
 
         if (requires2FA) {
-            // Verificamos que tenga un secreto válido
             const isConfigured = user.two_factor_secret && user.two_factor_secret.length >= 16;
             const tempToken = jwt.sign({ id: user.id, isTemp: true }, process.env.JWT_SECRET, { expiresIn: '15m' });
             return res.json({ requires2FA: true, isConfigured, tempToken, message: 'Validacion 2FA requerida' });
         }
 
-        // Flujo sin 2FA
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
         user.twoFactorEnabled = user.two_factor_enabled === 1;
@@ -130,7 +134,6 @@ exports.login = async (req, res) => {
     }
 };
 
-// NUEVO: Generar Secreto y QR con códigos CIFRADOS
 exports.setup2FA = async (req, res) => {
     try {
         const userId = req.user.id; 
@@ -142,21 +145,16 @@ exports.setup2FA = async (req, res) => {
         const otpauth = `otpauth://totp/SistemaGDE:${emailEncoded}?secret=${secret}&issuer=SistemaGDE`;
         const qrCodeUrl = await qrcode.toDataURL(otpauth);
 
-        // Generamos códigos, los enviamos en claro una vez y guardamos el HASH
-        const plainCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
-        const hashedCodes = await Promise.all(plainCodes.map(c => bcrypt.hash(c, 10)));
+        // Guardamos el secreto en BD, pero habilitado sigue en 0 y sin códigos
+        await pool.query('UPDATE users SET two_factor_secret = ? WHERE id = ?', [secret, userId]);
 
-        await pool.query('UPDATE users SET two_factor_secret = ?, two_factor_recovery_codes = ? WHERE id = ?', 
-            [secret, JSON.stringify(hashedCodes), userId]);
-
-        res.json({ qrCodeUrl, secret, recoveryCodes: plainCodes });
+        res.json({ qrCodeUrl, secret });
     } catch (error) {
         console.error("Error en setup2FA:", error);
         res.status(500).json({ message: 'Error al generar configuracion 2FA' });
     }
 };
 
-// ACTUALIZADO: Verificación con soporte para códigos HASHED
 exports.verify2FA = async (req, res) => {
     const { code } = req.body;
     const userId = req.user.id;
@@ -167,55 +165,113 @@ exports.verify2FA = async (req, res) => {
 
         const user = rows[0];
         const secret = user.two_factor_secret;
-        if (!secret || secret.length < 16) return res.status(400).json({ message: 'Servicio 2FA no configurado.' });
+
+        if (!secret || secret.length < 16) {
+            return res.status(400).json({ message: 'Servicio 2FA no configurado o corrupto.' });
+        }
 
         const tokenStr = String(code).trim().toUpperCase();
         let isValid = false;
+        let recoveryCodesGenerated = null;
 
-        // Recuperamos los hashes de la BD
+        // FIX: ¿Es primera configuración? Lo sabemos si NO tiene códigos de recuperación guardados
+        let isSetupPhase = false;
         let hashedCodes = [];
         try {
             hashedCodes = typeof user.two_factor_recovery_codes === 'string' ? JSON.parse(user.two_factor_recovery_codes) : (user.two_factor_recovery_codes || []);
-        } catch(e) {}
-
-        if (tokenStr.length === 8) {
-            // Buscamos si el código ingresado coincide con algún hash guardado
-            let foundIdx = -1;
-            for (let i = 0; i < hashedCodes.length; i++) {
-                const match = await bcrypt.compare(tokenStr, hashedCodes[i]);
-                if (match) {
-                    foundIdx = i;
-                    break;
-                }
-            }
-
-            if (foundIdx !== -1) {
-                isValid = true;
-                hashedCodes.splice(foundIdx, 1);
-                await pool.query('UPDATE users SET two_factor_recovery_codes = ? WHERE id = ?', [JSON.stringify(hashedCodes), userId]);
-            }
-        } else {
-            isValid = verifyTOTP(tokenStr, secret);
+            if (hashedCodes.length === 0) isSetupPhase = true;
+        } catch(e) {
+            isSetupPhase = true;
         }
 
-        if (!isValid) return res.status(401).json({ message: 'Codigo 2FA o de recuperacion incorrecto.' });
+        // === CASO A: LOGIN NORMAL (Ya tiene códigos generados) ===
+        if (!isSetupPhase) {
+            if (tokenStr.length === 8) {
+                let foundIdx = -1;
+                for (let i = 0; i < hashedCodes.length; i++) {
+                    const match = await bcrypt.compare(tokenStr, hashedCodes[i]);
+                    if (match) { foundIdx = i; break; }
+                }
+                if (foundIdx !== -1) {
+                    isValid = true;
+                    hashedCodes.splice(foundIdx, 1);
+                    await pool.query('UPDATE users SET two_factor_recovery_codes = ? WHERE id = ?', [JSON.stringify(hashedCodes), userId]);
+                }
+            } else {
+                isValid = verifyTOTP(tokenStr, secret);
+            }
+        } 
+        // === CASO B: CONFIGURACIÓN INICIAL (No tiene códigos, acaba de escanear el QR) ===
+        else {
+            isValid = verifyTOTP(tokenStr, secret);
+            
+            if (isValid) {
+                // Generamos códigos, guardamos y activamos formalmente el 2FA
+                const plainCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
+                const newHashedCodes = await Promise.all(plainCodes.map(c => bcrypt.hash(c, 10)));
+                
+                await pool.query(
+                    'UPDATE users SET two_factor_enabled = 1, two_factor_recovery_codes = ? WHERE id = ?',
+                    [JSON.stringify(newHashedCodes), userId]
+                );
+                
+                recoveryCodesGenerated = plainCodes;
 
+                // Enviamos el correo con el diseño exacto solicitado
+                if (process.env.EMAIL_ENABLED === 'true') {
+                    const agent = req.headers['user-agent'] || '';
+                    let device = 'Dispositivo Desconocido';
+                    if (agent.includes('Windows')) device = 'Windows PC';
+                    else if (agent.includes('Mac')) device = 'Mac OS';
+                    else if (agent.includes('Linux')) device = 'Linux';
+                    else if (agent.includes('Android')) device = 'Android';
+                    else if (agent.includes('iPhone') || agent.includes('iPad')) device = 'iOS / Apple Device';
+
+                    const mailSubject = 'GDE - Seguridad 2FA Activada';
+                    const mailHtml = `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                            <div style="padding: 20px;">
+                                <h2 style="color: #059669; border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-top: 0;">Autenticacion de Dos Factores (2FA) Configurada</h2>
+                                <p style="color: #334155; font-size: 15px;">Su cuenta ha sido vinculada exitosamente con una aplicacion autenticadora.</p>
+                                <p style="color: #334155; font-size: 14px;"><strong>Dispositivo de configuracion:</strong> ${device}</p>
+                                
+                                <div style="background-color: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
+                                    <h3 style="color: #d97706; margin-top: 0; font-size: 16px;">Sus Codigos de Recuperacion Iniciales</h3>
+                                    <p style="font-size: 13px; color: #92400e; margin-bottom: 15px;">Guarde estos codigos en un lugar seguro. Solo se muestran aqui esta unica vez por seguridad.</p>
+                                    <div style="font-family: monospace; font-size: 16px; letter-spacing: 3px; color: #1e293b; line-height: 1.8;">
+                                        ${plainCodes.map(c => `<div>${c}</div>`).join('')}
+                                    </div>
+                                </div>
+                                
+                                <p style="color: #64748b; font-size: 12px; margin-top: 30px;">Si usted no realizo esta accion, contacte al administrador inmediatamente.</p>
+                            </div>
+                        </div>`;
+                    emailService.sendMail(user.email, mailSubject, '2FA Activado', mailHtml);
+                }
+            }
+        }
+
+        if (!isValid) {
+            return res.status(401).json({ message: 'Codigo invalido o expirado.' });
+        }
+
+        // PREPARACIÓN DE RESPUESTA
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
-        user.twoFactorEnabled = user.two_factor_enabled === 1;
+        user.twoFactorEnabled = 1;
         delete user.password;
         delete user.two_factor_secret;
         delete user.two_factor_recovery_codes;
 
         const tokenJWT = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
-        res.json({ token: tokenJWT, user });
+        res.json({ token: tokenJWT, user, recoveryCodes: recoveryCodesGenerated });
+
     } catch (error) {
         console.error("Error en verify2FA:", error);
         res.status(500).json({ message: 'Error interno al verificar 2FA.' });
     }
 };
 
-// NUEVA FEATURE: Regenerar códigos de recuperación (Usuario o Admin)
 exports.regenerateRecoveryCodes = async (req, res) => {
     const { targetUserId, password } = req.body;
     const callerId = req.user.id;
@@ -223,20 +279,16 @@ exports.regenerateRecoveryCodes = async (req, res) => {
     const finalUserId = isSelf ? callerId : targetUserId;
 
     try {
-        // Seguridad: Si es el propio usuario, validamos su contraseña actual
         if (isSelf) {
             if (!password) return res.status(400).json({ message: 'Se requiere su contraseña actual para confirmar esta acción.' });
             const [uRows] = await pool.query('SELECT password FROM users WHERE id = ?', [callerId]);
             const passMatch = await bcrypt.compare(password, uRows[0].password);
             if (!passMatch) return res.status(401).json({ message: 'Contraseña incorrecta.' });
         } else {
-            // Seguridad: Si es el admin, comprobamos su rol
             if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado.' });
         }
 
-        // Generamos 6 nuevos códigos de 8 caracteres
         const plainCodes = Array.from({ length: 6 }, () => crypto.randomBytes(4).toString('hex').toUpperCase());
-        // Los ciframos antes de guardar en la DB
         const hashedCodes = await Promise.all(plainCodes.map(c => bcrypt.hash(c, 10)));
 
         const [result] = await pool.query(
@@ -246,6 +298,26 @@ exports.regenerateRecoveryCodes = async (req, res) => {
 
         if (result.affectedRows === 0) {
             return res.status(400).json({ message: 'No se pudo generar: el usuario no tiene 2FA activo.' });
+        }
+
+        if (process.env.EMAIL_ENABLED === 'true') {
+            const [targetRows] = await pool.query('SELECT email FROM users WHERE id = ?', [finalUserId]);
+            if (targetRows.length > 0) {
+                const mailSubject = 'GDE - Nuevos Codigos de Recuperacion 2FA';
+                const mailHtml = `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">Codigos de Recuperacion Actualizados</h2>
+                        <p style="color: #334155;">Se han generado nuevos codigos de respaldo para su cuenta de GDE. Los codigos anteriores han sido invalidados y ya no funcionaran.</p>
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
+                            <div style="font-family: monospace; font-size: 14px; letter-spacing: 2px; color: #1e293b;">
+                                ${plainCodes.map(c => `<div>${c}</div>`).join('')}
+                            </div>
+                        </div>
+                        <p style="color: #dc2626; font-size: 12px; font-weight: bold;">Si usted no solicito esta regeneracion, un Administrador lo hizo o su cuenta esta comprometida.</p>
+                    </div>
+                `;
+                emailService.sendMail(targetRows[0].email, mailSubject, 'Codigos Regenerados', mailHtml);
+            }
         }
 
         res.json({ recoveryCodes: plainCodes });
@@ -304,6 +376,19 @@ exports.resetPassword = async (req, res) => {
         if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El codigo ha expirado' });
         const hash = await bcrypt.hash(newPassword, 10);
         await pool.query('UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE id = ?', [hash, user.id]);
+
+        if (process.env.EMAIL_ENABLED === 'true') {
+            const mailSubject = 'GDE - Contraseña Restablecida Exitosamente';
+            const mailHtml = `
+                <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <h2 style="color: #059669; border-bottom: 2px solid #059669; padding-bottom: 10px;">Contraseña Actualizada</h2>
+                    <p style="color: #334155;">Le informamos que la contraseña de su cuenta ha sido restablecida exitosamente mediante el flujo de recuperacion.</p>
+                    <p style="color: #dc2626; font-size: 12px; font-weight: bold; margin-top: 20px;">Si usted no realizo este cambio, informe al administrador de sistemas de inmediato.</p>
+                </div>
+            `;
+            emailService.sendMail(user.email, mailSubject, 'Contraseña Cambiada', mailHtml);
+        }
+
         res.json({ message: 'Contrasena actualizada' });
     } catch (error) {
         console.error(error);

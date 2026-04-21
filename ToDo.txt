@@ -1,3 +1,2 @@
 Features: 
-IMPLEMENTADO - Códigos de 1 sólo uso hashseados en la BBDD, posibilidad de regenerar los códigos por parte de los Admin y del propio usuario.
-- Correo informando que se cambio la contraseña, correo informando cuando se activa/desactiva el 2FA y en que dispositivo fue activado y los códigos de recuperación que se generaron, correo informando cuando se regeneran los códigos de recuperación y cuáles son.
+IMPLEMENTADO - Correo informando que se cambio la contraseña (Por el Usuario o por el Admin), correo informando cuando se activa/desactiva el 2FA y en que dispositivo fue activado y los códigos de recuperación que se generaron, correo informando cuando se regeneran los códigos de recuperación y cuáles son.

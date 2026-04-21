@@ -958,8 +958,8 @@ function getViewContent() {
 
 function renderLogin() {
     const f = state.loginFlow;
-    
     let content = '';
+
     if (f.step === 1) {
         content = `
             <div class="text-center mb-6">
@@ -976,52 +976,50 @@ function renderLogin() {
                 <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar</button>
             </form>
         `;
-    } else if (f.step === 2) {
+    } else if (f.step === 2) { // VISTA QR (Sin codigos de recuperacion todavia)
         content = `
             <div class="text-center mb-4">
-                <h2 class="text-xl font-bold text-gray-900">Configurar 2FA</h2>
-                <p class="text-sm text-gray-500 mt-2">Escanee este codigo QR con su aplicacion.</p>
-                <div class="flex justify-center mt-2 bg-white p-2 rounded-lg border border-gray-200 inline-block">
-                    <img src="${f.qrCodeUrl}" alt="QR Code" class="w-32 h-32 mx-auto" />
+                <h2 class="text-xl font-bold text-gray-900">Configurar Seguridad</h2>
+                <p class="text-sm text-gray-500 mt-2">Escanee este codigo con Google Authenticator o Authy.</p>
+                <div class="flex justify-center mt-6 bg-white p-2 rounded-lg border border-gray-200 inline-block">
+                    <img src="${f.qrCodeUrl}" alt="QR Code" class="w-48 h-48 mx-auto" />
                 </div>
-                <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-left">
-                    <p class="text-xs font-bold text-amber-800 mb-2"><i data-lucide="alert-triangle" class="w-4 h-4 inline"></i> Codigos de Recuperacion:</p>
-                    <div class="grid grid-cols-2 gap-2 font-mono text-[11px] text-gray-700 bg-white p-2 rounded border">
-                        ${(f.recoveryCodes || []).map(c => `<div>${c}</div>`).join('')}
-                    </div>
-                    <p class="text-[10px] text-amber-700 mt-2 leading-tight">Guardelos. Solo se mostraran esta vez. Sirven por si pierde su dispositivo.</p>
-                </div>
+                <p class="text-xs text-gray-400 mt-4">Una vez vinculado, ingrese el codigo de 6 digitos generado por su celular.</p>
             </div>
             <form id="form-verify-2fa" class="space-y-4">
-                <input type="text" id="login-2fa-code" placeholder="Ingrese 6 digitos" maxlength="8" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center tracking-widest text-xl font-mono uppercase" required />
-                <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="shield-check" class="w-5 h-5"></i> Verificar y Continuar</button>
+                <input type="text" id="login-2fa-code" placeholder="000000" maxlength="6" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500 text-center tracking-widest text-xl font-mono" required />
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md">Verificar y Activar 2FA</button>
                 <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Cancelar</button>
             </form>
         `;
-    } else if (f.step === 3) {
+    } else if (f.step === 3) { // LOGIN NORMAL 2FA
         content = `
             <div class="text-center mb-6">
-                <div class="mx-auto w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 border border-blue-100">
-                    <i data-lucide="smartphone" class="text-blue-600 w-8 h-8"></i>
-                </div>
-                <h2 class="text-xl font-bold text-gray-900">Verificacion de Seguridad</h2>
-                <p class="text-sm text-gray-500 mt-2">Ingrese el codigo de su aplicacion o un codigo de recuperacion de 8 caracteres.</p>
+                <div class="mx-auto w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4 border border-blue-100"><i data-lucide="smartphone" class="text-blue-600 w-8 h-8"></i></div>
+                <h2 class="text-xl font-bold text-gray-900">Validacion de Acceso</h2>
+                <p class="text-sm text-gray-500 mt-2">Ingrese el codigo de su aplicacion o un codigo de respaldo.</p>
             </div>
             <form id="form-verify-2fa" class="space-y-4">
                 <input type="text" id="login-2fa-code" placeholder="Codigo" maxlength="8" class="w-full px-4 py-3 border rounded-lg outline-none focus:border-blue-500 text-center tracking-[0.5em] text-2xl font-mono uppercase" required autofocus />
-                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="unlock" class="w-5 h-5"></i> Autenticar</button>
-                <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Volver al inicio</button>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md">Autenticar</button>
+                <button type="button" data-action="cancel-login" class="w-full text-gray-500 hover:text-gray-800 text-sm font-bold pt-2 outline-none">Volver</button>
             </form>
+        `;
+    } else if (f.step === 4) { // MOSTRAR CODIGOS TRAS ACTIVACION EXITOSA
+        content = `
+            <div class="text-center mb-6">
+                <div class="mx-auto w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-4 text-emerald-600"><i data-lucide="shield-check" class="w-10 h-10"></i></div>
+                <h2 class="text-xl font-bold text-gray-900">¡Seguridad Activada!</h2>
+                <p class="text-xs text-gray-500 mt-2">Estos son sus codigos de respaldo. Guardelos bien, no podra volver a verlos.</p>
+                <div class="grid grid-cols-2 gap-2 mt-6 p-4 bg-slate-50 rounded-lg border font-mono text-sm">
+                    ${f.recoveryCodes.map(c => `<div class="bg-white border p-1 rounded">${c}</div>`).join('')}
+                </div>
+                <button data-action="complete-login-after-2fa" class="w-full mt-8 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700">He guardado los codigos, Ingresar</button>
+            </div>
         `;
     }
 
-    return `
-        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 transition-all duration-300">
-                ${content}
-            </div>
-        </div>
-    `;
+    return `<div class="min-h-screen bg-slate-900 flex items-center justify-center p-4"><div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 transition-all duration-300">${content}</div></div>`;
 }
 
 function renderAdminUsers() {
@@ -1759,7 +1757,6 @@ document.addEventListener('submit', async (e) => {
                     if (!setupRes.ok) throw new Error(setupData.message || 'Error al generar el QR de 2FA');
 
                     state.loginFlow.qrCodeUrl = setupData.qrCodeUrl;
-                    state.loginFlow.recoveryCodes = setupData.recoveryCodes; // <-- NUEVO GUARDADO
                     state.loginFlow.step = 2;
                 } else {
                     state.loginFlow.step = 3; 
@@ -1794,7 +1791,15 @@ document.addEventListener('submit', async (e) => {
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || 'Codigo invalido');
 
-            data.user.areaId = data.user.area_id;
+            // Si el servidor nos mandó códigos, significa que acabamos de ACTIVARLO
+            if (data.recoveryCodes && data.recoveryCodes.length > 0) {
+                state.loginFlow.recoveryCodes = data.recoveryCodes;
+                state.loginFlow.step = 4; // Cambiamos la vista a la pantalla de victoria
+                state.loginFlow.pendingSession = { token: data.token, user: data.user };
+                return renderApp();
+            }
+
+            // Si no hay códigos, es un Login Normal. Entramos de inmediato.
             await initializeAppWithToken(data.token, data.user);
 
         } catch (error) {
@@ -2305,6 +2310,11 @@ document.addEventListener('click', async (e) => {
                 else alert(data.message);
             });
         }
+
+        if (action === 'complete-login-after-2fa') {
+            const { token, user } = state.loginFlow.pendingSession;
+            return initializeAppWithToken(token, user);
+        }
         
         const saveEdits = async () => {
             if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
@@ -2337,6 +2347,9 @@ document.addEventListener('click', async (e) => {
             const m = state.modal;
             
             if (m.type === 'editar_usuario') {
+                if (!confirm("¿Esta seguro de aplicar estos cambios al usuario? Se enviara una notificacion por correo al interesado.")) {
+                    return;
+                }
                 // Ya no exigimos !m.editUPass
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
                 const updatedUser = { 
