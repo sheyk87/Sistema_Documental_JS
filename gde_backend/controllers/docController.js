@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const cryptoService = require('../services/cryptoService');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); // <-- NUEVO
@@ -315,11 +316,94 @@ exports.verifyPublicDoc = async (req, res) => {
             signatureDate: signatureDate,
             signerName: signerName,
             signerArea: signerArea,
-            recipients: recipientsNames.join(' | ') || 'Ninguno'
+            recipients: recipientsNames.join(' | ') || 'Ninguno',
+            pdfHash: doc.pdf_hash
         });
 
     } catch (error) {
         console.error("Error en validación pública:", error);
         res.status(500).json({ message: 'Error interno del servidor.' });
+    }
+};
+
+// NUEVO: Sella el PDF, calcula su Hash, lo encripta y actualiza la BD
+exports.signFinalAndSeal = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF para sellar.' });
+        
+        // Parseamos los metadatos del documento que el frontend nos envía
+        const docData = JSON.parse(req.body.documentData);
+        const historyEntry = JSON.parse(req.body.historyEntry);
+
+        // 1. Leemos el archivo temporal que subió Multer
+        const pdfBuffer = fs.readFileSync(req.file.path);
+
+        // 2. Calculamos el Hash SHA-256 (Identidad inmutable del archivo)
+        const pdfHash = cryptoService.calculateHash(pdfBuffer);
+
+        // 3. Encriptamos y guardamos en el disco duro (bóveda segura)
+        const securePath = path.join(__dirname, '../uploads/secure_docs', `${id}.enc`);
+        cryptoService.encryptAndSave(pdfBuffer, securePath);
+
+        // 4. Limpiamos el archivo temporal en texto claro
+        fs.unlinkSync(req.file.path);
+
+        // 5. Actualizamos la Base de Datos con el estado Final, el Número y el Hash
+        await pool.query(
+            `UPDATE documents SET 
+                status = 'Firmado', 
+                number = ?, 
+                signed_by = ?, 
+                owners = ?, 
+                pdf_hash = ? 
+             WHERE id = ?`,
+            [docData.number, JSON.stringify(docData.signedBy), JSON.stringify(docData.owners), pdfHash, id]
+        );
+
+        // 6. Registramos el historial
+        if (historyEntry) {
+            await pool.query(
+                'INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                [id, 'documento', historyEntry.userId, historyEntry.action, historyEntry.notes, new Date(historyEntry.date)]
+            );
+        }
+
+        res.json({ message: 'Documento sellado y encriptado exitosamente.', pdfHash });
+    } catch (error) {
+        console.error("Error en el sellado criptográfico:", error);
+        // Intentar limpiar el temporal si hubo error
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.status(500).json({ message: 'Error interno al sellar el documento.' });
+    }
+};
+
+// NUEVO: Descarga estática del PDF encriptado
+exports.downloadStaticPdf = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const [rows] = await pool.query('SELECT number, status FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado.' });
+        
+        const doc = rows[0];
+        if (doc.status !== 'Firmado' && doc.status !== 'Archivado') {
+            return res.status(400).json({ message: 'El documento no tiene un PDF sellado generado.' });
+        }
+
+        const securePath = path.join(__dirname, '../uploads/secure_docs', `${id}.enc`);
+        
+        // Desencriptamos al vuelo
+        const decryptedPdf = cryptoService.decryptAndRead(securePath);
+
+        // Enviamos el PDF directamente al navegador
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${doc.number}.pdf"`);
+        res.send(decryptedPdf);
+
+    } catch (error) {
+        console.error("Error al descargar PDF estático:", error);
+        res.status(500).json({ message: 'Error al recuperar el archivo seguro.' });
     }
 };

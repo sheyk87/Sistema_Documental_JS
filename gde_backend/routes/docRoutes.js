@@ -13,6 +13,10 @@ const storage = multer.diskStorage({
         cb(null, Date.now() + '-' + file.originalname.replace(/\s+/g, '_'));
     }
 });
+
+// Configuración de Multer para archivos temporales (se borran tras encriptar)
+const uploadTemp = multer({ dest: 'uploads/temp_sealing/' });
+
 const upload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10MB
@@ -23,10 +27,16 @@ const upload = multer({
     // }
 });
 
-router.get('/public/verify/:id', docController.verifyPublicDoc);
-
 // Configuración para mantener el archivo en memoria sin guardarlo en disco
 const uploadMemory = multer({ storage: multer.memoryStorage() });
+
+router.get('/public/verify/:id', docController.verifyPublicDoc);
+
+// === NUEVAS RUTAS DE SELLADO Y DESCARGA ESTÁTICA ===
+// Recibe el PDF generado en el frontend, calcula el hash, encripta y guarda
+router.post('/sign-final/:id', authMiddleware, uploadTemp.single('pdf'), docController.signFinalAndSeal);
+// Descarga el PDF estático desencriptándolo al vuelo
+router.get('/download-static/:id', authMiddleware, docController.downloadStaticPdf);
 
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);

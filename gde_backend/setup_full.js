@@ -64,6 +64,7 @@ async function setupFull() {
                 signatories JSON,
                 attachments JSON,
                 related_docs JSON,
+                pdf_hash VARCHAR(64) DEFAULT NULL;
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (creator_id) REFERENCES users(id)
             )
