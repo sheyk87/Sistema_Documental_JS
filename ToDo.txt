@@ -1,2 +1,3 @@
 Features: 
-IMPLEMENTADO - Correo informando que se cambio la contraseña (Por el Usuario o por el Admin), correo informando cuando se activa/desactiva el 2FA y en que dispositivo fue activado y los códigos de recuperación que se generaron, correo informando cuando se regeneran los códigos de recuperación y cuáles son.
+- Código QR en el documento, consultable desde fuera del sistema mostrando información básica (Fecha de creación, Asunto, Área y Usuario firmante)
+- Código de colores para confirmación de lectura (No leído (Rojo), Leído (Verde), No leído por algún destinatario (Naranja, se debe poder saber quien lo abrió y quien no)).

@@ -331,136 +331,124 @@ function handleExport(model) {
 
 // --- NUEVO: GENERADOR DE PDF Y ZIP ---
 
-// Crea el PDF del documento respetando el diseño visual y las referencias
+// Crea el PDF del documento usando parseo de String directo
 async function generatePDFBlob(doc) {
-    const tempDiv = document.createElement('div');
-    tempDiv.style.padding = '40px';
-    tempDiv.style.fontFamily = 'Georgia, serif';
-    tempDiv.style.color = '#333';
-    tempDiv.style.position = 'relative'; // <-- NUEVO: Crítico para contener la marca de agua absoluta
-    
-    // 1. Buscamos las referencias (Expedientes, Relacionados y Adjuntos)
-    const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
+    // 1. Generamos el QR como Base64 usando QRious
+    let qrHtml = '';
+    if (doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO) {
+        if (typeof QRious !== 'undefined') {
+            const verifyUrl = `${window.location.origin}/?verify=${doc.id}`;
+            try {
+                const qr = new QRious({
+                    value: verifyUrl,
+                    size: 200,
+                    level: 'M'
+                });
+                const qrDataUrl = qr.toDataURL('image/png');
+                
+                // VOLVEMOS AL MODELO QUE FUNCIONÓ, SIN "inline-block"
+                qrHtml = `
+                    <div style="border: 1px solid #cbd5e1; padding: 5px; background: white; width: 90px; margin-left: auto; border-radius: 4px; text-align: center;">
+                        <img src="${qrDataUrl}" style="width: 80px; height: 80px; display: block; margin: 0 auto;" />
+                        <p style="font-size: 8px; color: #475569; font-family: sans-serif; margin: 5px 0 0 0; font-weight: bold; letter-spacing: 0.5px;">VALIDAR DOC.</p>
+                    </div>
+                `;
+            } catch(e) { console.error("Error QR", e); }
+        } else {
+            console.warn("La libreria QRious no esta disponible.");
+        }
+    }
+
+    // 2. Armamos las secciones secundarias
+    const vinculados = state.db.expedientes.filter(e => e.linkedDocs?.includes(doc.id));
     const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
     const adjuntos = doc.attachments || [];
 
     let referenciasHtml = '';
     if (vinculados.length > 0 || relacionados.length > 0 || adjuntos.length > 0) {
         referenciasHtml = `
-            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e2e8f0; page-break-inside: avoid;">
-                <h3 style="color: #475569; font-size: 13px; font-family: sans-serif; margin-bottom: 15px; letter-spacing: 1px;">REFERENCIAS DEL DOCUMENTO</h3>
-                ${vinculados.length > 0 ? `
-                    <div style="margin-bottom: 15px;">
-                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Vinculado en Expedientes:</strong>
-                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
-                            ${vinculados.map(e => `<li>${e.number} - ${e.subject}</li>`).join('')}
-                        </ul>
-                    </div>
-                ` : ''}
-                ${relacionados.length > 0 ? `
-                    <div style="margin-bottom: 15px;">
-                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Documentos Relacionados:</strong>
-                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
-                            ${relacionados.map(d => `<li>${d.number} - ${d.subject}</li>`).join('')}
-                        </ul>
-                    </div>
-                ` : ''}
-                ${adjuntos.length > 0 ? `
-                    <div style="margin-bottom: 15px;">
-                        <strong style="font-size: 12px; color: #334155; font-family: sans-serif;">Archivos Adjuntos (Anexos):</strong>
-                        <ul style="margin: 5px 0 0 20px; font-size: 12px; color: #64748b; font-family: sans-serif;">
-                            ${adjuntos.map(a => `<li>${a.originalname} <span style="font-size: 10px; color: #94a3b8;">(${(a.size / 1024).toFixed(1)} KB)</span></li>`).join('')}
-                        </ul>
-                    </div>
-                ` : ''}
-            </div>
-        `;
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+                <h3 style="font-size: 13px; font-family: sans-serif; color: #475569; margin-bottom: 10px; letter-spacing: 1px;">REFERENCIAS DEL DOCUMENTO</h3>
+                ${vinculados.length > 0 ? `<p style="font-size: 11px; margin: 3px 0; color: #334155;"><strong>Vinculado en Expedientes:</strong> ${vinculados.map(e => e.number).join(', ')}</p>` : ''}
+                ${relacionados.length > 0 ? `<p style="font-size: 11px; margin: 3px 0; color: #334155;"><strong>Relacionados:</strong> ${relacionados.map(d => d.number).join(', ')}</p>` : ''}
+                ${adjuntos.length > 0 ? `<p style="font-size: 11px; margin: 3px 0; color: #334155;"><strong>Anexos:</strong> ${adjuntos.map(a => a.originalname).join(', ')}</p>` : ''}
+            </div>`;
     }
 
-    // 2. Logica para el campo PROMOTOR
-    const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
-    let promotorHtml = '';
-    
-    if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
-        const lastSignerId = doc.signedBy[doc.signedBy.length - 1].id;
-        const lastSignerUser = state.db.users.find(u => u.id === lastSignerId);
-        const promotorArea = lastSignerUser ? getAreaName(lastSignerUser.areaId) : 'Desconocida';
-        promotorHtml = `<p style="margin: 0 0 8px 0; color: #334155;"><strong>PROMOTOR:</strong> ${promotorArea}</p>`;
-    }
-
-    // 3. Armamos el bloque de firmas
     let firmasHtml = '<p style="margin-top: 40px; color: #94a3b8; font-style: italic;">Documento sin firmar</p>';
     if (doc.signedBy && doc.signedBy.length > 0) {
         firmasHtml = `
-            <div style="margin-top: 40px; border-top: 2px solid #e2e8f0; padding-top: 20px; page-break-inside: avoid;">
-                <h3 style="color: #475569; font-size: 13px; font-family: sans-serif; margin-bottom: 20px; letter-spacing: 1px;">FIRMAS DIGITALES</h3>
-                <div style="display: flex; flex-wrap: wrap; gap: 30px;">
-                ${doc.signedBy.map(s => {
-                    const u = state.db.users.find(user => user.id === s.id);
-                    return `
-                        <div style="margin-bottom: 15px; text-align: left; min-width: 200px;">
-                            <p style="margin: 0 0 5px 0; font-family: serif; font-style: italic; color: #059669; border-bottom: 1px solid #a7f3d0; display: inline-block; padding-bottom: 2px;">Firmado Digitalmente</p>
-                            <p style="margin: 5px 0 0 0; font-weight: bold; color: #1e293b; font-size: 14px;">${u ? u.name : 'Usuario Desconocido'}</p>
-                            <p style="margin: 2px 0 0 0; font-size: 12px; color: #475569;">${u ? getAreaName(u.areaId) : ''}</p>
-                            <p style="margin: 2px 0 0 0; font-size: 10px; color: #94a3b8; font-family: monospace;">Fecha: ${new Date(s.date).toLocaleString()}</p>
-                        </div>`;
-                }).join('')}
+            <div style="margin-top: 40px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
+                <h3 style="font-size: 13px; font-family: sans-serif; color: #475569; margin-bottom: 20px; letter-spacing: 1px;">FIRMAS DIGITALES</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 40px;">
+                    ${doc.signedBy.map(s => {
+                        const u = state.db.users.find(user => user.id === s.id);
+                        return `
+                            <div style="text-align: left;">
+                                <p style="font-style: italic; color: #059669; margin: 0 0 5px 0; font-size: 14px; font-family: serif; border-bottom: 1px solid #a7f3d0; display: inline-block;">Firmado Digitalmente</p>
+                                <p style="font-weight: bold; margin: 2px 0; font-size: 14px; color: #1e293b;">${u ? u.name : 'Usuario'}</p>
+                                <p style="color: #475569; margin: 0; font-size: 11px;">${new Date(s.date).toLocaleString()}</p>
+                            </div>`;
+                    }).join('')}
                 </div>
-            </div>
-        `;
+            </div>`;
     }
 
-    // 4. Compilamos todo el HTML
     const watermarkHtml = doc.status === STATUS.ANULADO ? `
-        <div style="position: absolute; top: 400px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; opacity: 0.15; z-index: 0; pointer-events: none;">
-            <div style="transform: rotate(-45deg); border: 12px solid #dc2626; color: #dc2626; font-size: 110px; font-weight: 900; font-family: sans-serif; padding: 20px 40px; letter-spacing: 5px;">
+        <div style="position: absolute; top: 300px; left: 0; right: 0; text-align: center; opacity: 0.15; z-index: -1;">
+            <div style="transform: rotate(-45deg); display: inline-block; border: 12px solid #dc2626; color: #dc2626; font-size: 110px; font-weight: 900; font-family: sans-serif; padding: 20px 40px; letter-spacing: 5px;">
                 ANULADO
             </div>
         </div>
     ` : '';
 
-    tempDiv.innerHTML = `
-        ${watermarkHtml}
-        <div style="position: relative; z-index: 1;">
-            <h1 style="text-align:center; font-size: 22px; margin-bottom: 5px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">${doc.docType.toUpperCase()}</h1>
-            <h2 style="text-align:center; font-size: 16px; margin-bottom: 30px; color: #64748b; font-family: monospace;">Nro: ${doc.number || 'S/N (Borrador)'}</h2>
+    // 3. Ensamblamos el HTML completo como texto
+    const htmlContent = `
+        <div style="width: 750px; margin: 0 auto; padding: 20px; font-family: Georgia, serif; color: #333; position: relative;">
+            ${watermarkHtml}
             
-            <div style="margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px;">
+            <table style="width: 100%; border: none; margin-bottom: 30px; border-collapse: collapse;">
+                <tr>
+                    <td style="width: 25%; border: none;"></td>
+                    <td style="width: 50%; text-align: center; border: none; vertical-align: top;">
+                        <h1 style="font-size: 22px; margin: 0 0 5px 0; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">${doc.docType.toUpperCase()}</h1>
+                        <h2 style="font-size: 14px; color: #64748b; font-family: monospace; margin: 0;">Nro: ${doc.number || 'S/N (Borrador)'}</h2>
+                    </td>
+                    <td style="width: 25%; text-align: right; border: none; vertical-align: top; padding-top: 0; padding-right: 40px;">
+                        ${qrHtml}
+                    </td>
+                </tr>
+            </table>
+
+            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px; font-size: 13px; font-family: sans-serif; border: 1px solid #e2e8f0;">
                 <p style="margin: 0 0 8px 0; color: #334155;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
                 <p style="margin: 0 0 8px 0; color: #334155;"><strong>ASUNTO:</strong> ${doc.subject}</p>
-                ${promotorHtml}
-                ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
             </div>
-            
-            <div style="font-size: 14px; line-height: 1.8; text-align: justify; min-height: 300px;">${doc.content}</div>
-            
+
+            <div style="font-size: 15px; line-height: 1.6; text-align: justify; min-height: 200px;">
+                ${doc.content}
+            </div>
+
             ${referenciasHtml}
             ${firmasHtml}
         </div>
     `;
-    
-    const style = document.createElement('style');
-    style.innerHTML = `table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 8px; }`;
-    tempDiv.prepend(style);
 
-    // Configuración estándar de html2pdf
+    // 4. Configuración de html2pdf
     const opt = {
         margin: 10,
-        filename: 'temp.pdf',
+        filename: `${doc.number || 'doc'}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
+        html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
     try {
-        // 1. Generamos el Blob (PDF crudo sin firmar)
-        const rawBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
+        const rawBlob = await html2pdf().set(opt).from(htmlContent).output('blob');
 
-        // 2. Lo empaquetamos para enviarlo al servidor
         const formData = new FormData();
         formData.append('pdf', rawBlob, 'doc_crudo.pdf');
 
-        // 3. Solicitamos el sellado criptográfico al servidor
         const res = await fetch('http://localhost:3000/api/docs/cryptosign', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
@@ -469,13 +457,11 @@ async function generatePDFBlob(doc) {
 
         if (!res.ok) throw new Error('Fallo en el sellado del servidor');
 
-        // 4. Recibimos el PDF blindado y LO RETORNAMOS (sin forzar descarga individual)
-        const signedBlob = await res.blob();
-        return signedBlob;
+        return await res.blob();
 
     } catch (error) {
         console.error("Error generando/firmando el PDF:", error);
-        alert("Ocurrió un error al intentar firmar el documento.");
+        alert("Ocurrió un error al intentar generar el PDF.");
         return null;
     }
 }
@@ -1162,6 +1148,99 @@ function renderUserSettings() {
             ` : ''}
         </div>
     `;
+}
+
+// NUEVA FEATURE: Vista Pública de Validación de QR
+async function renderPublicVerificationScreen(docId) {
+    const root = document.getElementById('app-root');
+    root.innerHTML = `
+        <div class="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+                <i data-lucide="loader-2" class="w-10 h-10 text-blue-500 animate-spin mx-auto mb-4"></i>
+                <p class="text-gray-600 font-medium">Validando documento en el Sistema GDE...</p>
+            </div>
+        </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+
+    try {
+        const res = await fetch(`http://localhost:3000/api/docs/public/verify/${docId}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+            root.innerHTML = `
+                <div class="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
+                    <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border-t-4 border-red-500">
+                        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i data-lucide="x-circle" class="w-8 h-8 text-red-600"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2 text-center">Documento Inválido</h2>
+                        <p class="text-gray-600 text-center mb-6">${data.message}</p>
+                        <a href="/" class="block w-full text-center bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-lg transition-colors">Volver al Inicio</a>
+                    </div>
+                </div>
+            `;
+            if (window.lucide) lucide.createIcons();
+            return;
+        }
+
+        // Si es válido, mostramos la tarjeta verde de éxito
+        root.innerHTML = `
+            <div class="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+                <div class="max-w-lg w-full bg-white rounded-2xl shadow-2xl border-t-4 border-emerald-500 overflow-hidden">
+                    <div class="p-8 text-center border-b border-gray-100 bg-emerald-50/30">
+                        <div class="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm ring-4 ring-white">
+                            <i data-lucide="shield-check" class="w-10 h-10 text-emerald-600"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-1">Documento Válido</h2>
+                        <p class="text-emerald-700 text-sm font-medium">Verificado por el Sistema GDE</p>
+                    </div>
+                    
+                    <div class="p-8 space-y-4">
+                        <div class="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                            <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Nro. de Documento</p>
+                            <p class="font-mono text-lg text-slate-800 font-semibold tracking-wider">${data.number}</p>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Tipo</p>
+                                <p class="text-sm text-gray-800 font-medium">${data.docType}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Fecha de Firma</p>
+                                <p class="text-sm text-gray-800 font-medium">${new Date(data.signatureDate).toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Asunto</p>
+                            <p class="text-sm text-gray-800 font-medium leading-relaxed">${data.subject}</p>
+                        </div>
+
+                        <div class="pt-4 border-t border-gray-100">
+                            <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Firmante Principal</p>
+                            <p class="text-sm text-gray-800 font-bold">${data.signerName}</p>
+                            <p class="text-xs text-gray-500">${data.signerArea}</p>
+                        </div>
+
+                        <div>
+                            <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Destinatarios</p>
+                            <p class="text-sm text-gray-600">${data.recipients}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="p-4 bg-gray-50 text-center">
+                        <a href="/" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">Ingresar al Sistema GDE</a>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+
+    } catch (error) {
+        root.innerHTML = `<div class="p-8 text-center text-red-600">Error de conexión con el servidor.</div>`;
+    }
 }
 
 function renderInbox() {
@@ -2636,4 +2715,20 @@ document.addEventListener('click', async (e) => {
 });
 
 //renderApp();
-initSession()
+//initSession()
+
+// ==========================================
+// ARRANQUE DE LA APLICACIÓN
+// ==========================================
+
+// Leemos si hay un parámetro ?verify en la URL (alguien escaneó un QR)
+const urlParams = new URLSearchParams(window.location.search);
+const verifyDocId = urlParams.get('verify');
+
+if (verifyDocId) {
+    // Si viene de un QR, NO cargamos el sistema normal, mostramos la tarjeta pública
+    renderPublicVerificationScreen(verifyDocId);
+} else {
+    // Arranque normal del sistema
+    initSession();
+}

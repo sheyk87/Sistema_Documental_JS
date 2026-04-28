@@ -254,3 +254,72 @@ exports.cryptographicSign = async (req, res) => {
         res.status(500).json({ message: 'Error interno al aplicar firma criptográfica' });
     }
 };
+
+// NUEVO: Verificación pública de documentos mediante QR
+exports.verifyPublicDoc = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const [rows] = await pool.query('SELECT * FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado o no existe.' });
+
+        const doc = rows[0];
+
+        // Por seguridad, solo se pueden verificar documentos finalizados
+        if (doc.status !== 'Firmado' && doc.status !== 'Archivado') {
+            return res.status(400).json({ message: 'El documento especificado aún se encuentra en trámite o no es válido para verificación pública.' });
+        }
+
+        // 1. Extraer el último firmante
+        let signedBy = typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []);
+        let lastSignerId = null;
+        let signatureDate = doc.created_at;
+        
+        if (signedBy && signedBy.length > 0) {
+            const lastSigner = signedBy[signedBy.length - 1];
+            lastSignerId = lastSigner.id;
+            signatureDate = lastSigner.date;
+        }
+
+        // 2. Obtener Nombre y Área del Firmante
+        let signerName = 'Sistema';
+        let signerArea = 'Área Desconocida';
+        if (lastSignerId) {
+            const [uRows] = await pool.query('SELECT name, area_id FROM users WHERE id = ?', [lastSignerId]);
+            if (uRows.length > 0) {
+                signerName = uRows[0].name;
+                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [uRows[0].area_id]);
+                if (aRows.length > 0) signerArea = aRows[0].name;
+            }
+        }
+
+        // 3. Obtener nombres de destinatarios
+        let recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
+        let recipientsNames = [];
+        for (let rId of recipients) {
+            if (rId.startsWith('a')) {
+                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [rId]);
+                if (aRows.length > 0) recipientsNames.push('Área: ' + aRows[0].name);
+            } else {
+                const [uRows] = await pool.query('SELECT name FROM users WHERE id = ?', [rId]);
+                if (uRows.length > 0) recipientsNames.push(uRows[0].name);
+            }
+        }
+
+        // Retornamos SOLO metadata, no enviamos el "content" del documento por seguridad.
+        res.json({
+            isValid: true,
+            number: doc.number,
+            docType: doc.doc_type,
+            subject: doc.subject,
+            signatureDate: signatureDate,
+            signerName: signerName,
+            signerArea: signerArea,
+            recipients: recipientsNames.join(' | ') || 'Ninguno'
+        });
+
+    } catch (error) {
+        console.error("Error en validación pública:", error);
+        res.status(500).json({ message: 'Error interno del servidor.' });
+    }
+};

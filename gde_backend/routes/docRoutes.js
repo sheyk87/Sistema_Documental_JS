@@ -23,6 +23,8 @@ const upload = multer({
     // }
 });
 
+router.get('/public/verify/:id', docController.verifyPublicDoc);
+
 // Configuración para mantener el archivo en memoria sin guardarlo en disco
 const uploadMemory = multer({ storage: multer.memoryStorage() });
 
