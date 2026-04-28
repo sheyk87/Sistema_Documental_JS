@@ -27,6 +27,11 @@ const upload = multer({
     // }
 });
 
+// NUEVA: Ruta para inyectar adjuntos dentro del PDF
+router.post('/embed-attachments/:id', authMiddleware, uploadTemp.single('pdf'), docController.embedAttachments);
+
+router.post('/sign-final/:id', authMiddleware, uploadTemp.single('pdf'), docController.signFinalAndSeal);
+
 // Configuración para mantener el archivo en memoria sin guardarlo en disco
 const uploadMemory = multer({ storage: multer.memoryStorage() });
 

@@ -2,7 +2,8 @@ const pool = require('../config/db');
 const cryptoService = require('../services/cryptoService');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto'); // <-- NUEVO
+const { PDFDocument } = require('pdf-lib');
+const crypto = require('crypto');
 const ENCRYPTION_KEY = process.env.FILE_SECRET || 'unaclavesupersecretaexactamented'; // 32 bytes
 const signatureService = require('../services/signatureService');
 
@@ -326,43 +327,99 @@ exports.verifyPublicDoc = async (req, res) => {
     }
 };
 
-// NUEVO: Sella el PDF, calcula su Hash, lo encripta y actualiza la BD
+// FUNCIÓN UNIFICADA: Desencripta adjuntos, Embebe, Firma, Hashea y Encripta el final
 exports.signFinalAndSeal = async (req, res) => {
     const { id } = req.params;
     
     try {
-        if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF para sellar.' });
+        if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF.' });
         
-        // Parseamos los metadatos del documento que el frontend nos envía
         const docData = JSON.parse(req.body.documentData);
         const historyEntry = JSON.parse(req.body.historyEntry);
 
-        // 1. Leemos el archivo temporal que subió Multer
-        const pdfBuffer = fs.readFileSync(req.file.path);
+        // --- FASE 1: CARGAR PDF BASE ---
+        let pdfBuffer = fs.readFileSync(req.file.path);
+        
+        // Buscamos los adjuntos en la BD
+        const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
+        let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
 
-        // 2. Calculamos el Hash SHA-256 (Identidad inmutable del archivo)
+        // --- FASE 2: DESENCRIPTAR Y EMBEBER ADJUNTOS ---
+        if (attachments.length > 0) {
+            const pdfDoc = await PDFDocument.load(pdfBuffer);
+            
+            for (let att of attachments) {
+                const attPath = path.join(__dirname, '../uploads', att.filename);
+                
+                if (fs.existsSync(attPath)) {
+                    let fileBytesToEmbed;
+                    
+                    try {
+                        // Extraemos el IV del nombre del archivo, tal como se guardó en uploadAttachment
+                        const parts = att.filename.split('-');
+                        const ivHex = parts[0];
+                        
+                        if (ivHex.length === 32) {
+                            // Está cifrado. Desciframos en memoria.
+                            const iv = Buffer.from(ivHex, 'hex');
+                            const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+                            const encryptedData = fs.readFileSync(attPath);
+                            
+                            // Concatenamos el resultado del decipher
+                            fileBytesToEmbed = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+                        } else {
+                            // Por compatibilidad con archivos súper antiguos que no se cifraron
+                            fileBytesToEmbed = fs.readFileSync(attPath);
+                        }
+                    } catch (cryptoErr) {
+                        console.error(`[Error] Fallo al desencriptar el anexo ${att.filename}:`, cryptoErr);
+                        // Si falla catastróficamente, usamos el archivo crudo como último recurso
+                        fileBytesToEmbed = fs.readFileSync(attPath);
+                    }
+                    
+                    await pdfDoc.attach(fileBytesToEmbed, att.originalname, {
+                        mimeType: att.mimetype,
+                        description: 'Anexo Oficial',
+                        creationDate: new Date(),
+                        modificationDate: new Date(),
+                    });
+                }
+            }
+            // Guardamos el PDF con los adjuntos legibles internamente (sin Object Streams para compatibilidad)
+            pdfBuffer = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+        }
+
+        // --- FASE 3: FIRMA CRIPTOGRÁFICA (PKCS#7) ---
+        const signatureService = require('../services/signatureService');
+        try {
+            // Firmamos el buffer que ya contiene los adjuntos desencriptados
+            pdfBuffer = await signatureService.signPdfBuffer(pdfBuffer);
+        } catch (signErr) {
+            console.error("Error en firma interna:", signErr);
+            throw new Error("No se pudo aplicar la firma con certificado al documento.");
+        }
+
+        // --- FASE 4: HASH, ENCRIPTACIÓN DEL PDF FINAL Y GUARDADO ---
+        // Aquí encriptamos TODO el paquete (PDF + Adjuntos internos + Firma)
         const pdfHash = cryptoService.calculateHash(pdfBuffer);
-
-        // 3. Encriptamos y guardamos en el disco duro (bóveda segura)
         const securePath = path.join(__dirname, '../uploads/secure_docs', `${id}.enc`);
         cryptoService.encryptAndSave(pdfBuffer, securePath);
 
-        // 4. Limpiamos el archivo temporal en texto claro
-        fs.unlinkSync(req.file.path);
+        // Limpieza de archivos temporales y adjuntos originales encriptados
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (attachments.length > 0) {
+            for (let att of attachments) {
+                const attPath = path.join(__dirname, '../uploads', att.filename);
+                if (fs.existsSync(attPath)) fs.unlinkSync(attPath);
+            }
+        }
 
-        // 5. Actualizamos la Base de Datos con el estado Final, el Número y el Hash
+        // --- FASE 5: ACTUALIZAR BASE DE DATOS ---
         await pool.query(
-            `UPDATE documents SET 
-                status = 'Firmado', 
-                number = ?, 
-                signed_by = ?, 
-                owners = ?, 
-                pdf_hash = ? 
-             WHERE id = ?`,
+            `UPDATE documents SET status = 'Firmado', number = ?, signed_by = ?, owners = ?, pdf_hash = ? WHERE id = ?`,
             [docData.number, JSON.stringify(docData.signedBy), JSON.stringify(docData.owners), pdfHash, id]
         );
 
-        // 6. Registramos el historial
         if (historyEntry) {
             await pool.query(
                 'INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -370,12 +427,12 @@ exports.signFinalAndSeal = async (req, res) => {
             );
         }
 
-        res.json({ message: 'Documento sellado y encriptado exitosamente.', pdfHash });
+        res.json({ message: 'Documento procesado, firmado y encriptado correctamente.', pdfHash });
+
     } catch (error) {
-        console.error("Error en el sellado criptográfico:", error);
-        // Intentar limpiar el temporal si hubo error
+        console.error("Error en el proceso unificado:", error);
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        res.status(500).json({ message: 'Error interno al sellar el documento.' });
+        res.status(500).json({ message: error.message });
     }
 };
 
@@ -405,5 +462,60 @@ exports.downloadStaticPdf = async (req, res) => {
     } catch (error) {
         console.error("Error al descargar PDF estático:", error);
         res.status(500).json({ message: 'Error al recuperar el archivo seguro.' });
+    }
+};
+
+// NUEVO: Abre el PDF crudo, le inyecta los archivos adjuntos como "Embedded Files" y lo devuelve
+exports.embedAttachments = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF crudo.' });
+
+        // 1. Buscamos los adjuntos en la BD
+        const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado.' });
+        
+        let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
+
+        const pdfBytes = fs.readFileSync(req.file.path);
+
+        // Si no hay adjuntos, devolvemos el PDF intacto inmediatamente
+        if (attachments.length === 0) {
+            fs.unlinkSync(req.file.path); // Limpiamos temp
+            res.setHeader('Content-Type', 'application/pdf');
+            return res.send(pdfBytes);
+        }
+
+        // 2. Cargamos el PDF con pdf-lib
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+
+        // 3. Iteramos e inyectamos físicamente cada archivo
+        for (let att of attachments) {
+            const attPath = path.join(__dirname, '../uploads', att.filename); // Ajusta '../uploads' si tu carpeta real se llama distinto
+            if (fs.existsSync(attPath)) {
+                const fileBytes = fs.readFileSync(attPath);
+                await pdfDoc.attach(fileBytes, att.originalname, {
+                    mimeType: att.mimetype,
+                    description: 'Anexo Oficial del Documento',
+                    creationDate: new Date(),
+                    modificationDate: new Date(),
+                });
+            }
+        }
+
+        // 4. Guardamos el nuevo PDF "Gordito" (Desactivamos ObjectStreams para compatibilidad con node-signpdf)
+        const finalPdfBytes = await pdfDoc.save({ useObjectStreams: false });
+        
+        // Limpiamos el archivo temporal
+        fs.unlinkSync(req.file.path);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(Buffer.from(finalPdfBytes));
+
+    } catch (error) {
+        console.error("Error al embeber adjuntos:", error);
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.status(500).json({ message: 'Error interno al inyectar anexos en el PDF.' });
     }
 };

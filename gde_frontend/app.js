@@ -367,9 +367,9 @@ function handleExport(model) {
 
 // --- NUEVO: GENERADOR DE PDF Y ZIP ---
 
-// Genera el PDF al momento de firmar y lo envía al backend para su sellado inmutable
+// Genera el PDF al momento de firmar y lo envía al backend para su sellado inmutable con adjuntos embebidos
 async function sealAndSaveDocument(doc, hEntry) {
-    // 1. Contenedor en memoria (NUNCA lo agregaremos a la pantalla real)
+    // 1. Contenedor en memoria (NUNCA lo agregamos a la pantalla real)
     const tempDiv = document.createElement('div');
     tempDiv.style.width = '750px'; 
     tempDiv.style.padding = '30px';
@@ -400,28 +400,28 @@ async function sealAndSaveDocument(doc, hEntry) {
     let refHtml = '';
     if (vinculados.length > 0 || relacionados.length > 0 || adjuntos.length > 0) {
         refHtml = `
-            <div style="margin-top: 30px; border-top: 2px solid #ddd; padding-top: 15px; font-family: Arial, sans-serif;">
-                <h3 style="font-size: 13px; margin-bottom: 10px; color: #444;">REFERENCIAS DEL DOCUMENTO</h3>
+            <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 15px; font-family: Arial, sans-serif;">
+                <h3 style="font-size: 13px; margin-bottom: 10px; color: #475569; letter-spacing: 1px;">REFERENCIAS DEL DOCUMENTO</h3>
                 ${vinculados.length > 0 ? `<p style="font-size: 11px; margin: 2px 0;"><strong>Expedientes:</strong> ${vinculados.map(e => e.number).join(', ')}</p>` : ''}
                 ${relacionados.length > 0 ? `<p style="font-size: 11px; margin: 2px 0;"><strong>Relacionados:</strong> ${relacionados.map(d => d.number).join(', ')}</p>` : ''}
                 ${adjuntos.length > 0 ? `<p style="font-size: 11px; margin: 2px 0;"><strong>Anexos:</strong> ${adjuntos.map(a => a.originalname).join(', ')}</p>` : ''}
             </div>`;
     }
 
-    let firmasHtml = '<p style="margin-top: 30px; color: #888; font-style: italic;">Documento sin firmar</p>';
+    let firmasHtml = '<p style="margin-top: 30px; color: #94a3b8; font-style: italic;">Documento sin firmar</p>';
     if (doc.signedBy && doc.signedBy.length > 0) {
         firmasHtml = `
-            <div style="margin-top: 30px; border-top: 2px solid #ddd; padding-top: 15px; font-family: Arial, sans-serif;">
-                <h3 style="font-size: 13px; margin-bottom: 15px; color: #444;">FIRMAS DIGITALES</h3>
+            <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px;">
+                <h3 style="font-size: 13px; font-family: sans-serif; color: #475569; margin-bottom: 20px; letter-spacing: 1px;">FIRMAS DIGITALES</h3>
                 <table width="100%" cellpadding="0" cellspacing="0" style="border: none;">
                     <tr>
                         ${doc.signedBy.map(s => {
                             const u = state.db.users.find(user => user.id === s.id);
                             return `
                                 <td style="vertical-align: top; padding-right: 20px; border: none; width: 33%;">
-                                    <p style="font-style: italic; color: #059669; font-size: 13px; margin: 0; border-bottom: 1px solid #a7f3d0; display: inline-block;">Firmado Digitalmente</p>
-                                    <p style="font-weight: bold; margin: 5px 0 2px 0; font-size: 14px; color: #000;">${u ? u.name : 'Usuario'}</p>
-                                    <p style="color: #555; margin: 0; font-size: 11px;">${new Date(s.date).toLocaleString()}</p>
+                                    <p style="font-style: italic; color: #059669; font-size: 14px; margin: 0; border-bottom: 1px solid #a7f3d0; display: inline-block;">Firmado Digitalmente</p>
+                                    <p style="font-weight: bold; margin: 2px 0; font-size: 14px; color: #1e293b;">${u ? u.name : 'Usuario'}</p>
+                                    <p style="color: #475569; margin: 0; font-size: 11px;">${new Date(s.date).toLocaleString()}</p>
                                 </td>`;
                         }).join('')}
                     </tr>
@@ -445,11 +445,10 @@ async function sealAndSaveDocument(doc, hEntry) {
         promotorHtml = `<p style="margin: 0 0 5px 0; font-size: 13px;"><strong>PROMOTOR:</strong> ${lastSignerUser ? getAreaName(lastSignerUser.areaId) : 'Desconocida'}</p>`;
     }
 
-    // 4. ENSAMBLAJE (Tabla centrada perfecta)
+    // 4. Compilamos el HTML en el contenedor de memoria
     tempDiv.innerHTML = `
         ${watermarkHtml}
         <div style="position: relative; z-index: 1;">
-            
             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 30px; border-collapse: collapse;">
                 <tr>
                     <td width="25%" style="border: none;"></td>
@@ -463,11 +462,11 @@ async function sealAndSaveDocument(doc, hEntry) {
                 </tr>
             </table>
 
-            <div style="background-color: #f9f9f9; padding: 15px; border: 1px solid #eee; margin-bottom: 25px; font-family: Arial, sans-serif; border-radius: 6px;">
-                <p style="margin: 0 0 5px 0; font-size: 13px;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
-                <p style="margin: 0 0 5px 0; font-size: 13px;"><strong>ASUNTO:</strong> ${doc.subject}</p>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px; font-size: 13px; font-family: sans-serif; border: 1px solid #e2e8f0;">
+                <p style="margin: 0 0 8px 0; color: #334155;"><strong>FECHA:</strong> ${formatDateOnly(doc.createdAt)}</p>
+                <p style="margin: 0 0 8px 0; color: #334155;"><strong>ASUNTO:</strong> ${doc.subject}</p>
                 ${promotorHtml}
-                ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; font-size: 13px;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
+                ${doc.recipients && doc.recipients.length > 0 ? `<p style="margin: 0; color: #334155;"><strong>DESTINATARIOS:</strong> ${doc.recipients.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ')}</p>` : ''}
             </div>
 
             <div style="font-size: 14px; line-height: 1.6; text-align: justify; min-height: 200px;">
@@ -479,7 +478,6 @@ async function sealAndSaveDocument(doc, hEntry) {
         </div>
     `;
 
-    // 5. Opciones de html2pdf
     const opt = {
         margin: 10,
         filename: 'temp.pdf',
@@ -489,31 +487,12 @@ async function sealAndSaveDocument(doc, hEntry) {
     };
 
     try {
-        // 1. Generamos el PDF crudo en el navegador
+        // 1. Generamos el PDF crudo base en el navegador
         const rawBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
 
-        // =========================================================
-        // 2. RECUPERAMOS LA FIRMA CON CERTIFICADO PKCS#7
-        // =========================================================
-        const cryptoFormData = new FormData();
-        cryptoFormData.append('pdf', rawBlob, 'doc_crudo.pdf');
-
-        const cryptoRes = await fetch('http://localhost:3000/api/docs/cryptosign', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-            body: cryptoFormData
-        });
-
-        if (!cryptoRes.ok) throw new Error('Fallo en la inyección del certificado digital');
-        
-        // Obtenemos el PDF con la firma criptográfica ya incrustada
-        const signedBlob = await cryptoRes.blob(); 
-
-        // =========================================================
-        // 3. ENVIAMOS A ENCRIPTAR, CALCULAR HASH Y GUARDAR
-        // =========================================================
+        // 2. ENVIAR AL SERVIDOR (Él se encarga de embeber, firmar y encriptar)
         const finalFormData = new FormData();
-        finalFormData.append('pdf', signedBlob, 'documento_final.pdf');
+        finalFormData.append('pdf', rawBlob, 'documento_crudo.pdf');
         finalFormData.append('documentData', JSON.stringify(doc));
         finalFormData.append('historyEntry', JSON.stringify(hEntry));
 
@@ -523,10 +502,13 @@ async function sealAndSaveDocument(doc, hEntry) {
             body: finalFormData
         });
 
-        if (!res.ok) throw new Error('Fallo al guardar en la bóveda inmutable del servidor');
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.message || 'Fallo en el procesamiento del servidor');
+        }
         
         const resData = await res.json();
-        doc.pdf_hash = resData.pdfHash; // Guardamos el Hash
+        doc.pdf_hash = resData.pdfHash; // Guardamos el Hash final
         
         return true;
 
@@ -534,99 +516,75 @@ async function sealAndSaveDocument(doc, hEntry) {
         console.error("Error sellando documento:", error);
         alert(`Ocurrió un error crítico: ${error.message}`);
         return false;
+    } finally {
+        if (document.body.contains(tempDiv)) document.body.removeChild(tempDiv);
     }
 }
 
-// Descarga el PDF estático y sus adjuntos en un ZIP
+// Descarga el PDF oficial estático (Los adjuntos viajan embebidos adentro)
 async function downloadDocumentArchive(docId) {
     const doc = state.db.documents.find(d => d.id === docId);
     if (!doc) return;
     
-    // Si es borrador, no hay PDF físico, alertamos.
     if (doc.status === STATUS.BORRADOR || doc.status === STATUS.FIRMANDOSE || doc.status === STATUS.RECHAZADO) {
         return alert("Los borradores en trámite no poseen un PDF oficial generado. Debe firmarse primero.");
     }
 
-    const zip = new JSZip();
-    
-    // 1. Obtenemos el PDF desencriptado desde el servidor
+    // Le ponemos un spinner al botón original
+    const btn = document.querySelector(`[data-action="download-doc-zip"][data-id="${docId}"]`);
+    const origHtml = btn ? btn.innerHTML : '';
+    if(btn) btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
+
     try {
         const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
+        
         if (!pdfRes.ok) throw new Error("No se pudo obtener el PDF sellado.");
+        
         const pdfBlob = await pdfRes.blob();
-        zip.file(`${doc.number}.pdf`, pdfBlob);
+        saveAs(pdfBlob, `${doc.number}_Oficial.pdf`); // Ya es PDF, no ZIP
     } catch (e) {
         console.error(e);
-        return alert("Error al recuperar el documento encriptado del servidor.");
+        alert("Error al recuperar el documento encriptado del servidor.");
+    } finally {
+        if(btn) btn.innerHTML = origHtml;
+        if(window.lucide) lucide.createIcons();
     }
-    
-    // 2. Buscamos y guardamos los adjuntos
-    if (doc.attachments && doc.attachments.length > 0) {
-        const attFolder = zip.folder("Archivos_Adjuntos");
-        for (let att of doc.attachments) {
-            try {
-                const resp = await fetch(`http://localhost:3000/api/docs/download/${att.filename}`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
-                });
-                const blob = await resp.blob();
-                attFolder.file(att.originalname, blob);
-            } catch(e) { console.error("Error al descargar adjunto:", e); }
-        }
-    }
-    
-    // 3. Generamos el ZIP y forzamos la descarga
-    const zipBlob = await zip.generateAsync({ type: "blob" });
-    saveAs(zipBlob, `${doc.number}_Oficial.zip`);
 }
 
-// Empaqueta todo el expediente (TXT + Múltiples Fojas PDF + Adjuntos)
+// Empaqueta todo el expediente (TXT + Fojas PDF que ya incluyen sus adjuntos)
 async function downloadFullExpediente(expId) {
     const exp = state.db.expedientes.find(e => e.id === expId);
     if (!exp) return;
     
     const zip = new JSZip();
     
-    // 1. Creamos el archivo de texto con el historial
     let historyText = `=== HISTORIAL DEL EXPEDIENTE ===\nNÚMERO: ${exp.number}\nASUNTO: ${exp.subject}\nCREADO: ${formatDateOnly(exp.createdAt)}\n\n`;
     [...exp.history].reverse().forEach(h => {
         historyText += `[${new Date(h.date).toLocaleString()}] ${h.action} \nActor: ${getUserName(h.userId)}\nNotas: ${h.notes || 'Sin notas'}\n-----------------------------------\n`;
     });
     zip.file(`Historial_${exp.number}.txt`, historyText);
     
-    // 2. Iteramos sobre cada foja vinculada
     if (exp.linkedDocs && exp.linkedDocs.length > 0) {
         for (let i = 0; i < exp.linkedDocs.length; i++) {
             const docId = exp.linkedDocs[i];
             const doc = state.db.documents.find(d => d.id === docId);
             if (doc) {
-                // Creamos una carpeta por cada foja
-                const fojaName = `Foja_${String(i + 1).padStart(3, '0')}_${doc.number}`;
-                const docFolder = zip.folder(fojaName);
-                
-                // Agregamos el PDF del documento
-                const pdfBlob = await generatePDFBlob(doc);
-                docFolder.file(`${doc.number}.pdf`, pdfBlob);
-                
-                // Si la foja tiene adjuntos, los metemos en su respectiva subcarpeta
-                if (doc.attachments && doc.attachments.length > 0) {
-                    const attFolder = docFolder.folder("Adjuntos");
-                    for (let att of doc.attachments) {
-                        try {
-                            const resp = await fetch(`http://localhost:3000/api/docs/download/${att.filename}`, {
-                                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
-                            });
-                            const blob = await resp.blob();
-                            attFolder.file(att.originalname, blob);
-                        } catch(e) { console.error(e); }
-                    }
-                }
+                try {
+                    const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                    });
+                    const pdfBlob = await pdfRes.blob();
+                    
+                    // Nombres limpios, sin subcarpetas innecesarias
+                    const fojaName = `Foja_${String(i + 1).padStart(3, '0')}_${doc.number}.pdf`;
+                    zip.file(fojaName, pdfBlob);
+                } catch(e) { console.error(e); }
             }
         }
     }
     
-    // 3. Compilamos y descargamos el mega-archivo ZIP
     const zipBlob = await zip.generateAsync({ type: "blob" });
     saveAs(zipBlob, `${exp.number}_Completo.zip`);
 }
@@ -1434,8 +1392,16 @@ function renderDocumentDetail() {
                                 <ul class="space-y-2">
                                     ${doc.attachments && doc.attachments.length > 0 ? doc.attachments.map(att => `
                                         <li class="flex items-center justify-between p-3 bg-white border border-gray-200 shadow-sm rounded-lg group">
-                                            <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-2 text-sm outline-none"><i data-lucide="paperclip" class="w-4 h-4"></i> ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span></button>
-                                            ${canEdit ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                                            <div class="flex items-center gap-2 text-sm text-gray-700">
+                                                <i data-lucide="paperclip" class="w-4 h-4"></i> 
+                                                ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span>
+                                            </div>
+                                            ${!isSignedOrArchived ? `
+                                                <div class="flex items-center gap-2">
+                                                    <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 text-sm outline-none"><i data-lucide="download" class="w-4 h-4"></i></button>
+                                                    ${canEdit ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                                                </div>
+                                            ` : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 font-bold uppercase tracking-wide">Embebido en PDF</span>'}
                                         </li>
                                     `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
                                 </ul>
@@ -2815,9 +2781,6 @@ document.addEventListener('click', async (e) => {
         if (item) { activeInputSelector = null; setState({ selectedItem: { ...item, type } }); }
     }
 });
-
-//renderApp();
-//initSession()
 
 // ==========================================
 // ARRANQUE DE LA APLICACIÓN
