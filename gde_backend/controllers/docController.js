@@ -16,14 +16,14 @@ const getArgTime = () => {
 
 exports.createDocument = async (req, res) => {
     // Ya no usamos el createdAt del frontend
-    const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients } = req.body;
+    const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients, areaId } = req.body;
     try {
         const serverTime = getArgTime(); // Hora blindada
         
         await pool.query(
-            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs, signatories, attachments, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', ?)`,
-            [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime]
+            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs, signatories, attachments, created_at, area_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', ?, ?)`,
+            [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime, areaId]
         );
         await pool.query(
             `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador', ?)`,
@@ -44,7 +44,7 @@ exports.getAllDocuments = async (req, res) => {
         const formattedDocs = docs.map(doc => {
             return {
                 id: doc.id, type: 'documento', docType: doc.doc_type, subject: doc.subject, content: doc.content,
-                creatorId: doc.creator_id, currentOwnerId: doc.current_owner_id, status: doc.status, number: doc.number, createdAt: doc.created_at,
+                creatorId: doc.creator_id, currentOwnerId: doc.current_owner_id, areaId: doc.area_id, status: doc.status, number: doc.number, createdAt: doc.created_at,
                 owners: typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []),
                 recipients: typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []),
                 signedBy: typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []),
@@ -69,13 +69,13 @@ exports.updateDocument = async (req, res) => {
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
-                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?
+                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?, area_id = ?
              WHERE id = ?`,
             [
                 item.subject, item.content, item.status, item.currentOwnerId,
                 JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
                 JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
-                JSON.stringify(item.signatories || []), item.number, item.id
+                JSON.stringify(item.signatories || []), item.number, item.areaId, item.id
             ]
         );
 
@@ -276,20 +276,17 @@ exports.verifyPublicDoc = async (req, res) => {
 
         const doc = rows[0];
 
-        // Por seguridad, solo se pueden verificar documentos finalizados
-        if (doc.status !== 'Firmado' && doc.status !== 'Archivado' && doc.status !== 'Anulado') {
-            return res.status(400).json({ message: 'El documento especificado aún se encuentra en trámite o no es válido para verificación pública.' });
-        }
-
-        // 1. Extraer el último firmante
+        // 1. Extraer el último firmante y su área de firma
         let signedBy = typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []);
         let lastSignerId = null;
         let signatureDate = doc.created_at;
+        let signatureAreaId = null; // Variable para atrapar el área exacta
         
         if (signedBy && signedBy.length > 0) {
             const lastSigner = signedBy[signedBy.length - 1];
             lastSignerId = lastSigner.id;
             signatureDate = lastSigner.date;
+            signatureAreaId = lastSigner.areaId || doc.area_id; // Área de firma o área del doc
         }
 
         // 2. Obtener Nombre y Área del Firmante
@@ -299,21 +296,10 @@ exports.verifyPublicDoc = async (req, res) => {
             const [uRows] = await pool.query('SELECT name, area_id FROM users WHERE id = ?', [lastSignerId]);
             if (uRows.length > 0) {
                 signerName = uRows[0].name;
-                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [uRows[0].area_id]);
+                // Si la firma tiene área la usamos, si no, usamos el área por defecto del usuario
+                const finalAreaId = signatureAreaId || uRows[0].area_id; 
+                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [finalAreaId]);
                 if (aRows.length > 0) signerArea = aRows[0].name;
-            }
-        }
-
-        // 3. Obtener nombres de destinatarios
-        let recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
-        let recipientsNames = [];
-        for (let rId of recipients) {
-            if (rId.startsWith('a')) {
-                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [rId]);
-                if (aRows.length > 0) recipientsNames.push('Área: ' + aRows[0].name);
-            } else {
-                const [uRows] = await pool.query('SELECT name FROM users WHERE id = ?', [rId]);
-                if (uRows.length > 0) recipientsNames.push(uRows[0].name);
             }
         }
 

@@ -57,6 +57,7 @@ async function setupFull() {
                 content TEXT NOT NULL,
                 creator_id VARCHAR(50) NOT NULL,
                 current_owner_id VARCHAR(50) NOT NULL,
+                area_id VARCHAR(50) DEFAULT NULL;
                 status VARCHAR(50) NOT NULL,
                 owners JSON,
                 recipients JSON,
@@ -78,6 +79,7 @@ async function setupFull() {
                 number VARCHAR(50) UNIQUE NOT NULL,
                 subject VARCHAR(255) NOT NULL,
                 creator_id VARCHAR(50) NOT NULL,
+                area_id VARCHAR(50) DEFAULT NULL;
                 current_owner_id VARCHAR(50) NOT NULL,
                 status VARCHAR(50) NOT NULL,
                 is_public BOOLEAN DEFAULT TRUE,

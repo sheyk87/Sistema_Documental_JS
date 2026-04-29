@@ -177,6 +177,7 @@ function canViewExpediente(exp, user) {
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
     if (isHiddenFromInbox(d, user)) return false; // Filtramos si el usuario lo ocultó
+    if (d.areaId && d.areaId !== user.areaId) return false; // Estricto control de área. Si tiene área, debe coincidir con la activa del usuario
     if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id;
     return d.owners?.includes(user.id);
 }
@@ -184,6 +185,7 @@ function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STAT
 function isPersonalExp(e, user) { 
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status)) return false;
     if (isHiddenFromInbox(e, user)) return false; // Filtramos si el usuario lo ocultó
+    if (e.areaId && e.areaId !== user.areaId) return false; // Estricto control de área
     return e.currentOwnerId === user.id; 
 }
 function isAreaExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.areaId; }
@@ -423,10 +425,12 @@ async function sealAndSaveDocument(doc, hEntry) {
                     <tr>
                         ${doc.signedBy.map(s => {
                             const u = state.db.users.find(user => user.id === s.id);
+                            const areaNameFirma = getAreaName(s.areaId || doc.areaId); // <--- Extrae el área correcta
                             return `
                                 <td style="vertical-align: top; padding-right: 20px; border: none; width: 33%;">
                                     <p style="font-style: italic; color: #059669; font-size: 14px; margin: 0; border-bottom: 1px solid #a7f3d0; display: inline-block;">Firmado Digitalmente</p>
                                     <p style="font-weight: bold; margin: 2px 0; font-size: 14px; color: #1e293b;">${u ? u.name : 'Usuario'}</p>
+                                    <p style="color: #475569; font-weight: 500; margin: 0 0 2px 0; font-size: 11px;">${areaNameFirma}</p>
                                     <p style="color: #475569; margin: 0; font-size: 11px;">${new Date(s.date).toLocaleString()}</p>
                                 </td>`;
                         }).join('')}
@@ -446,9 +450,10 @@ async function sealAndSaveDocument(doc, hEntry) {
     const isConDestinatario = DOC_TYPES.CON_DEST_MULT.includes(doc.docType) || DOC_TYPES.CON_DEST_EXCL.includes(doc.docType);
     let promotorHtml = '';
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
-        const lastSignerId = doc.signedBy[doc.signedBy.length - 1].id;
-        const lastSignerUser = state.db.users.find(u => u.id === lastSignerId);
-        promotorHtml = `<p style="margin: 0 0 5px 0; font-size: 13px;"><strong>PROMOTOR:</strong> ${lastSignerUser ? getAreaName(lastSignerUser.areaId) : 'Desconocida'}</p>`;
+        const lastSigner = doc.signedBy[doc.signedBy.length - 1];
+        // Leemos el área desde la firma, y si es muy antigua, desde el documento
+        const areaIdFirma = lastSigner.areaId || doc.areaId;
+        promotorHtml = `<p style="margin: 0 0 5px 0; font-size: 13px;"><strong>PROMOTOR:</strong> ${getAreaName(areaIdFirma)}</p>`;
     }
 
     // 4. Compilamos el HTML en el contenedor de memoria
@@ -638,9 +643,16 @@ async function processBatchSign() {
         const item = state.db.documents.find(d => d.id === docId);
         if (!item) continue;
 
+        // === CRÍTICO: El documento adopta el área activa del firmante en este momento ===
+        item.areaId = state.currentUser.areaId;
+
         // --- Lógica de Firma (Idéntica a la individual) ---
         if (!item.signedBy) item.signedBy = []; 
-        item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
+        item.signedBy.push({ 
+            id: state.currentUser.id, 
+            date: new Date().toISOString(),
+            areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
+        });
 
         // Caso A: Firma Intermedia (Pasa a otro firmante)
         item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
@@ -655,7 +667,10 @@ async function processBatchSign() {
 
         // Caso B: Firma Final
         item.status = STATUS.FIRMADO; 
-        if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+        // Genera el número usando el área activa (donde el usuario está parado ahora)
+        if (!item.number) {
+            item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+        }
 
         // Relacionados
         if (item.relatedDocs && item.relatedDocs.length > 0) {
@@ -701,7 +716,7 @@ function getFilteredItemsForModel(model) {
         case 'inboxExp': return state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'areaDoc': return state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'areaExp': return state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+        case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id && (!d.areaId || d.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
         case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u=>u.id===d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
         case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
@@ -1435,8 +1450,14 @@ function renderInbox() {
 // VISTA: Firma Masiva
 function renderBatchSign() {
     const term = state.searchTerms.batchSign;
-    // Solo documentos en estado Firmandose cuyo currentOwnerId sea el usuario actual
-    const docs = state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+    
+    // CORRECCIÓN: Mostrar TODOS los documentos pendientes de firma del usuario, 
+    // sin importar en qué área esté parado actualmente.
+    const docs = state.db.documents.filter(d => 
+        d.status === STATUS.FIRMANDOSE && 
+        d.currentOwnerId === state.currentUser.id
+        // Eliminamos la validación de d.areaId de aquí
+    ).filter(d => filterItem(d, term));
     
     const s = state.sort.batchSign || { field: 'date', order: 'desc' };
     const sortedDocs = docs.sort((a, b) => {
@@ -1543,7 +1564,13 @@ function renderBatchSign() {
 
 function renderDrafts() {
     const term = state.searchTerms.drafts;
-    const drafts = state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+    // CORRECCIÓN: Filtramos por área activa para que solo veas los borradores de este "escritorio"
+    const drafts = state.db.documents.filter(d => 
+        d.creatorId === state.currentUser.id && 
+        (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && 
+        d.currentOwnerId === state.currentUser.id &&
+        d.areaId === state.currentUser.areaId // <--- Filtro de área añadido
+    ).filter(d => filterItem(d, term));
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="drafts" placeholder="Filtrar borradores..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="edit-2" class="w-4 h-4"></i> Mis Borradores (${drafts.length})</h3></div>${renderTable(drafts, 'drafts', 'No tienes borradores.')}</div></div>`;
 }
 
@@ -1594,8 +1621,9 @@ function renderDocumentDetail() {
 
     let promotorHTML = '';
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
-        const lastSignerArea = getAreaName(state.db.users.find(u => u.id === doc.signedBy[doc.signedBy.length - 1].id)?.areaId);
-        promotorHTML = `<p><strong>PROMOTOR:</strong> ${lastSignerArea}</p>`;
+        const lastSigner = doc.signedBy[doc.signedBy.length - 1];
+        const areaIdFirma = lastSigner.areaId || doc.areaId;
+        promotorHTML = `<p><strong>PROMOTOR:</strong> ${getAreaName(areaIdFirma)}</p>`;
     }
 
     const vinculados = state.db.expedientes.filter(e => e.linkedDocs && e.linkedDocs.includes(doc.id));
@@ -1614,7 +1642,7 @@ function renderDocumentDetail() {
                             <div class="mt-4 flex items-center gap-2"><label class="font-bold">ASUNTO:</label>${canEdit ? `<input type="text" id="edit-doc-subject" value="${doc.subject}" class="flex-1 p-2 border font-medium outline-none rounded" />` : `<span class="text-lg">${doc.subject}</span>`}</div>
                         </div>
                         <div class="flex-1 relative z-10 mb-12">${canEdit ? `<textarea id="edit-doc-content" class="w-full h-full min-h-[300px] p-2 border outline-none font-serif resize-y leading-relaxed text-gray-800 rounded">${doc.content}</textarea>` : `<div class="font-serif text-lg leading-relaxed text-gray-800 whitespace-pre-wrap">${doc.content}</div>`}</div>
-                        ${doc.signedBy && doc.signedBy.length > 0 ? `<div class="mt-8 pt-8 border-t border-gray-300 relative z-10 mb-12 flex justify-center gap-8 flex-wrap">${doc.signedBy.map(s => `<div class="text-center text-emerald-700"><p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p><p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p><p class="text-xs text-gray-600 font-medium">${getAreaName(state.db.users.find(u=>u.id===s.id)?.areaId)}</p></div>`).join('')}</div>` : ''}
+                        ${doc.signedBy && doc.signedBy.length > 0 ? `<div class="mt-8 pt-8 border-t border-gray-300 relative z-10 mb-12 flex justify-center gap-8 flex-wrap">${doc.signedBy.map(s => `<div class="text-center text-emerald-700"><p class="font-serif italic text-2xl mb-1 border-b border-emerald-200 inline-block px-4">Firmado Digitalmente</p><p class="font-bold text-sm text-gray-800">${getUserName(s.id)}</p><p class="text-xs text-gray-600 font-medium">${getAreaName(s.areaId || doc.areaId)}</p></div>`).join('')}</div>` : ''}
                         <div class="mt-auto pt-8 border-t border-gray-200 bg-gray-50 -mx-12 -mb-12 p-8 text-sm">
                             <h4 class="font-bold text-gray-600 mb-4">REFERENCIAS DEL DOCUMENTO</h4>
                             ${vinculados.length > 0 ? `<div class="mb-4"><strong>Vinculado en Expedientes:</strong><ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul></div>` : ''}
@@ -2211,7 +2239,7 @@ document.addEventListener('submit', async (e) => {
             id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, 
             content: contentHTML, // <-- Usamos el HTML capturado
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: [],
-            createdAt: new Date().toISOString()
+            areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
         fetch('http://localhost:3000/api/docs/create', {
@@ -2236,7 +2264,7 @@ document.addEventListener('submit', async (e) => {
         const newExp = {
             id: `exp_${Date.now()}`, number: expNumber, subject: document.getElementById('create-exp-subject').value, 
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, status: 'En Tramite', isPublic: isPublic, authAreas: authAreas, authUsers: authUsers,
-            createdAt: new Date().toISOString()
+            areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
         fetch('http://localhost:3000/api/exps/create', {
@@ -2525,6 +2553,8 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
             if (item) { 
                 if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } 
+                
+                item.areaId = state.currentUser.areaId;
                 const hEntry = createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del area');
                 item.history.push(hEntry); 
                 await syncData(item, type, hEntry);
@@ -2838,6 +2868,15 @@ document.addEventListener('click', async (e) => {
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.currentOwnerId = m.selectedId; if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+
+                // Si lo mandamos a un Usuario, toma el área principal de ese usuario. Si va a un Área, borramos el id para que quede suelto en esa bandeja grupal.
+                if (m.selectedId.startsWith('u')) {
+                    const targetUser = state.db.users.find(u => u.id === m.selectedId);
+                    if (targetUser) item.areaId = targetUser.areaId;
+                } else {
+                    item.areaId = null; 
+                }
+
                 if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
                 const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivado a ${destName}`;
@@ -2855,6 +2894,11 @@ document.addEventListener('click', async (e) => {
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
+                
+                // Ajustamos el área al primer firmante
+                const targetUser = state.db.users.find(u => u.id === item.currentOwnerId);
+                if (targetUser) item.areaId = targetUser.areaId;
+                
                 const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
                 
                 const hEntry = createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note);
@@ -2942,8 +2986,15 @@ document.addEventListener('click', async (e) => {
                 return setState({ selectedItem: null, currentView: 'inbox' });
             }
             if (m.type === 'confirmar_firma') {
+                // === CRÍTICO: Sincronizar el área del documento con el área activa del usuario ===
+                item.areaId = state.currentUser.areaId;
+
                 if (!item.signedBy) item.signedBy = []; 
-                item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
+                item.signedBy.push({ 
+                    id: state.currentUser.id, 
+                    date: new Date().toISOString(),
+                    areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
+                });
 
                 if (m.signAction === 'doc-sign-pending') {
                     item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
@@ -2957,7 +3008,10 @@ document.addEventListener('click', async (e) => {
                 }
 
                 item.status = STATUS.FIRMADO; 
-                if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+                // Genera el número usando el área real a la que pertenece el documento (o la actual si es muy antiguo)
+                if (!item.number) {
+                    item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+                }
 
                 // ... (lógica de relacionados intacta) ...
                 if (item.relatedDocs && item.relatedDocs.length > 0) {

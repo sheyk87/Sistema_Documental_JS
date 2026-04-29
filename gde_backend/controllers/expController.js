@@ -10,20 +10,20 @@ const getArgTime = () => {
 
 // 1. Guardar un nuevo expediente
 exports.createExpediente = async (req, res) => {
-    const { id, number, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers } = req.body;
+    const { id, number, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers, areaId } = req.body;
 
     try {
         const serverTime = getArgTime();
 
         await pool.query(
-            `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', ?)`,
+            `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs, created_at, area_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', ?, ?)`,
             [
                 id, number, subject, creatorId, currentOwnerId, status, 
                 isPublic ? 1 : 0, 
                 JSON.stringify(authAreas || []), 
                 JSON.stringify(authUsers || []),
-                serverTime
+                serverTime, areaId
             ]
         );
 
@@ -54,6 +54,7 @@ exports.getAllExpedientes = async (req, res) => {
                 subject: e.subject,
                 creatorId: e.creator_id,
                 currentOwnerId: e.current_owner_id,
+                areaId: e.area_id,
                 status: e.status,
                 isPublic: e.is_public === 1,
                 createdAt: e.created_at,
@@ -86,13 +87,13 @@ exports.updateExpediente = async (req, res) => {
         await pool.query(
             `UPDATE expedientes SET 
                 current_owner_id = ?, status = ?, auth_areas = ?, auth_users = ?, 
-                linked_docs = ?, sealed_docs = ?
+                linked_docs = ?, sealed_docs = ?, area_id = ?
              WHERE id = ?`,
             [
                 item.currentOwnerId, item.status, 
                 JSON.stringify(item.authAreas || []), JSON.stringify(item.authUsers || []), 
                 JSON.stringify(item.linkedDocs || []), JSON.stringify(item.sealedDocs || []), 
-                item.id
+                item.areaId, item.id
             ]
         );
 
