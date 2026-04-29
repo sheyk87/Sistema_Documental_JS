@@ -38,34 +38,42 @@ const CHART_COLORS = {
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
     currentUser: null, currentView: 'inbox', selectedItem: null,
-    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '' },
+    
+    // Añadido 'batchSign: ''' al final
+    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '' },
+    
     sort: {
         inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
         areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
         drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' },
         archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
-        anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' }
+        anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' },
+        batchSign: { field: 'date', order: 'desc' } // <-- NUEVO
     },
-    // --- NUEVO: Estado de paginación para cada tabla ---
+    
     pagination: {
         inboxDoc: { page: 1, limit: 10 }, inboxExp: { page: 1, limit: 10 },
         areaDoc: { page: 1, limit: 10 }, areaExp: { page: 1, limit: 10 },
         drafts: { page: 1, limit: 10 }, search: { page: 1, limit: 10 },
         archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
-        anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 }
+        anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 },
+        batchSign: { page: 1, limit: 10 } // <-- NUEVO
     },
+    
+    batchSelection: [],
+    batchProgress: null,
+    
     forgotPass: { step: 1, email: '', maskedEmail: '', code: '' },
     loginFlow: { step: 1, tempToken: null, qrCodeUrl: null, recoveryCodes: [] },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
         sidebarOpen: true, 
         notificationsOpen: false, 
-        darkMode: localStorage.getItem('gde_dark_mode') === 'true' // <-- NUEVO
+        darkMode: localStorage.getItem('gde_dark_mode') === 'true' 
     },
     servicesConfig: null,
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     notifications: [], 
-    ui: { sidebarOpen: true, notificationsOpen: false }, // Agrega notificationsOpen aquí
     modal: null
 };
 
@@ -365,8 +373,6 @@ function handleExport(model) {
     exportToCSV(`${model}_export.csv`, rows);
 }
 
-// --- NUEVO: GENERADOR DE PDF Y ZIP ---
-
 // Genera el PDF al momento de firmar y lo envía al backend para su sellado inmutable con adjuntos embebidos
 async function sealAndSaveDocument(doc, hEntry) {
     // 1. Contenedor en memoria (NUNCA lo agregamos a la pantalla real)
@@ -589,6 +595,105 @@ async function downloadFullExpediente(expId) {
     saveAs(zipBlob, `${exp.number}_Completo.zip`);
 }
 
+// === MOTOR DE RECHAZO MASIVO ===
+async function processBatchReject(note) {
+    state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Iniciando rechazo...' };
+    renderApp(); 
+
+    for (let i = 0; i < state.batchSelection.length; i++) {
+        const docId = state.batchSelection[i];
+        state.batchProgress = { current: i + 1, total: state.batchSelection.length, status: `Rechazando documento ${i + 1} de ${state.batchSelection.length}...` };
+        renderApp();
+
+        const item = state.db.documents.find(d => d.id === docId);
+        if (!item) continue;
+
+        item.status = STATUS.RECHAZADO;
+        item.currentOwnerId = item.creatorId; 
+        const hEntry = createHistoryEntry(state.currentUser.id, 'Rechazado (Firma Masiva)', note);
+        item.history.push(hEntry);
+        await syncData(item, 'documento', hEntry);
+        await notifyUsers([item.creatorId], 'Documento Rechazado', `Se rechazó tu documento en revisión masiva. Motivo: ${note}`, item.id, 'documento');
+    }
+
+    state.batchProgress = null;
+    state.batchSelection = [];
+    setState({ modal: null, currentView: 'batch_sign' });
+    alert("Rechazo masivo completado exitosamente.");
+}
+
+// === MOTOR DE FIRMA MASIVA SECUENCIAL ===
+async function processBatchSign() {
+    state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Preparando motor criptográfico...' };
+    renderApp(); 
+    
+    let successCount = 0;
+    const docIds = [...state.batchSelection]; // Clonamos para no perderlos
+
+    for (let i = 0; i < docIds.length; i++) {
+        const docId = docIds[i];
+        state.batchProgress = { current: i + 1, total: docIds.length, status: `Sellando documento ${i + 1} de ${docIds.length}...` };
+        renderApp();
+
+        const item = state.db.documents.find(d => d.id === docId);
+        if (!item) continue;
+
+        // --- Lógica de Firma (Idéntica a la individual) ---
+        if (!item.signedBy) item.signedBy = []; 
+        item.signedBy.push({ id: state.currentUser.id, date: new Date().toISOString() });
+
+        // Caso A: Firma Intermedia (Pasa a otro firmante)
+        item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
+        if (item.signatories.length > 0) {
+            item.currentOwnerId = item.signatories[0]; 
+            const hEntry = createHistoryEntry(state.currentUser.id, 'Firma Aplicada (Masiva)', 'Pasa al siguiente firmante');
+            item.history.push(hEntry);
+            await syncData(item, 'documento', hEntry); 
+            successCount++;
+            continue; 
+        }
+
+        // Caso B: Firma Final
+        item.status = STATUS.FIRMADO; 
+        if (!item.number) item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+
+        // Relacionados
+        if (item.relatedDocs && item.relatedDocs.length > 0) {
+            for (let relId of item.relatedDocs) { 
+                const targetDoc = state.db.documents.find(d => d.id === relId); 
+                if (targetDoc) { 
+                    if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; 
+                    if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); 
+                    await syncData(targetDoc, 'documento'); 
+                } 
+            }
+        }
+
+        const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
+        if (isConDest) { item.owners = [...item.recipients]; } else { item.owners = [item.creatorId]; }
+
+        const hEntry = createHistoryEntry(state.currentUser.id, 'Firma Masiva Completa', 'Documento sellado digitalmente y encriptado (SHA-256)');
+        item.history.push(hEntry);
+
+        // ¡EL MOMENTO MÁGICO! Llamamos a la generación del PDF.
+        const success = await sealAndSaveDocument(item, hEntry); 
+
+        if (success) {
+            if (isConDest && item.recipients && item.recipients.length > 0) {
+                await notifyUsers(item.recipients, 'Nuevo Documento', `Tienes un nuevo documento ${item.docType} (${item.number}) para tu área/usuario`, item.id, 'documento');
+            }
+            successCount++;
+        } else {
+            item.status = STATUS.FIRMANDOSE; // Si falla, lo devuelve a su estado original
+        }
+    }
+
+    state.batchProgress = null;
+    state.batchSelection = [];
+    setState({ modal: null, currentView: 'batch_sign' });
+    alert(`Proceso finalizado. Se firmaron ${successCount} de ${docIds.length} documentos correctamente.`);
+}
+
 function getFilteredItemsForModel(model) {
     const term = state.searchTerms[model.replace(/(Doc|Exp)$/, '')] || '';
     switch(model) {
@@ -601,6 +706,7 @@ function getFilteredItemsForModel(model) {
         case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
         case 'anuladosExp': return state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
+        case 'batchSign': return state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
         case 'search': 
             const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)));
             const sExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
@@ -927,7 +1033,7 @@ function renderMainLayout() {
                     </div>
                 ` : ''}
                 <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden ${!sbo ? 'px-3 pt-6' : ''}">
-                    ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+                    ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
@@ -969,6 +1075,20 @@ function renderMainLayout() {
                 </header>
                 <main class="flex-1 overflow-auto p-6 bg-slate-50/50">${getViewContent()}</main>
                 ${renderModalOverlay()}
+
+                ${state.batchProgress ? `
+                    <div class="fixed inset-0 bg-slate-900/80 z-[9999] flex flex-col items-center justify-center backdrop-blur-sm">
+                        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center">
+                            <i data-lucide="settings" class="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4"></i>
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">Procesando...</h3>
+                            <p class="text-gray-600 font-medium mb-4">${state.batchProgress.status}</p>
+                            <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                                <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: ${(state.batchProgress.current / state.batchProgress.total) * 100}%"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 font-bold">${Math.round((state.batchProgress.current / state.batchProgress.total) * 100)}% Completado</p>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
         </div>
     `;
@@ -982,7 +1102,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
 function renderLogin() {
@@ -1227,19 +1347,28 @@ async function renderPublicVerificationScreen(docId) {
             return;
         }
 
-        // Si es válido, mostramos la tarjeta verde de éxito
+        // Verificamos si está anulado
+        const isAnulado = data.status === 'Anulado';
+        const themeColor = isAnulado ? 'red' : 'emerald';
+        const titleText = isAnulado ? 'Documento Anulado' : 'Documento Válido';
+        const iconName = isAnulado ? 'ban' : 'shield-check';
+        const subtitleText = isAnulado ? 'El documento es auténtico pero carece de validez legal.' : 'Verificado por el Sistema GDE';
+
+        // Renderizamos la tarjeta dinámica
         root.innerHTML = `
             <div class="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-                <div class="max-w-lg w-full bg-white rounded-2xl shadow-2xl border-t-4 border-emerald-500 overflow-hidden">
-                    <div class="p-8 text-center border-b border-gray-100 bg-emerald-50/30">
-                        <div class="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm ring-4 ring-white">
-                            <i data-lucide="shield-check" class="w-10 h-10 text-emerald-600"></i>
+                <div class="max-w-lg w-full bg-white rounded-2xl shadow-2xl border-t-4 border-${themeColor}-500 overflow-hidden relative">
+                    ${isAnulado ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03] z-0"><span class="text-8xl text-red-600 font-black transform -rotate-45">ANULADO</span></div>` : ''}
+                    
+                    <div class="p-8 text-center border-b border-gray-100 bg-${themeColor}-50/30 relative z-10">
+                        <div class="w-20 h-20 bg-${themeColor}-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm ring-4 ring-white">
+                            <i data-lucide="${iconName}" class="w-10 h-10 text-${themeColor}-600"></i>
                         </div>
-                        <h2 class="text-2xl font-bold text-gray-900 mb-1">Documento Válido</h2>
-                        <p class="text-emerald-700 text-sm font-medium">Verificado por el Sistema GDE</p>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-1">${titleText}</h2>
+                        <p class="text-${themeColor}-700 text-sm font-medium">${subtitleText}</p>
                     </div>
                     
-                    <div class="p-8 space-y-4">
+                    <div class="p-8 space-y-4 relative z-10">
                         <div class="bg-slate-50 p-4 rounded-lg border border-slate-100">
                             <p class="text-[10px] uppercase font-bold text-gray-400 mb-1">Nro. de Documento</p>
                             <p class="font-mono text-lg text-slate-800 font-semibold tracking-wider">${data.number}</p>
@@ -1273,13 +1402,13 @@ async function renderPublicVerificationScreen(docId) {
                         </div>
 
                         <div class="pt-4 border-t border-gray-100">
-                            <p class="text-[10px] uppercase font-bold text-emerald-600 mb-1 flex items-center gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Hash Criptográfico (SHA-256)</p>
+                            <p class="text-[10px] uppercase font-bold ${isAnulado ? 'text-red-600' : 'text-emerald-600'} mb-1 flex items-center gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Hash Criptográfico (SHA-256)</p>
                             <p class="text-xs text-slate-700 font-mono break-all bg-slate-100 p-2 rounded border border-slate-200">${data.pdfHash || 'No disponible'}</p>
                             <p class="text-[9px] text-gray-400 mt-1">Si el hash de su archivo PDF descargado no coincide con este código, el documento ha sido alterado.</p>
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-gray-50 text-center">
+                    <div class="p-4 bg-gray-50 text-center relative z-10">
                         <a href="/" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">Ingresar al Sistema GDE</a>
                     </div>
                 </div>
@@ -1301,6 +1430,115 @@ function renderInbox() {
     const isOpenP = state.menus.inboxPersonal; const isOpenA = state.menus.inboxArea;
 
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="inbox" placeholder="Filtrar bandejas (por número, asunto, remitente, etc)..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden"><button data-action="toggle-menu" data-menu="inboxPersonal" class="w-full px-6 py-4 border-b border-blue-200 bg-blue-50 hover:bg-blue-100 flex justify-between items-center transition-colors outline-none"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Mis Trámites (${myDocs.length + myExps.length})</h3><i data-lucide="${isOpenP ? 'chevron-down' : 'chevron-right'}" class="text-blue-900"></i></button><div class="${isOpenP ? 'block' : 'hidden'} p-4 space-y-6"><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos - Bandeja Personal</h4>${renderTable(myDocs, 'inboxDoc', 'No tienes documentos pendientes.')}</div><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal</h4>${renderTable(myExps, 'inboxExp', 'No tienes expedientes asignados a ti.', true)}</div></div></div><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><button data-action="toggle-menu" data-menu="inboxArea" class="w-full px-6 py-4 border-b border-slate-200 bg-slate-100 hover:bg-slate-200 flex justify-between items-center transition-colors outline-none"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área (${areaDocs.length + areaExps.length})</h3><i data-lucide="${isOpenA ? 'chevron-down' : 'chevron-right'}" class="text-slate-800"></i></button><div class="${isOpenA ? 'block' : 'hidden'} p-4 space-y-6"><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área</h4>${renderTable(areaDocs, 'areaDoc', 'No hay documentos pendientes de adquirir en el área.', false, true)}</div><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área</h4>${renderTable(areaExps, 'areaExp', 'No hay expedientes pendientes de adquirir en el área.', true, true)}</div></div></div></div>`;
+}
+
+// VISTA: Firma Masiva
+function renderBatchSign() {
+    const term = state.searchTerms.batchSign;
+    // Solo documentos en estado Firmandose cuyo currentOwnerId sea el usuario actual
+    const docs = state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+    
+    const s = state.sort.batchSign || { field: 'date', order: 'desc' };
+    const sortedDocs = docs.sort((a, b) => {
+        let vA = new Date(a.createdAt).getTime(), vB = new Date(b.createdAt).getTime();
+        return s.order === 'asc' ? vA - vB : vB - vA;
+    });
+
+    // Lógica Matemática de Paginación Estándar
+    const pagInfo = state.pagination.batchSign || { page: 1, limit: 10 };
+    const limit = parseInt(pagInfo.limit);
+    const totalItems = sortedDocs.length;
+    const totalPages = Math.ceil(totalItems / limit) || 1;
+    
+    let currentPage = pagInfo.page; 
+    if (currentPage > totalPages) currentPage = Math.max(totalPages, 1); 
+    state.pagination.batchSign.page = currentPage;
+    
+    const startIndex = (currentPage - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedDocs = sortedDocs.slice(startIndex, endIndex);
+
+    // Controles de Paginación idénticos al sistema global
+    const paginationControls = `
+        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-emerald-200">
+            <div class="flex items-center gap-4">
+                <p class="text-sm text-gray-700">Mostrando <span class="font-medium">${totalItems > 0 ? startIndex + 1 : 0}</span> a <span class="font-medium">${Math.min(endIndex, totalItems)}</span> de <span class="font-medium">${totalItems}</span></p>
+                <select data-action="change-limit" data-model="batchSign" class="border-gray-300 rounded-md text-sm py-1 px-2 outline-none border cursor-pointer hover:bg-gray-50">
+                    ${[10, 25, 50, 100].map(l => `<option value="${l}" ${limit === l ? 'selected' : ''}>${l} / pág</option>`).join('')}
+                </select>
+            </div>
+            <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm">
+                <button data-action="prev-page" data-model="batchSign" ${currentPage === 1 ? 'disabled' : ''} class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-inset ring-gray-300">Pág ${currentPage} de ${totalPages}</span>
+                <button data-action="next-page" data-model="batchSign" ${currentPage === totalPages ? 'disabled' : ''} class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+            </nav>
+        </div>
+    `;
+
+    // Barra de acciones flotante (Solo visible si hay algo seleccionado)
+    const floatingBar = state.batchSelection.length > 0 ? `
+        <div class="bg-blue-900 text-white p-4 rounded-xl shadow-lg mb-6 flex justify-between items-center animate-fade-in-up">
+            <div class="flex items-center gap-3">
+                <span class="bg-blue-800 text-blue-100 font-bold px-3 py-1 rounded-full">${state.batchSelection.length}</span>
+                <span class="font-medium">Documentos seleccionados</span>
+            </div>
+            <div class="flex gap-3">
+                <button data-action="open-modal" data-modal-type="batch_reject" class="px-4 py-2 bg-red-500 hover:bg-red-600 rounded text-sm font-bold shadow-sm flex items-center gap-2 transition-colors"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar</button>
+                <button data-action="open-modal" data-modal-type="batch_sign_confirm" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded text-sm font-bold shadow-sm flex items-center gap-2 transition-colors"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar en Bloque</button>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div class="space-y-6 max-w-6xl mx-auto">
+            ${floatingBar}
+            <div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                <i data-lucide="search" class="text-gray-400 mr-2"></i>
+                <input type="text" data-search-model="batchSign" placeholder="Filtrar documentos pendientes de firma..." value="${term}" class="w-full outline-none text-sm" autofocus />
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-sm border border-emerald-200 overflow-hidden relative">
+                <div class="absolute top-3 right-4 z-10">
+                    <button data-action="export-csv" data-model="batchSign" class="text-xs bg-white text-emerald-700 px-2 py-1 rounded shadow-sm hover:bg-emerald-50 font-bold flex items-center gap-1 border border-emerald-200"><i data-lucide="download" class="w-3 h-3"></i> CSV</button>
+                </div>
+
+                <div class="px-6 py-4 border-b border-emerald-200 bg-emerald-50">
+                    <h3 class="font-semibold text-emerald-800 flex items-center gap-2"><i data-lucide="pen-tool" class="w-5 h-5"></i> Pendientes de mi Firma (${docs.length})</h3>
+                </div>
+                
+                ${docs.length === 0 ? `<div class="p-8 text-center text-gray-500 text-sm">No tienes documentos pendientes de firma.</div>` : `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b">
+                                <th class="p-4 w-10"><input type="checkbox" data-action="toggle-batch-all" ${paginatedDocs.every(d => state.batchSelection.includes(d.id)) && paginatedDocs.length > 0 ? 'checked' : ''} class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" /></th>
+                                <th class="p-4">Tipo</th>
+                                <th class="p-4">Asunto</th>
+                                <th class="p-4">Creador</th>
+                                <th class="p-4">Fecha</th>
+                                <th class="p-4 text-center">Ver</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 text-sm">
+                            ${paginatedDocs.map(item => `
+                                <tr class="hover:bg-blue-50/30 transition-colors ${state.batchSelection.includes(item.id) ? 'bg-blue-50/50' : ''}">
+                                    <td class="p-4"><input type="checkbox" data-action="toggle-batch-item" value="${item.id}" ${state.batchSelection.includes(item.id) ? 'checked' : ''} class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" /></td>
+                                    <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType)}">${item.docType}</span></td>
+                                    <td class="p-4 font-medium text-gray-800">${item.subject}</td>
+                                    <td class="p-4 text-gray-700">${getUserName(item.creatorId)}</td>
+                                    <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
+                                    <td class="p-4 text-center"><button data-action="view-item" data-id="${item.id}" data-type="documento" class="text-blue-600 hover:text-blue-800 p-1 bg-blue-50 rounded" title="Revisar Documento"><i data-lucide="eye" class="w-4 h-4"></i></button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    
+                    ${paginationControls}
+                </div>
+                `}
+            </div>
+        </div>
+    `;
 }
 
 function renderDrafts() {
@@ -1608,6 +1846,23 @@ function renderModalOverlay() {
                     </div>
                 `).join('') : '<p class="text-xs text-gray-500 text-center py-4 italic">No hay usuarios asignados a esta área actualmente.</p>'}
             </div>
+        `;
+    }
+
+    else if (m.type === 'batch_sign_confirm') {
+        title = 'Confirmar Firma Masiva';
+        content = `
+            <div class="mb-4 text-sm text-gray-700 bg-emerald-50 p-4 rounded border border-emerald-100">
+                <div class="flex items-center gap-3 mb-2 text-emerald-800 font-bold"><i data-lucide="shield-check" class="w-6 h-6"></i> Se firmarán ${state.batchSelection.length} documentos.</div>
+                <p class="text-xs text-gray-600">Al confirmar, el sistema procesará secuencialmente los documentos seleccionados. Por favor, <strong>no cierre ni recargue la página</strong> hasta que el proceso finalice.</p>
+            </div>
+        `;
+    }
+    else if (m.type === 'batch_reject') {
+        title = `Rechazar ${state.batchSelection.length} Documentos`;
+        content = `
+            <p class="text-sm text-gray-600 mb-2">Ingrese un motivo general para el rechazo masivo (obligatorio):</p>
+            <textarea data-modal-input="note" placeholder="Motivo del rechazo devuelto a los creadores..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note || ''}</textarea>
         `;
     }
 
@@ -1955,7 +2210,8 @@ document.addEventListener('submit', async (e) => {
         const newDoc = {
             id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, 
             content: contentHTML, // <-- Usamos el HTML capturado
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: []
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: [],
+            createdAt: new Date().toISOString()
         };
 
         fetch('http://localhost:3000/api/docs/create', {
@@ -1979,7 +2235,8 @@ document.addEventListener('submit', async (e) => {
         
         const newExp = {
             id: `exp_${Date.now()}`, number: expNumber, subject: document.getElementById('create-exp-subject').value, 
-            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, status: 'En Tramite', isPublic: isPublic, authAreas: authAreas, authUsers: authUsers
+            creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, status: 'En Tramite', isPublic: isPublic, authAreas: authAreas, authUsers: authUsers,
+            createdAt: new Date().toISOString()
         };
 
         fetch('http://localhost:3000/api/exps/create', {
@@ -2496,8 +2753,47 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'close-modal') return setState({ modal: null });
 
+        // --- MANEJO DE SELECCIÓN MASIVA ---
+        if (action === 'toggle-batch-item') {
+            const id = actionBtn.value;
+            if (actionBtn.checked) state.batchSelection.push(id);
+            else state.batchSelection = state.batchSelection.filter(item => item !== id);
+            return renderApp();
+        }
+        
+        if (action === 'toggle-batch-all') {
+            // Obtenemos los docs actualmente visibles en la página
+            const term = state.searchTerms.batchSign;
+            const docs = state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+            const s = state.sort.batchSign;
+            const sortedDocs = docs.sort((a, b) => { let vA = new Date(a.createdAt).getTime(), vB = new Date(b.createdAt).getTime(); return s.order === 'asc' ? vA - vB : vB - vA; });
+            const pagInfo = state.pagination.batchSign;
+            const limit = parseInt(pagInfo.limit);
+            let currentPage = pagInfo.page;
+            const paginatedDocs = sortedDocs.slice((currentPage - 1) * limit, currentPage * limit);
+
+            if (actionBtn.checked) {
+                // Selecciona todos los de ESTA PÁGINA
+                paginatedDocs.forEach(d => { if (!state.batchSelection.includes(d.id)) state.batchSelection.push(d.id); });
+            } else {
+                // Deselecciona todos los de ESTA PÁGINA
+                const pageIds = paginatedDocs.map(d => d.id);
+                state.batchSelection = state.batchSelection.filter(id => !pageIds.includes(id));
+            }
+            return renderApp();
+        }
+
         if (action === 'confirm-modal') {
             const m = state.modal;
+
+            if (m.type === 'batch_reject') {
+                if (!m.note || !m.note.trim()) return alert("Debe ingresar un motivo para el rechazo masivo.");
+                return processBatchReject(m.note);
+            }
+
+            if (m.type === 'batch_sign_confirm') {
+                return processBatchSign(); // Inicia el motor secuencial
+            }
             
             if (m.type === 'editar_usuario') {
                 if (!confirm("¿Esta seguro de aplicar estos cambios al usuario? Se enviara una notificacion por correo al interesado.")) {

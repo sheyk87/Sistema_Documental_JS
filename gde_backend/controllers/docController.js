@@ -7,17 +7,27 @@ const crypto = require('crypto');
 const ENCRYPTION_KEY = process.env.FILE_SECRET || 'unaclavesupersecretaexactamented'; // 32 bytes
 const signatureService = require('../services/signatureService');
 
+// Función blindada: Obtiene la hora del servidor forzada a Argentina y lista para MySQL
+const getArgTime = () => {
+    const d = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Argentina/Buenos_Aires"}));
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 exports.createDocument = async (req, res) => {
+    // Ya no usamos el createdAt del frontend
     const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients } = req.body;
     try {
+        const serverTime = getArgTime(); // Hora blindada
+        
         await pool.query(
-            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs, signatories, attachments) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]')`,
-            [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[])]
+            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs, signatories, attachments, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', ?)`,
+            [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime]
         );
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador')`,
-            [id, creatorId]
+            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador', ?)`,
+            [id, creatorId, serverTime]
         );
         res.status(201).json({ message: 'Documento creado exitosamente' });
     } catch (error) {
@@ -56,8 +66,6 @@ exports.getAllDocuments = async (req, res) => {
 exports.updateDocument = async (req, res) => {
     const { item, historyEntry } = req.body;
     try {
-        // Quitamos la columna 'attachments' de esta consulta para evitar 
-        // que el frontend sobrescriba los cambios hechos por upload/delete
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
@@ -72,9 +80,10 @@ exports.updateDocument = async (req, res) => {
         );
 
         if (historyEntry) {
+            // Ignoramos historyEntry.date e insertamos la hora real del servidor
             await pool.query(
-                `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, ?, ?)`,
-                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes]
+                `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, ?, ?, ?)`,
+                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes, getArgTime()]
             );
         }
 
@@ -124,8 +133,8 @@ exports.uploadAttachment = async (req, res) => {
 
         await pool.query('UPDATE documents SET attachments = ? WHERE id = ?', [JSON.stringify(attachments), id]);
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, 'Archivo Adjuntado (Cifrado)', ?)`,
-            [id, userId, file.originalname]
+            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Archivo Adjuntado (Cifrado)', ?, ?)`,
+            [id, userId, file.originalname, getArgTime()]
         );
 
         res.json({ attachment: newAttachment });
@@ -154,8 +163,8 @@ exports.deleteAttachment = async (req, res) => {
         attachments = attachments.filter(a => a.filename !== filename);
         await pool.query('UPDATE documents SET attachments = ? WHERE id = ?', [JSON.stringify(attachments), id]);
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'documento', ?, 'Archivo Eliminado', ?)`,
-            [id, userId, fileToDelete ? fileToDelete.originalname : filename]
+            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Archivo Eliminado', ?, ?)`,
+            [id, userId, fileToDelete ? fileToDelete.originalname : filename, getArgTime()]
         );
 
         res.json({ message: 'Archivo eliminado' });
@@ -268,7 +277,7 @@ exports.verifyPublicDoc = async (req, res) => {
         const doc = rows[0];
 
         // Por seguridad, solo se pueden verificar documentos finalizados
-        if (doc.status !== 'Firmado' && doc.status !== 'Archivado') {
+        if (doc.status !== 'Firmado' && doc.status !== 'Archivado' && doc.status !== 'Anulado') {
             return res.status(400).json({ message: 'El documento especificado aún se encuentra en trámite o no es válido para verificación pública.' });
         }
 
@@ -311,6 +320,7 @@ exports.verifyPublicDoc = async (req, res) => {
         // Retornamos SOLO metadata, no enviamos el "content" del documento por seguridad.
         res.json({
             isValid: true,
+            status: doc.status,
             number: doc.number,
             docType: doc.doc_type,
             subject: doc.subject,
@@ -423,7 +433,7 @@ exports.signFinalAndSeal = async (req, res) => {
         if (historyEntry) {
             await pool.query(
                 'INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                [id, 'documento', historyEntry.userId, historyEntry.action, historyEntry.notes, new Date(historyEntry.date)]
+                [id, 'documento', historyEntry.userId, historyEntry.action, historyEntry.notes, getArgTime()]
             );
         }
 
@@ -445,7 +455,7 @@ exports.downloadStaticPdf = async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado.' });
         
         const doc = rows[0];
-        if (doc.status !== 'Firmado' && doc.status !== 'Archivado') {
+        if (doc.status !== 'Firmado' && doc.status !== 'Archivado' && doc.status !== 'Anulado') {
             return res.status(400).json({ message: 'El documento no tiene un PDF sellado generado.' });
         }
 

@@ -1,27 +1,36 @@
 // controllers/expController.js
 const pool = require('../config/db');
 
+// Función blindada: Obtiene la hora del servidor forzada a Argentina
+const getArgTime = () => {
+    const d = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Argentina/Buenos_Aires"}));
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 // 1. Guardar un nuevo expediente
 exports.createExpediente = async (req, res) => {
     const { id, number, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers } = req.body;
 
     try {
+        const serverTime = getArgTime();
+
         await pool.query(
-            `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`,
+            `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', ?)`,
             [
                 id, number, subject, creatorId, currentOwnerId, status, 
-                isPublic ? 1 : 0, // MySQL guarda los booleanos como 1 (true) o 0 (false)
+                isPublic ? 1 : 0, 
                 JSON.stringify(authAreas || []), 
-                JSON.stringify(authUsers || [])
+                JSON.stringify(authUsers || []),
+                serverTime
             ]
         );
 
-        // Guardamos el primer movimiento en el historial
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes) 
-             VALUES (?, 'expediente', ?, 'Apertura', 'Expediente inicializado')`,
-            [id, creatorId]
+            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) 
+             VALUES (?, 'expediente', ?, 'Apertura', 'Expediente inicializado', ?)`,
+            [id, creatorId, serverTime]
         );
 
         res.status(201).json({ message: 'Expediente creado exitosamente' });
@@ -89,8 +98,8 @@ exports.updateExpediente = async (req, res) => {
 
         if (historyEntry) {
             await pool.query(
-                `INSERT INTO history (item_id, item_type, user_id, action, notes) VALUES (?, 'expediente', ?, ?, ?)`,
-                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes]
+                `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'expediente', ?, ?, ?, ?)`,
+                [item.id, historyEntry.userId, historyEntry.action, historyEntry.notes, getArgTime()]
             );
         }
 

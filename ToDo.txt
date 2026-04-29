@@ -1,4 +1,3 @@
 Features:
 - Código de colores para confirmación de lectura (No leído (Rojo), Leído (Verde), No leído por algún destinatario (Naranja, se debe poder saber quien lo abrió y quien no)).
-- Firma por bloques
 - IA para que pueda hacer un resumen de entre todos los documentos de que se tratan
