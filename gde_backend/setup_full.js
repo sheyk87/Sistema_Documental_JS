@@ -24,10 +24,10 @@ async function setupFull() {
                 web_notifications BOOLEAN DEFAULT TRUE,
                 email_notifications BOOLEAN DEFAULT TRUE,
                 reset_code VARCHAR(8) DEFAULT NULL, 
-                reset_expires DATETIME DEFAULT NULL;
+                reset_expires DATETIME DEFAULT NULL,
                 two_factor_secret VARCHAR(255) DEFAULT NULL,
-                two_factor_enabled BOOLEAN DEFAULT FALSE;
-                two_factor_recovery_codes JSON DEFAULT NULL;
+                two_factor_enabled BOOLEAN DEFAULT FALSE,
+                two_factor_recovery_codes JSON DEFAULT NULL,
                 FOREIGN KEY (area_id) REFERENCES areas(id)
             )
         `);
