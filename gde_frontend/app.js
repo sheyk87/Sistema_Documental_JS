@@ -2159,12 +2159,41 @@ document.addEventListener('submit', async (e) => {
     }
 });
 
+// NUEVO: Función global para autoguardar borradores antes de salir de la vista
+async function autoSaveDraft() {
+    if (state.selectedItem && state.selectedItem.type === 'documento' && 
+       (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
+        
+        const subjectInput = document.getElementById('edit-doc-subject');
+        const contentInput = document.getElementById('edit-doc-content');
+        
+        // Comprobamos que los inputs existan físicamente en pantalla
+        if (subjectInput && contentInput) {
+            const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+            if (docIdx > -1) {
+                state.db.documents[docIdx].subject = subjectInput.value;
+                
+                const htmlContent = window.tinymce && tinymce.get('edit-doc-content') 
+                    ? tinymce.get('edit-doc-content').getContent() 
+                    : contentInput.value;
+                    
+                state.db.documents[docIdx].content = htmlContent;
+                // Guardamos silenciosamente en la base de datos
+                await syncData(state.db.documents[docIdx], 'documento');
+            }
+        }
+    }
+}
+
 document.addEventListener('click', async (e) => {
     const thSort = e.target.closest('th[data-sort]');
     if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } state.pagination[model].page = 1; return renderApp(); }
 
     const navBtn = e.target.closest('[data-target-view]');
     if (navBtn) {
+        // Guardamos el borrador antes de cambiar de vista ===
+        await autoSaveDraft();
+        
         const view = navBtn.getAttribute('data-target-view');
         
         // Si entramos a servicios, hacemos un fetch previo a la API
@@ -2218,6 +2247,9 @@ document.addEventListener('click', async (e) => {
         }
         
         if (action === 'close-detail') {
+            // Guardamos el borrador antes de volver ===
+            await autoSaveDraft();
+
             if (state.selectedItem && state.selectedItem.parentId) {
                 const parentColl = state.selectedItem.parentType === 'expediente' ? state.db.expedientes : state.db.documents;
                 const parent = parentColl.find(x => x.id === state.selectedItem.parentId);
@@ -2451,25 +2483,10 @@ document.addEventListener('click', async (e) => {
             const { token, user } = state.loginFlow.pendingSession;
             return initializeAppWithToken(token, user);
         }
-        
-        const saveEdits = async () => {
-            if (state.selectedItem && (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
-                const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
-                if (docIdx > -1) { 
-                    state.db.documents[docIdx].subject = document.getElementById('edit-doc-subject').value; 
-                    
-                    const htmlContent = window.tinymce && tinymce.get('edit-doc-content') 
-                        ? tinymce.get('edit-doc-content').getContent() 
-                        : document.getElementById('edit-doc-content').value;
-                        
-                    state.db.documents[docIdx].content = htmlContent; 
-                    await syncData(state.db.documents[docIdx], 'documento');
-                }
-            }
-        };
 
         if (action === 'open-modal') {
-            await saveEdits(); const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
+            await autoSaveDraft();
+            const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
             if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role;mState.editUAreas = u.areas || [u.areaId]; mState.editU2FA = !!u.twoFactorEnabled; }
@@ -2693,7 +2710,7 @@ document.addEventListener('click', async (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                await saveEdits(); 
+                await autoSaveDraft(); 
                 const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SOLO admite 1 destinatario (área o usuario).");
