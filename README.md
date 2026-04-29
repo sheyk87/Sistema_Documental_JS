@@ -32,14 +32,17 @@ Esta aplicación separa claramente el Frontend (Vanilla JavaScript SPA) del Back
 * **Gestión Multi-Área:** Soporte para usuarios pertenecientes a múltiples reparticiones, con capacidad de alternar su área activa en tiempo real.
 * **Bandejas de Entrada Inteligentes:** Separación entre "Trámites Personales" y "Trámites de Área". Los documentos de Área son adquiridos por el primer usuario que los reclame.
 * **Firma Digital en Cascada:** Soporte para múltiples firmantes. El documento viaja y se estampa al completarse el circuito, indicando automáticamente el Área Promotora.
+* **Firma y Rechazo Masivo:** El usuario puede firmar o rechazar masivamente la firma de los documentos que tiene en estado "Firmandose".
+* **Validación mediante Código QR:** Cada documento firmado, posee su propio código QR, el cual al escanearlo, muestra una vista de validación del sistema, indicando si es un documento válido o no, mostrando información básica del documento: Número de Documento, Tipo de Documento, Fecha de Firma, Asunto, Firmante Principal y Área, Destinatarios, Hash Criptográfico (SHA-256)
 * **Trazabilidad Absoluta (Auditoría):** Historial inmutable para cada ítem, registrando actor, fecha, acción, notas y dispositivo de origen.
 * **Dashboard Estadístico:** Motor analítico interactivo con **Chart.js + DataLabels**. Gráficos dinámicos con filtros cruzados por fecha, área y usuario.
-* **Exportación de Datos:** Descarga nativa de archivos `.csv` en todas las tablas y reportes estadísticos. Exportación masiva de expedientes en formato `.zip` con PDFs y adjuntos.
+* **Exportación de Datos:** Descarga nativa de archivos `.csv` en todas las tablas y reportes estadísticos.
+* **Exportación masiva de expedientes:** en formato `.zip` con PDFs y adjuntos.
 * **Interfaz Adaptativa:** Soporte nativo para **Modo Oscuro** y diseño responsivo con Tailwind CSS.
 
 ---
 
-## 🔒 Seguridad de Grado Militar
+## 🔒 Seguridad
 
 El sistema implementa capas de seguridad avanzadas para proteger la integridad documental:
 
@@ -48,6 +51,9 @@ El sistema implementa capas de seguridad avanzadas para proteger la integridad d
 * **Notificaciones Transaccionales:** Sistema de correo electrónico (SMTP) que informa cambios de contraseña, activaciones de seguridad, regeneración de códigos y auditoría administrativa con detección de dispositivo.
 * **Confirmación de Doble Ciego:** Los administradores deben confirmar manualmente cualquier edición sobre perfiles de usuario antes de que el sistema dispare las notificaciones de auditoría.
 * **Protección de Sesión:** JWT (JSON Web Tokens) con expiración controlada y cookies de sesión seguras.
+* **Encriptación de los PDF:** Los archivos PDF finales de los documentos firmados, se guardan encriptados en el servidor.
+* **Firma con certificado:** Cada documento PDF se firma con certificado para asegurar su integridad a la hora de la descarga.
+* **Hash Criptográfico (SHA-256):** Cada documento firmado posee su código hash para validar su archivo PDF.
 
 ---
 
