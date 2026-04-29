@@ -57,7 +57,7 @@ async function setupFull() {
                 content TEXT NOT NULL,
                 creator_id VARCHAR(50) NOT NULL,
                 current_owner_id VARCHAR(50) NOT NULL,
-                area_id VARCHAR(50) DEFAULT NULL;
+                area_id VARCHAR(50) DEFAULT NULL,
                 status VARCHAR(50) NOT NULL,
                 owners JSON,
                 recipients JSON,
@@ -65,7 +65,7 @@ async function setupFull() {
                 signatories JSON,
                 attachments JSON,
                 related_docs JSON,
-                pdf_hash VARCHAR(64) DEFAULT NULL;
+                pdf_hash VARCHAR(64) DEFAULT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (creator_id) REFERENCES users(id)
             )
@@ -79,7 +79,7 @@ async function setupFull() {
                 number VARCHAR(50) UNIQUE NOT NULL,
                 subject VARCHAR(255) NOT NULL,
                 creator_id VARCHAR(50) NOT NULL,
-                area_id VARCHAR(50) DEFAULT NULL;
+                area_id VARCHAR(50) DEFAULT NULL,
                 current_owner_id VARCHAR(50) NOT NULL,
                 status VARCHAR(50) NOT NULL,
                 is_public BOOLEAN DEFAULT TRUE,
