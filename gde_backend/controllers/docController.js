@@ -276,6 +276,11 @@ exports.verifyPublicDoc = async (req, res) => {
 
         const doc = rows[0];
 
+        // Permitimos verificar documentos Anulados, Firmados y Archivados
+        if (doc.status !== 'Firmado' && doc.status !== 'Archivado' && doc.status !== 'Anulado') {
+            return res.status(400).json({ message: 'El documento especificado aún se encuentra en trámite o no es válido para verificación pública.' });
+        }
+
         // 1. Extraer el último firmante y su área de firma
         let signedBy = typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []);
         let lastSignerId = null;
@@ -300,6 +305,19 @@ exports.verifyPublicDoc = async (req, res) => {
                 const finalAreaId = signatureAreaId || uRows[0].area_id; 
                 const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [finalAreaId]);
                 if (aRows.length > 0) signerArea = aRows[0].name;
+            }
+        }
+
+        // 3. Obtener nombres de destinatarios (¡El bloque que faltaba!)
+        let recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
+        let recipientsNames = [];
+        for (let rId of recipients) {
+            if (rId.startsWith('a')) {
+                const [aRows] = await pool.query('SELECT name FROM areas WHERE id = ?', [rId]);
+                if (aRows.length > 0) recipientsNames.push('Área: ' + aRows[0].name);
+            } else {
+                const [uRows] = await pool.query('SELECT name FROM users WHERE id = ?', [rId]);
+                if (uRows.length > 0) recipientsNames.push(uRows[0].name);
             }
         }
 
