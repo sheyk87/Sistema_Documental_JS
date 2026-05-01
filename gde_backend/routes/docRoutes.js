@@ -46,6 +46,7 @@ router.get('/download-static/:id', authMiddleware, docController.downloadStaticP
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
 router.put('/update/:id', authMiddleware, docController.updateDocument);
+router.put('/:id/read', authMiddleware, docController.markAsRead);
 
 // NUEVAS RUTAS PARA ADJUNTOS
 router.post('/:id/attach', authMiddleware, upload.single('file'), docController.uploadAttachment);

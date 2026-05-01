@@ -21,8 +21,8 @@ exports.createDocument = async (req, res) => {
         const serverTime = getArgTime(); // Hora blindada
         
         await pool.query(
-            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, signed_by, related_docs, signatories, attachments, created_at, area_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', ?, ?)`,
+            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, created_at, area_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', '[]', ?, ?)`,
             [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime, areaId]
         );
         await pool.query(
@@ -47,6 +47,7 @@ exports.getAllDocuments = async (req, res) => {
                 creatorId: doc.creator_id, currentOwnerId: doc.current_owner_id, areaId: doc.area_id, status: doc.status, number: doc.number, createdAt: doc.created_at,
                 owners: typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []),
                 recipients: typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []),
+                readBy: typeof doc.read_by === 'string' ? JSON.parse(doc.read_by) : (doc.read_by || []),
                 signedBy: typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []),
                 relatedDocs: typeof doc.related_docs === 'string' ? JSON.parse(doc.related_docs) : (doc.related_docs || []),
                 signatories: typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []),
@@ -531,5 +532,37 @@ exports.embedAttachments = async (req, res) => {
         console.error("Error al embeber adjuntos:", error);
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ message: 'Error interno al inyectar anexos en el PDF.' });
+    }
+};
+
+// Registrar confirmación de lectura silenciosa
+exports.markAsRead = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id; 
+
+        const [rows] = await pool.query('SELECT read_by FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({message: 'Doc no encontrado'});
+
+        let readBy = [];
+        try {
+            // Manejamos el caso de que la BD tenga basura o el array vacío como string
+            readBy = typeof rows[0].read_by === 'string' ? JSON.parse(rows[0].read_by) : (rows[0].read_by || []);
+        } catch (e) {
+            readBy = [];
+        }
+        
+        // Si el usuario aún no lo leyó, lo agregamos y guardamos de forma explícita
+        if (!readBy.includes(userId)) {
+            readBy.push(userId);
+            // El JSON.stringify es crucial para MySQL
+            await pool.query('UPDATE documents SET read_by = ? WHERE id = ?', [JSON.stringify(readBy), id]);
+            console.log(`[Lectura] El usuario ${userId} leyó el doc ${id}`);
+        }
+
+        res.json({ message: 'Lectura registrada', readBy });
+    } catch (error) {
+        console.error("Error al marcar lectura:", error);
+        res.status(500).json({ message: 'Error interno al registrar lectura' });
     }
 };

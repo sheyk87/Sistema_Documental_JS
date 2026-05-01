@@ -163,6 +163,74 @@ function getTypeColorClass(type) {
     return colors[type] || 'bg-gray-100 text-gray-800';
 }
 
+// Motor de colores e ícono para Confirmación de Lectura
+function getReadReceiptUI(item) {
+    if (item.type !== 'documento') return '';
+    const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType || item.type) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType || item.type);
+    if (!isConDest) return '';
+    
+    // Solo mostramos lectura si el documento ya salió de borrador
+    if (item.status !== STATUS.FIRMADO && item.status !== STATUS.ARCHIVADO && item.status !== STATUS.ANULADO) return '';
+    
+    const recipients = item.recipients || [];
+    if (recipients.length === 0) return '';
+
+    const users = recipients.filter(r => r.startsWith('u'));
+    const areas = recipients.filter(r => r.startsWith('a'));
+    
+    const readBy = Array.isArray(item.readBy) ? item.readBy : [];
+
+    let colorClass = '';
+    // Usamos &#10; que es el salto de línea 100% seguro en atributos HTML
+    let tooltip = 'DESTINATARIOS:&#10;';
+
+    if (users.length === 0 && areas.length > 0) {
+        // Solo áreas: Celeste
+        colorClass = 'text-cyan-500';
+        areas.forEach(a => tooltip += `- Área: ${getAreaName(a)}&#10;`);
+    } else {
+        let readCount = 0;
+        users.forEach(u => {
+            const hasRead = readBy.includes(u);
+            if (hasRead) readCount++;
+            tooltip += `- ${getUserName(u)}: ${hasRead ? 'Leído' : 'Sin Leer'}&#10;`;
+        });
+        
+        if (areas.length > 0) {
+            tooltip += '&#10;COPIA A:&#10;';
+            areas.forEach(a => tooltip += `- Área: ${getAreaName(a)}&#10;`);
+        }
+
+        // Semáforo de colores
+        if (readCount === 0) colorClass = 'text-red-500';
+        else if (readCount < users.length) colorClass = 'text-orange-500';
+        else colorClass = 'text-emerald-500'; 
+    }
+
+    // Protegemos las comillas dobles si algún nombre las tuviera para no romper el HTML
+    tooltip = tooltip.replace(/"/g, '&quot;');
+
+    // SOLUCIÓN: Envolvemos el <i> en un <span>. El span retiene el Tooltip y el Cursor.
+    return `<span title="${tooltip}" class="inline-block mr-2 cursor-help"><i data-lucide="mail-check" class="w-4 h-4 ${colorClass} outline-none drop-shadow-sm"></i></span>`;
+}
+
+// Función centralizada para registrar lectura
+function checkAndMarkRead(item, type) {
+    if (type === 'documento' && item.recipients && item.recipients.includes(state.currentUser.id)) {
+        if (item.status === STATUS.FIRMADO || item.status === STATUS.ARCHIVADO || item.status === STATUS.ANULADO) {
+            if (!item.readBy) item.readBy = [];
+            // Si no lo ha leído, lo marcamos en memoria y avisamos al servidor
+            if (!item.readBy.includes(state.currentUser.id)) {
+                item.readBy.push(state.currentUser.id);
+                fetch(`http://localhost:3000/api/docs/${item.id}/read`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).catch(e => console.error("Error registrando lectura", e));
+            }
+        }
+    }
+}
+
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
     const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
@@ -176,9 +244,16 @@ function canViewExpediente(exp, user) {
 }
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
-    if (isHiddenFromInbox(d, user)) return false; // Filtramos si el usuario lo ocultó
-    if (d.areaId && d.areaId !== user.areaId) return false; // Estricto control de área. Si tiene área, debe coincidir con la activa del usuario
-    if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) return d.currentOwnerId === user.id;
+    if (isHiddenFromInbox(d, user)) return false;
+    
+    // CORRECCIÓN: El filtro estricto de área SOLO aplica a documentos en preparación (Borradores/Firma)
+    if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) {
+        if (d.areaId && d.areaId !== user.areaId) return false;
+        return d.currentOwnerId === user.id;
+    }
+
+    // Si ya está FIRMADO/FINALIZADO, lo mostramos si el usuario está en los "owners" (destinatarios)
+    // SIN IMPORTAR de qué área provenga el documento.
     return d.owners?.includes(user.id);
 }
 function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) && d.owners?.includes(user.areaId); }
@@ -802,7 +877,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                         <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
                             <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
                             <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
-                            <td class="p-4 font-medium text-gray-800">${item.subject}</td>
+                            <td class="p-4 font-medium text-gray-800">${getReadReceiptUI(item)}${item.subject}</td>
                             <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 text-xs font-semibold uppercase tracking-wider">${item.type === 'expediente' ? (item.isPublic ? 'Público' : 'Reservado') : '-'}</td>` : ''}
@@ -2544,9 +2619,16 @@ document.addEventListener('click', async (e) => {
         }
         
         if (action === 'view-item') {
-            const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            const type = actionBtn.getAttribute('data-type'); 
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
+            
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
-            if (item) return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
+            
+            if (item) { 
+                checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
+                activeInputSelector = null; 
+                return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } }); 
+            }
         }
         
         if (action === 'acquire-item') {
@@ -3142,10 +3224,15 @@ document.addEventListener('click', async (e) => {
     }
 
     const tr = e.target.closest('tr[data-id]');
-    if (tr) {
+    if (tr && !e.target.closest('[data-action]')) {
         const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
         const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
-        if (item) { activeInputSelector = null; setState({ selectedItem: { ...item, type } }); }
+        if (item) { 
+            checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
+            activeInputSelector = null; 
+            setState({ selectedItem: { ...item, type } }); 
+        }
+        return;
     }
 });
 

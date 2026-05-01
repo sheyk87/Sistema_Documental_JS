@@ -61,6 +61,7 @@ async function setupFull() {
                 status VARCHAR(50) NOT NULL,
                 owners JSON,
                 recipients JSON,
+                read_by VARCHAR(2000) DEFAULT '[]',
                 signed_by JSON,
                 signatories JSON,
                 attachments JSON,
