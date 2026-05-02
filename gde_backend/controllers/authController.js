@@ -5,6 +5,8 @@ const ldapService = require('../services/ldapService');
 const crypto = require('crypto');
 const emailService = require('../services/emailService');
 const qrcode = require('qrcode');
+const { logAuthEvent, logSecurityError, logDataModification } = require('../utils/logger');
+const { escapeHtml } = require('../utils/sanitizer');
 
 // ============================================================================
 // MOTOR TOTP NATIVO (Cero dependencias) - Compatible con Google Authenticator
@@ -82,13 +84,21 @@ function maskEmail(email) {
     return `${maskedLocal}@${maskedDomain}.${tld}`;
 }
 
+// JWT options centralizadas (OWASP A02, A07)
+const JWT_OPTIONS = { issuer: 'gde-system', audience: 'gde-api' };
+
 exports.login = async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Faltan credenciales' });
 
     try {
         const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+        
+        // OWASP A07: Mensaje genérico para no revelar si el usuario existe
+        if (rows.length === 0) {
+            logAuthEvent('LOGIN_FAILED', { email, reason: 'user_not_found', ip: req.ip });
+            return res.status(401).json({ message: 'Credenciales inválidas.' });
+        }
         
         let user = rows[0];
         let isAuthenticated = false;
@@ -102,8 +112,14 @@ exports.login = async (req, res) => {
 
         if (!isAuthenticated) {
             const validPassword = await bcrypt.compare(password, user.password);
-            if (!validPassword) return res.status(401).json({ message: 'Credenciales invalidas' });
+            if (!validPassword) {
+                logAuthEvent('LOGIN_FAILED', { email, reason: 'invalid_password', ip: req.ip });
+                // OWASP A07: Mismo mensaje genérico que cuando el usuario no existe
+                return res.status(401).json({ message: 'Credenciales inválidas.' });
+            }
         }
+
+        logAuthEvent('LOGIN_SUCCESS', { userId: user.id, email, ip: req.ip });
 
         const global2FA = process.env.TWO_FACTOR_GLOBAL_ENABLED === 'true';
         const mandatory2FA = process.env.TWO_FACTOR_MANDATORY === 'true';
@@ -116,7 +132,11 @@ exports.login = async (req, res) => {
 
         if (requires2FA) {
             const isConfigured = user.two_factor_secret && user.two_factor_secret.length >= 16;
-            const tempToken = jwt.sign({ id: user.id, isTemp: true }, process.env.JWT_SECRET, { expiresIn: '15m' });
+            const tempToken = jwt.sign(
+                { id: user.id, isTemp: true },
+                process.env.JWT_SECRET,
+                { expiresIn: '5m', ...JWT_OPTIONS } // Reducido a 5 minutos
+            );
             return res.json({ requires2FA: true, isConfigured, tempToken, message: 'Validacion 2FA requerida' });
         }
 
@@ -126,10 +146,14 @@ exports.login = async (req, res) => {
         delete user.password;
         delete user.two_factor_secret;
 
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
+        const token = jwt.sign(
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '10h', ...JWT_OPTIONS }
+        );
         res.json({ token, user });
     } catch (error) {
-        console.error(error);
+        logSecurityError(error, { context: 'login', ip: req.ip });
         res.status(500).json({ message: 'Error en el servidor' });
     }
 };
@@ -148,9 +172,10 @@ exports.setup2FA = async (req, res) => {
         // Guardamos el secreto en BD, pero habilitado sigue en 0 y sin códigos
         await pool.query('UPDATE users SET two_factor_secret = ? WHERE id = ?', [secret, userId]);
 
+        logDataModification('2FA_SETUP', { userId });
         res.json({ qrCodeUrl, secret });
     } catch (error) {
-        console.error("Error en setup2FA:", error);
+        logSecurityError(error, { context: 'setup2FA' });
         res.status(500).json({ message: 'Error al generar configuracion 2FA' });
     }
 };
@@ -220,12 +245,7 @@ exports.verify2FA = async (req, res) => {
                 // Enviamos el correo con el diseño exacto solicitado
                 if (process.env.EMAIL_ENABLED === 'true') {
                     const agent = req.headers['user-agent'] || '';
-                    let device = 'Dispositivo Desconocido';
-                    if (agent.includes('Windows')) device = 'Windows PC';
-                    else if (agent.includes('Mac')) device = 'Mac OS';
-                    else if (agent.includes('Linux')) device = 'Linux';
-                    else if (agent.includes('Android')) device = 'Android';
-                    else if (agent.includes('iPhone') || agent.includes('iPad')) device = 'iOS / Apple Device';
+                    const device = getDeviceFromAgent(agent);
 
                     const mailSubject = 'GDE - Seguridad 2FA Activada';
                     const mailHtml = `
@@ -233,13 +253,13 @@ exports.verify2FA = async (req, res) => {
                             <div style="padding: 20px;">
                                 <h2 style="color: #059669; border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-top: 0;">Autenticacion de Dos Factores (2FA) Configurada</h2>
                                 <p style="color: #334155; font-size: 15px;">Su cuenta ha sido vinculada exitosamente con una aplicacion autenticadora.</p>
-                                <p style="color: #334155; font-size: 14px;"><strong>Dispositivo de configuracion:</strong> ${device}</p>
+                                <p style="color: #334155; font-size: 14px;"><strong>Dispositivo de configuracion:</strong> ${escapeHtml(device)}</p>
                                 
                                 <div style="background-color: #fffbeb; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fde68a;">
                                     <h3 style="color: #d97706; margin-top: 0; font-size: 16px;">Sus Codigos de Recuperacion Iniciales</h3>
                                     <p style="font-size: 13px; color: #92400e; margin-bottom: 15px;">Guarde estos codigos en un lugar seguro. Solo se muestran aqui esta unica vez por seguridad.</p>
                                     <div style="font-family: monospace; font-size: 16px; letter-spacing: 3px; color: #1e293b; line-height: 1.8;">
-                                        ${plainCodes.map(c => `<div>${c}</div>`).join('')}
+                                        ${plainCodes.map(c => `<div>${escapeHtml(c)}</div>`).join('')}
                                     </div>
                                 </div>
                                 
@@ -248,12 +268,17 @@ exports.verify2FA = async (req, res) => {
                         </div>`;
                     emailService.sendMail(user.email, mailSubject, '2FA Activado', mailHtml);
                 }
+
+                logAuthEvent('2FA_CONFIGURED', { userId });
             }
         }
 
         if (!isValid) {
+            logAuthEvent('2FA_FAILED', { userId, ip: req.ip });
             return res.status(401).json({ message: 'Codigo invalido o expirado.' });
         }
+
+        logAuthEvent('2FA_SUCCESS', { userId, ip: req.ip });
 
         // PREPARACIÓN DE RESPUESTA
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
@@ -263,11 +288,15 @@ exports.verify2FA = async (req, res) => {
         delete user.two_factor_secret;
         delete user.two_factor_recovery_codes;
 
-        const tokenJWT = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '10h' });
+        const tokenJWT = jwt.sign(
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '10h', ...JWT_OPTIONS }
+        );
         res.json({ token: tokenJWT, user, recoveryCodes: recoveryCodesGenerated });
 
     } catch (error) {
-        console.error("Error en verify2FA:", error);
+        logSecurityError(error, { context: 'verify2FA' });
         res.status(500).json({ message: 'Error interno al verificar 2FA.' });
     }
 };
@@ -300,6 +329,8 @@ exports.regenerateRecoveryCodes = async (req, res) => {
             return res.status(400).json({ message: 'No se pudo generar: el usuario no tiene 2FA activo.' });
         }
 
+        logDataModification('2FA_CODES_REGENERATED', { userId: finalUserId, by: callerId });
+
         if (process.env.EMAIL_ENABLED === 'true') {
             const [targetRows] = await pool.query('SELECT email FROM users WHERE id = ?', [finalUserId]);
             if (targetRows.length > 0) {
@@ -310,7 +341,7 @@ exports.regenerateRecoveryCodes = async (req, res) => {
                         <p style="color: #334155;">Se han generado nuevos codigos de respaldo para su cuenta de GDE. Los codigos anteriores han sido invalidados y ya no funcionaran.</p>
                         <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
                             <div style="font-family: monospace; font-size: 14px; letter-spacing: 2px; color: #1e293b;">
-                                ${plainCodes.map(c => `<div>${c}</div>`).join('')}
+                                ${plainCodes.map(c => `<div>${escapeHtml(c)}</div>`).join('')}
                             </div>
                         </div>
                         <p style="color: #dc2626; font-size: 12px; font-weight: bold;">Si usted no solicito esta regeneracion, un Administrador lo hizo o su cuenta esta comprometida.</p>
@@ -322,7 +353,7 @@ exports.regenerateRecoveryCodes = async (req, res) => {
 
         res.json({ recoveryCodes: plainCodes });
     } catch (error) {
-        console.error(error);
+        logSecurityError(error, { context: 'regenerateRecoveryCodes' });
         res.status(500).json({ message: 'Error interno al regenerar códigos.' });
     }
 };
@@ -332,19 +363,29 @@ exports.forgotPassword = async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Ingrese su usuario / correo electronico' });
     try {
         const [rows] = await pool.query('SELECT id, name, email FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+        
+        // OWASP A07: Respuesta genérica incluso si el email no existe
+        if (rows.length === 0) {
+            logAuthEvent('FORGOT_PASSWORD_UNKNOWN_EMAIL', { email, ip: req.ip });
+            return res.json({ message: 'Si el correo existe, se ha enviado un código de recuperación.', maskedEmail: '***@***.***' });
+        }
+        
         const user = rows[0];
         const code = crypto.randomBytes(4).toString('hex').toUpperCase(); 
         const expires = new Date(Date.now() + 15 * 60 * 1000); 
         await pool.query('UPDATE users SET reset_code = ?, reset_expires = ? WHERE id = ?', [code, expires, user.id]);
+        
+        logAuthEvent('FORGOT_PASSWORD', { userId: user.id, ip: req.ip });
+        
         if (process.env.EMAIL_ENABLED === 'true') {
+            const safeUserName = escapeHtml(user.name);
             const mailSubject = 'GDE - Codigo de recuperacion de contrasena';
-            const mailHtml = `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;"><h2 style="color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Recuperacion de Contrasena</h2><p style="color: #334155;">Hola <strong>${user.name}</strong>,</p><p style="color: #334155;">Has solicitado restablecer tu contrasena. Tu codigo de validacion de 8 caracteres es:</p><div style="background: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;"><h1 style="margin: 0; letter-spacing: 8px; color: #2563eb; font-family: monospace;">${code}</h1></div><p style="color: #334155;">Este codigo es valido por <strong>15 minutos</strong>.</p><p style="color: #dc2626; font-size: 13px; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>Aviso de Seguridad:</strong> Si no es una solicitud real, por favor desestime este correo y contemple cambiar su contrasena actual desde el panel de configuracion de su cuenta para mantener su seguridad.</p></div>`;
+            const mailHtml = `<div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;"><h2 style="color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Recuperacion de Contrasena</h2><p style="color: #334155;">Hola <strong>${safeUserName}</strong>,</p><p style="color: #334155;">Has solicitado restablecer tu contrasena. Tu codigo de validacion de 8 caracteres es:</p><div style="background: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;"><h1 style="margin: 0; letter-spacing: 8px; color: #2563eb; font-family: monospace;">${code}</h1></div><p style="color: #334155;">Este codigo es valido por <strong>15 minutos</strong>.</p><p style="color: #dc2626; font-size: 13px; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>Aviso de Seguridad:</strong> Si no es una solicitud real, por favor desestime este correo y contemple cambiar su contrasena actual desde el panel de configuracion de su cuenta para mantener su seguridad.</p></div>`;
             emailService.sendMail(user.email, mailSubject, `Tu codigo es: ${code}`, mailHtml);
         }
-        res.json({ message: 'Codigo generado y enviado', maskedEmail: maskEmail(user.email) });
+        res.json({ message: 'Si el correo existe, se ha enviado un código de recuperación.', maskedEmail: maskEmail(user.email) });
     } catch (error) {
-        console.error(error);
+        logSecurityError(error, { context: 'forgotPassword' });
         res.status(500).json({ message: 'Error interno' });
     }
 };
@@ -354,13 +395,19 @@ exports.validateResetCode = async (req, res) => {
     if (!email || !code) return res.status(400).json({ message: 'Faltan datos' });
     try {
         const [rows] = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+        if (rows.length === 0) return res.status(400).json({ message: 'Código inválido o expirado.' });
         const user = rows[0];
-        if (!user.reset_code || user.reset_code !== code.toUpperCase()) return res.status(400).json({ message: 'Codigo invalido' });
-        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El codigo ha expirado' });
+        
+        // Comparación timing-safe para evitar timing attacks
+        const inputCode = code.toUpperCase().padEnd(8, ' ');
+        const storedCode = (user.reset_code || '').padEnd(8, ' ');
+        const isMatch = crypto.timingSafeEqual(Buffer.from(inputCode), Buffer.from(storedCode));
+        
+        if (!user.reset_code || !isMatch) return res.status(400).json({ message: 'Código inválido o expirado.' });
+        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'Código inválido o expirado.' });
         res.json({ message: 'Codigo valido' });
     } catch (error) {
-        console.error(error);
+        logSecurityError(error, { context: 'validateResetCode' });
         res.status(500).json({ message: 'Error interno' });
     }
 };
@@ -369,13 +416,22 @@ exports.resetPassword = async (req, res) => {
     const { email, code, newPassword } = req.body;
     if (!email || !code || !newPassword) return res.status(400).json({ message: 'Faltan datos' });
     try {
-        const [rows] = await pool.query('SELECT id, reset_code, reset_expires FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
+        const [rows] = await pool.query('SELECT id, email, reset_code, reset_expires FROM users WHERE email = ?', [email]);
+        if (rows.length === 0) return res.status(400).json({ message: 'Código inválido o expirado.' });
         const user = rows[0];
-        if (!user.reset_code || user.reset_code !== code.toUpperCase()) return res.status(400).json({ message: 'Codigo invalido' });
-        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'El codigo ha expirado' });
-        const hash = await bcrypt.hash(newPassword, 10);
+        
+        // Comparación timing-safe
+        const inputCode = code.toUpperCase().padEnd(8, ' ');
+        const storedCode = (user.reset_code || '').padEnd(8, ' ');
+        const isMatch = crypto.timingSafeEqual(Buffer.from(inputCode), Buffer.from(storedCode));
+        
+        if (!user.reset_code || !isMatch) return res.status(400).json({ message: 'Código inválido o expirado.' });
+        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'Código inválido o expirado.' });
+        
+        const hash = await bcrypt.hash(newPassword, 12); // Incrementado salt rounds a 12
         await pool.query('UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE id = ?', [hash, user.id]);
+
+        logAuthEvent('PASSWORD_RESET', { userId: user.id, ip: req.ip });
 
         if (process.env.EMAIL_ENABLED === 'true') {
             const mailSubject = 'GDE - Contraseña Restablecida Exitosamente';
@@ -391,7 +447,7 @@ exports.resetPassword = async (req, res) => {
 
         res.json({ message: 'Contrasena actualizada' });
     } catch (error) {
-        console.error(error);
+        logSecurityError(error, { context: 'resetPassword' });
         res.status(500).json({ message: 'Error interno' });
     }
 };

@@ -1,2 +1,7 @@
 gde_backend/node_modules/
 gde_backend/certs/
+gde_backend/.env
+gde_backend/uploads/
+gde_backend/logs/
+*.enc
+*.log

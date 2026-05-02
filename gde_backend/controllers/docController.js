@@ -4,8 +4,18 @@ const fs = require('fs');
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
 const crypto = require('crypto');
-const ENCRYPTION_KEY = process.env.FILE_SECRET || 'unaclavesupersecretaexactamented'; // 32 bytes
+const ENCRYPTION_KEY = process.env.FILE_SECRET;
 const signatureService = require('../services/signatureService');
+const { sanitizeHtml, sanitizeText, escapeHtml } = require('../utils/sanitizer');
+const { logSecurityError, logDataModification } = require('../utils/logger');
+
+// OWASP A03: Validación de nombre de archivo para prevenir Path Traversal
+function isValidFilename(filename) {
+    if (!filename || typeof filename !== 'string') return false;
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) return false;
+    if (filename.includes('\0')) return false;
+    return true;
+}
 
 // Función blindada: Obtiene la hora del servidor forzada a Argentina y lista para MySQL
 const getArgTime = () => {
@@ -19,11 +29,14 @@ exports.createDocument = async (req, res) => {
     const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients, areaId } = req.body;
     try {
         const serverTime = getArgTime(); // Hora blindada
+        // OWASP A03: Sanitizar contenido HTML y texto plano
+        const safeSubject = sanitizeText(subject);
+        const safeContent = sanitizeHtml(content);
         
         await pool.query(
             `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, created_at, area_id) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', '[]', ?, ?)`,
-            [id, docType, subject, content, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime, areaId]
+            [id, docType, safeSubject, safeContent, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime, areaId]
         );
         await pool.query(
             `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador', ?)`,
@@ -67,13 +80,16 @@ exports.getAllDocuments = async (req, res) => {
 exports.updateDocument = async (req, res) => {
     const { item, historyEntry } = req.body;
     try {
+        // OWASP A03: Sanitizar contenido
+        const safeSubject = sanitizeText(item.subject);
+        const safeContent = sanitizeHtml(item.content);
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
                 owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?, area_id = ?
              WHERE id = ?`,
             [
-                item.subject, item.content, item.status, item.currentOwnerId,
+                safeSubject, safeContent, item.status, item.currentOwnerId,
                 JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
                 JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
                 JSON.stringify(item.signatories || []), item.number, item.areaId, item.id
@@ -151,6 +167,11 @@ exports.deleteAttachment = async (req, res) => {
         const { id, filename } = req.params;
         const userId = req.user.id;
 
+        // OWASP A03: Prevenir path traversal
+        if (!isValidFilename(filename)) {
+            return res.status(400).json({ message: 'Nombre de archivo inválido.' });
+        }
+
         const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
         let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
         
@@ -158,6 +179,12 @@ exports.deleteAttachment = async (req, res) => {
         if (fileToDelete) {
             // Borramos el archivo físico del disco
             const filePath = path.join(__dirname, '../uploads', filename);
+            // Verificar que la ruta resultante está dentro de uploads
+            const uploadsDir = path.resolve(__dirname, '../uploads');
+            const resolvedPath = path.resolve(filePath);
+            if (!resolvedPath.startsWith(uploadsDir)) {
+                return res.status(400).json({ message: 'Ruta de archivo inválida.' });
+            }
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         }
 
@@ -179,8 +206,21 @@ exports.deleteAttachment = async (req, res) => {
 exports.downloadAttachment = async (req, res) => {
     try {
         const { filename } = req.params;
+
+        // OWASP A03: Prevenir path traversal
+        if (!isValidFilename(filename)) {
+            return res.status(400).json({ message: 'Nombre de archivo inválido.' });
+        }
+
         const filePath = path.join(__dirname, '../uploads', filename);
         
+        // Verificar que la ruta resultante está dentro de uploads
+        const uploadsDir = path.resolve(__dirname, '../uploads');
+        const resolvedPath = path.resolve(filePath);
+        if (!resolvedPath.startsWith(uploadsDir)) {
+            return res.status(400).json({ message: 'Ruta de archivo inválida.' });
+        }
+
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
         }

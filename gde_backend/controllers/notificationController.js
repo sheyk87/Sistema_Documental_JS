@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const emailService = require('../services/emailService');
+const { escapeHtml, sanitizeText } = require('../utils/sanitizer');
 
 exports.createNotification = async (req, res) => {
     const { userIds, action, message, itemId, itemType } = req.body;
@@ -61,8 +62,8 @@ exports.createNotification = async (req, res) => {
                         <p style="font-size: 16px; color: #334155;">Hola <strong>${u.name}</strong>,</p>
                         <p style="font-size: 16px; color: #334155;">Tienes una nueva notificación en el sistema:</p>
                         <div style="background-color: #f8fafc; padding: 15px; border-left: 4px solid #3b82f6; margin: 20px 0;">
-                            <p style="margin: 0; font-weight: bold; color: #1e293b;">Acción: ${action}</p>
-                            <p style="margin: 5px 0 0 0; color: #475569;">${message}</p>
+                        <p style="margin: 0; font-weight: bold; color: #1e293b;">Acción: ${escapeHtml(action)}</p>
+                            <p style="margin: 5px 0 0 0; color: #475569;">${escapeHtml(message)}</p>
                         </div>
                     </div>
                 `;

@@ -7,8 +7,11 @@ const ALGORITHM = 'aes-256-cbc';
 // Función auxiliar blindada para obtener siempre una clave de exactamente 32 bytes.
 // Se llama por dentro de las funciones para evitar problemas de asincronía con dotenv.
 const getSecureKey = () => {
-    // Tomamos la clave del .env, o usamos una de respaldo si el .env falla
-    const rawKey = process.env.STORAGE_ENCRYPTION_KEY || 'clave_respaldo_gde_2026_secreta';
+    // OWASP A02: No usar clave de respaldo - exigir configuración explícita
+    const rawKey = process.env.STORAGE_ENCRYPTION_KEY;
+    if (!rawKey) {
+        throw new Error('STORAGE_ENCRYPTION_KEY no está configurada. Defínala en el archivo .env');
+    }
     
     // Al aplicarle un Hash SHA-256 y pedir el Buffer, 
     // garantizamos físicamente que la clave tenga EXACTAMENTE 32 bytes, 

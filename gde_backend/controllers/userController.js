@@ -1,15 +1,18 @@
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 const emailService = require('../services/emailService');
+const { logAdminAction, logDataModification, logSecurityError } = require('../utils/logger');
+const { escapeHtml, sanitizeText } = require('../utils/sanitizer');
 
 exports.createUser = async (req, res) => {
-    const { id, name, email, password, areaId, role, areas } = req.body; // <-- Agregar areas
+    const { id, name, email, password, areaId, role, areas } = req.body;
     try {
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(password, 12);
         await pool.query(
             `INSERT INTO users (id, name, email, password, area_id, role, areas) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [id, name, email, hash, areaId, role, JSON.stringify(areas || [areaId])] // <-- Guardar JSON
         );
+        logAdminAction('USER_CREATED', { userId: id, by: req.user?.id });
         res.status(201).json({ message: 'Usuario creado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -33,7 +36,7 @@ exports.updateUser = async (req, res) => {
 
         // 2. Ejecutar la actualización en BD
         if (password && password.trim() !== '') {
-            const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(password, 12);
             await pool.query(
                 `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?${secretQuery} WHERE id = ?`,
                 [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, id]
@@ -79,6 +82,7 @@ exports.updateUser = async (req, res) => {
             }
         }
 
+        logAdminAction('USER_UPDATED', { userId: id, by: req.user?.id });
         res.json({ message: 'Usuario actualizado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -90,6 +94,7 @@ exports.deleteUser = async (req, res) => {
     const { id } = req.params;
     try {
         await pool.query(`DELETE FROM users WHERE id = ?`, [id]);
+        logAdminAction('USER_DELETED', { userId: id, by: req.user?.id });
         res.json({ message: 'Usuario eliminado' });
     } catch (error) {
         console.error(error);
@@ -103,7 +108,10 @@ exports.bulkCreateUsers = async (req, res) => {
     
     try {
         for (let u of users) {
-            const hash = await bcrypt.hash(u.password || '123', 10);
+            const hash = await bcrypt.hash(u.password || '', 12);
+            if (!u.password || u.password.length < 8) {
+                continue; // Saltar usuarios con password débil
+            }
             const uid = `u${Date.now()}${Math.floor(Math.random() * 1000)}`;
             const role = u.role || 'user';
             const areasArray = u.areas ? u.areas.split('-').map(x => x.trim()) : [u.areaId];
@@ -146,7 +154,7 @@ exports.updateProfile = async (req, res) => {
 
     try {
         if (newPassword && newPassword.trim() !== '') {
-            const hash = await bcrypt.hash(newPassword, 10);
+            const hash = await bcrypt.hash(newPassword, 12);
             await pool.query(
                 'UPDATE users SET email = ?, password = ?, web_notifications = ?, email_notifications = ? WHERE id = ?',
                 [email, hash, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, userId]

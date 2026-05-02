@@ -3,6 +3,15 @@ const pool = require('../config/db');
 const fs = require('fs');
 const path = require('path');
 const emailService = require('../services/emailService');
+const { logAdminAction, logSecurityError } = require('../utils/logger');
+
+// OWASP A03, A08: Whitelist de variables permitidas en updateSettings
+const ALLOWED_SETTINGS_KEYS = [
+    'EMAIL_ENABLED', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE',
+    'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_FROM',
+    'LDAP_ENABLED', 'LDAP_URL', 'LDAP_DOMAIN',
+    'TWO_FACTOR_GLOBAL_ENABLED', 'TWO_FACTOR_MANDATORY'
+];
 
 exports.getInitialData = async (req, res) => {
     try {
@@ -25,13 +34,14 @@ exports.getInitialData = async (req, res) => {
 exports.getSettings = (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado' });
     
+    // OWASP A02: No exponer la contraseña real del email
     res.json({
         EMAIL_ENABLED: process.env.EMAIL_ENABLED === 'true',
         EMAIL_HOST: process.env.EMAIL_HOST || '',
         EMAIL_PORT: process.env.EMAIL_PORT || '',
         EMAIL_SECURE: process.env.EMAIL_SECURE === 'true',
         EMAIL_USER: process.env.EMAIL_USER || '',
-        EMAIL_PASS: process.env.EMAIL_PASS || '',
+        EMAIL_PASS: process.env.EMAIL_PASS ? '••••••••' : '',
         EMAIL_FROM: process.env.EMAIL_FROM || '',
         LDAP_ENABLED: process.env.LDAP_ENABLED === 'true',
         LDAP_URL: process.env.LDAP_URL || '',
@@ -62,8 +72,18 @@ exports.updateSettings = (req, res) => {
             process.env[key] = value; // Sincroniza la memoria RAM de Node.js
         };
 
-        // Procesamos todos los cambios
+        // OWASP A03, A08: Solo permitir keys de whitelist
         for (const [key, value] of Object.entries(updates)) {
+            if (!ALLOWED_SETTINGS_KEYS.includes(key)) {
+                continue; // Ignorar keys no autorizadas silenciosamente
+            }
+            // OWASP A10: Validar formato de LDAP_URL
+            if (key === 'LDAP_URL' && value) {
+                const urlStr = String(value);
+                if (!urlStr.startsWith('ldap://') && !urlStr.startsWith('ldaps://')) {
+                    continue; // Ignorar URLs de LDAP no válidas
+                }
+            }
             // Los booleanos llegan como true/false, los pasamos a string
             updateEnvVar(key, String(value));
         }
@@ -74,6 +94,7 @@ exports.updateSettings = (req, res) => {
         // Reiniciamos el servicio SMTP en caliente
         emailService.initTransporter();
 
+        logAdminAction('SETTINGS_UPDATED', { updatedKeys: Object.keys(updates).filter(k => ALLOWED_SETTINGS_KEYS.includes(k)), by: req.user.id });
         res.json({ message: 'Configuración actualizada y servicios reiniciados en caliente' });
     } catch (error) {
         console.error(error);

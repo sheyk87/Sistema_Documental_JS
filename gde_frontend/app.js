@@ -1,4 +1,20 @@
 // ==========================================
+// 0. SEGURIDAD FRONTEND (OWASP A03, A05)
+// ==========================================
+// URL base configurable - no hardcodear localhost
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:3000'
+    : window.location.origin;
+
+// OWASP A03: Función de escape HTML para prevenir XSS en renderizado dinámico
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    const s = String(str);
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return s.replace(/[&<>"']/g, (c) => map[c]);
+}
+
+// ==========================================
 // 1. DATOS INICIALES Y ESTADO GLOBAL
 // ==========================================
 const INITIAL_AREAS = [
@@ -6,10 +22,10 @@ const INITIAL_AREAS = [
 ];
 
 const INITIAL_USERS = [
-    { id: 'u1', name: 'Admin Sistema', email: 'admin@gde.com', password: '123', areaId: 'a3', role: 'admin' },
-    { id: 'u2', name: 'Juan Perez', email: 'juan@gde.com', password: '123', areaId: 'a1', role: 'user' },
-    { id: 'u3', name: 'Maria Gomez', email: 'maria@gde.com', password: '123', areaId: 'a2', role: 'user' },
-    { id: 'u4', name: 'Carlos Lopez', email: 'carlos@gde.com', password: '123', areaId: 'a3', role: 'user' }
+    { id: 'u1', name: 'Admin Sistema', email: 'admin@gde.com', areaId: 'a3', role: 'admin' },
+    { id: 'u2', name: 'Juan Perez', email: 'juan@gde.com', areaId: 'a1', role: 'user' },
+    { id: 'u3', name: 'Maria Gomez', email: 'maria@gde.com', areaId: 'a2', role: 'user' },
+    { id: 'u4', name: 'Carlos Lopez', email: 'carlos@gde.com', areaId: 'a3', role: 'user' }
 ];
 
 const DOC_TYPES = {
@@ -296,8 +312,8 @@ async function fetchNotifications() {
         }
     } catch(e) { console.error(e); }
 }
-// Intervalo de Polling: Consulta nuevas notificaciones cada 60 segundos
-setInterval(fetchNotifications, 10000);
+// Intervalo de Polling: Consulta nuevas notificaciones cada 60 segundos (OWASP A04: evitar DoS)
+setInterval(fetchNotifications, 60000);
 
 function renderNotificationUI() {
     const container = document.getElementById('notif-bell-container');
@@ -342,8 +358,8 @@ function renderNotificationUI() {
 function clearSession() {
     localStorage.removeItem('gde_token');
     localStorage.removeItem('gde_login_time');
-    // Destruye la cookie configurando una fecha en el pasado
-    document.cookie = "gde_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    // OWASP A02: Cookie con flags de seguridad
+    document.cookie = "gde_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict";
     state.currentUser = null;
 }
 
@@ -573,7 +589,6 @@ async function sealAndSaveDocument(doc, hEntry) {
     };
 
     try {
-        // 1. Generamos el PDF crudo base en el navegador
         const rawBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
 
         // 2. ENVIAR AL SERVIDOR (Él se encarga de embeber, firmar y encriptar)
@@ -2213,7 +2228,7 @@ async function initializeAppWithToken(token, user) {
     });
 
     localStorage.setItem('gde_login_time', Date.now());
-    document.cookie = "gde_session=active; path=/";
+    document.cookie = "gde_session=active; path=/; SameSite=Strict";
     await fetchNotifications();
     
     state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
