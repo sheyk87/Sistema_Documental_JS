@@ -54,10 +54,10 @@ const CHART_COLORS = {
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
     currentUser: null, currentView: 'inbox', selectedItem: null,
-    
+
     // Añadido 'batchSign: ''' al final
     searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '' },
-    
+
     sort: {
         inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
         areaDoc: { field: 'date', order: 'desc' }, areaExp: { field: 'date', order: 'desc' },
@@ -66,7 +66,7 @@ let state = {
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' },
         batchSign: { field: 'date', order: 'desc' } // <-- NUEVO
     },
-    
+
     pagination: {
         inboxDoc: { page: 1, limit: 10 }, inboxExp: { page: 1, limit: 10 },
         areaDoc: { page: 1, limit: 10 }, areaExp: { page: 1, limit: 10 },
@@ -75,22 +75,22 @@ let state = {
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 },
         batchSign: { page: 1, limit: 10 } // <-- NUEVO
     },
-    
+
     batchSelection: [],
     batchProgress: null,
-    
+
     forgotPass: { step: 1, email: '', maskedEmail: '', code: '' },
     loginFlow: { step: 1, tempToken: null, qrCodeUrl: null, recoveryCodes: [] },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
-    ui: { 
-        sidebarOpen: window.innerWidth > 768, 
+    ui: {
+        sidebarOpen: window.innerWidth > 768,
         mobileDrawerOpen: false,
-        notificationsOpen: false, 
-        darkMode: localStorage.getItem('gde_dark_mode') === 'true' 
+        notificationsOpen: false,
+        darkMode: localStorage.getItem('gde_dark_mode') === 'true'
     },
     servicesConfig: null,
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
-    notifications: [], 
+    notifications: [],
     modal: null,
     pwa: { installPrompt: null, showBanner: false, bannerDismissed: false }
 };
@@ -122,7 +122,7 @@ function renderInstallBanner() {
     if (!state.pwa.showBanner || !state.currentUser) return;
     let existing = document.getElementById('pwa-install-banner');
     if (existing) existing.remove();
-    
+
     const banner = document.createElement('div');
     banner.id = 'pwa-install-banner';
     banner.className = 'pwa-install-banner';
@@ -168,7 +168,7 @@ function initTinyMCE(selector) {
             menubar: 'file edit view insert format tools table help',
             height: 500,
             promotion: false,
-            
+
             // --- NUEVO: Configuración Dinámica de Tema ---
             skin: isDark ? 'oxide-dark' : 'oxide',
             content_css: isDark ? 'dark' : 'default',
@@ -184,7 +184,7 @@ function initTinyMCE(selector) {
                 td, th { border: 1px solid ${isDark ? '#334155' : '#cbd5e1'}; padding: 8px; }
             `,
             // ----------------------------------------------
-            
+
             setup: function (editor) {
                 editor.on('change', function () { editor.save(); });
             }
@@ -247,16 +247,16 @@ function getReadReceiptUI(item) {
     if (item.type !== 'documento') return '';
     const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType || item.type) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType || item.type);
     if (!isConDest) return '';
-    
+
     // Solo mostramos lectura si el documento ya salió de borrador
     if (item.status !== STATUS.FIRMADO && item.status !== STATUS.ARCHIVADO && item.status !== STATUS.ANULADO) return '';
-    
+
     const recipients = item.recipients || [];
     if (recipients.length === 0) return '';
 
     const users = recipients.filter(r => r.startsWith('u'));
     const areas = recipients.filter(r => r.startsWith('a'));
-    
+
     const readBy = Array.isArray(item.readBy) ? item.readBy : [];
 
     let colorClass = '';
@@ -274,7 +274,7 @@ function getReadReceiptUI(item) {
             if (hasRead) readCount++;
             tooltip += `- ${getUserName(u)}: ${hasRead ? 'Leído' : 'Sin Leer'}&#10;`;
         });
-        
+
         if (areas.length > 0) {
             tooltip += '&#10;COPIA A:&#10;';
             areas.forEach(a => tooltip += `- Área: ${getAreaName(a)}&#10;`);
@@ -283,7 +283,7 @@ function getReadReceiptUI(item) {
         // Semáforo de colores
         if (readCount === 0) colorClass = 'text-red-500';
         else if (readCount < users.length) colorClass = 'text-orange-500';
-        else colorClass = 'text-emerald-500'; 
+        else colorClass = 'text-emerald-500';
     }
 
     // Protegemos las comillas dobles si algún nombre las tuviera para no romper el HTML
@@ -301,7 +301,7 @@ function checkAndMarkRead(item, type) {
             // Si no lo ha leído, lo marcamos en memoria y avisamos al servidor
             if (!item.readBy.includes(state.currentUser.id)) {
                 item.readBy.push(state.currentUser.id);
-                fetch(`http://10.31.23.140:3000/api/docs/${item.id}/read`, {
+                fetch(`http://localhost:3000/api/docs/${item.id}/read`, {
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).catch(e => console.error("Error registrando lectura", e));
@@ -324,7 +324,7 @@ function canViewExpediente(exp, user) {
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
     if (isHiddenFromInbox(d, user)) return false;
-    
+
     // CORRECCIÓN: El filtro estricto de área SOLO aplica a documentos en preparación (Borradores/Firma)
     if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) {
         if (d.areaId && d.areaId !== user.areaId) return false;
@@ -336,11 +336,11 @@ function isPersonalDoc(d, user) {
     return d.owners?.includes(user.id);
 }
 function isAreaDoc(d, user) { return !([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) && d.owners?.includes(user.areaId); }
-function isPersonalExp(e, user) { 
+function isPersonalExp(e, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status)) return false;
     if (isHiddenFromInbox(e, user)) return false; // Filtramos si el usuario lo ocultó
     if (e.areaId && e.areaId !== user.areaId) return false; // Estricto control de área
-    return e.currentOwnerId === user.id; 
+    return e.currentOwnerId === user.id;
 }
 function isAreaExp(e, user) { return ![STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status) && e.currentOwnerId === user.areaId; }
 // --- NUEVO: Motor de Limpieza de Bandeja Personal ---
@@ -355,25 +355,25 @@ function getRejectionsCount(item) { return item.history.filter(h => h.action ===
 const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e']; return p[idx % p.length]; };
 
 async function notifyUsers(userIds, action, message, itemId, itemType) {
-    if(!userIds || userIds.length === 0) return;
+    if (!userIds || userIds.length === 0) return;
     try {
-        await fetch('http://10.31.23.140:3000/api/notifications/create', {
+        await fetch('http://localhost:3000/api/notifications/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify({ userIds, action, message, itemId, itemType })
         });
-    } catch(e) { console.error("Error notificando:", e); }
+    } catch (e) { console.error("Error notificando:", e); }
 }
 
 // Modificar fetchNotifications para que NO use renderApp()
 async function fetchNotifications() {
     if (!state.currentUser) return;
     try {
-        const res = await fetch('http://10.31.23.140:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+        const res = await fetch('http://localhost:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
         if (res.ok) {
             state.notifications = await res.json();
             renderNotificationUI(); // <-- Solo actualiza la campana
         }
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
 }
 // Intervalo de Polling: Consulta nuevas notificaciones cada 60 segundos (OWASP A04: evitar DoS)
 setInterval(fetchNotifications, 60000);
@@ -383,7 +383,7 @@ function renderNotificationUI() {
     if (!container) return;
 
     const unreadCount = state.notifications.filter(n => !n.is_read).length;
-    
+
     // El botón siempre debe estar presente, lo que cambia es si se muestra el dropdown abajo
     container.innerHTML = `
         <button data-action="toggle-notifications" class="text-gray-500 hover:text-blue-600 outline-none relative mt-1">
@@ -428,22 +428,22 @@ function clearSession() {
 
 // Función auxiliar para cargar todos los datos del sistema
 async function loadFullState(token) {
-    const sysResponse = await fetch('http://10.31.23.140:3000/api/system/init', {
+    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
     const sysData = await sysResponse.json();
-    
+
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
 
-    const docsResponse = await fetch('http://10.31.23.140:3000/api/docs/all', { 
-        headers: { 'Authorization': `Bearer ${token}` } 
+    const docsResponse = await fetch('http://localhost:3000/api/docs/all', {
+        headers: { 'Authorization': `Bearer ${token}` }
     });
     state.db.documents = await docsResponse.json();
 
-    const expsResponse = await fetch('http://10.31.23.140:3000/api/exps/all', { 
-        headers: { 'Authorization': `Bearer ${token}` } 
+    const expsResponse = await fetch('http://localhost:3000/api/exps/all', {
+        headers: { 'Authorization': `Bearer ${token}` }
     });
     state.db.expedientes = await expsResponse.json();
 
@@ -468,7 +468,7 @@ async function initSession() {
     const token = localStorage.getItem('gde_token');
     const loginTime = localStorage.getItem('gde_login_time');
     const hasSessionCookie = document.cookie.includes('gde_session=active');
-    
+
     const tenHoursInMs = 10 * 60 * 60 * 1000;
     const now = Date.now();
 
@@ -478,7 +478,7 @@ async function initSession() {
     }
 
     try {
-        const res = await fetch('http://10.31.23.140:3000/api/users/me', {
+        const res = await fetch('http://localhost:3000/api/users/me', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -489,9 +489,9 @@ async function initSession() {
 
             // === CRÍTICO: Cargar la base de datos antes de renderizar ===
             await loadFullState(token);
-            await fetchNotifications(); 
-            
-            state.currentView = 'inbox'; 
+            await fetchNotifications();
+
+            state.currentView = 'inbox';
             renderApp();
         } else {
             clearSession();
@@ -516,11 +516,11 @@ function exportToCSV(filename, rows) {
 function handleExport(model) {
     let items = [], headers = [], rows = [];
     if (model === 'admin_users') { headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol']; rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])]; }
-    else if (model === 'admin_areas') { headers = ['ID', 'Nombre', 'Usuarios']; rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u=>u.areaId===a.id).length])]; }
+    else if (model === 'admin_areas') { headers = ['ID', 'Nombre', 'Usuarios']; rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u => u.areaId === a.id).length])]; }
     else if (model === 'stats') {
         let r = [['--- ESTADISTICAS EXPORTADAS ---']];
-        if (currentStatsData.totals) { r.push(['',''],['TOTALES GENERALES']); Object.entries(currentStatsData.totals).forEach(([k, v]) => r.push([k, v])); }
-        if (currentStatsData.top) { r.push(['','']); Object.entries(currentStatsData.top).forEach(([title, list]) => { r.push([title.toUpperCase()], ['Elemento', 'Cantidad']); list.forEach(i => r.push([i.label, i.count])); r.push(['','']); }); }
+        if (currentStatsData.totals) { r.push(['', ''], ['TOTALES GENERALES']); Object.entries(currentStatsData.totals).forEach(([k, v]) => r.push([k, v])); }
+        if (currentStatsData.top) { r.push(['', '']); Object.entries(currentStatsData.top).forEach(([title, list]) => { r.push([title.toUpperCase()], ['Elemento', 'Cantidad']); list.forEach(i => r.push([i.label, i.count])); r.push(['', '']); }); }
         return exportToCSV(`Estadisticas_GDE.csv`, r);
     } else {
         headers = ['Número', 'Tipo', 'Asunto', 'Estado', 'Enviado Por', 'Fecha', 'Fojas']; items = sortItems([...getFilteredItemsForModel(model)], model);
@@ -533,12 +533,12 @@ function handleExport(model) {
 async function sealAndSaveDocument(doc, hEntry) {
     // 1. Contenedor en memoria (NUNCA lo agregamos a la pantalla real)
     const tempDiv = document.createElement('div');
-    tempDiv.style.width = '750px'; 
+    tempDiv.style.width = '750px';
     tempDiv.style.padding = '30px';
     tempDiv.style.backgroundColor = '#ffffff';
     tempDiv.style.color = '#333333';
     tempDiv.style.fontFamily = 'Georgia, serif';
-    
+
     // 2. Generamos el QR
     let qrHtml = '';
     if (typeof QRious !== 'undefined') {
@@ -551,7 +551,7 @@ async function sealAndSaveDocument(doc, hEntry) {
                     <p style="font-size: 7px; color: #475569; font-family: sans-serif; margin: 4px 0 0 0; font-weight: bold; letter-spacing: 0.5px;">VALIDAR DOC.</p>
                 </div>
             `;
-        } catch(e) { console.error("Error QR", e); }
+        } catch (e) { console.error("Error QR", e); }
     }
 
     // 3. Referencias y Metadatos
@@ -578,16 +578,16 @@ async function sealAndSaveDocument(doc, hEntry) {
                 <table width="100%" cellpadding="0" cellspacing="0" style="border: none;">
                     <tr>
                         ${doc.signedBy.map(s => {
-                            const u = state.db.users.find(user => user.id === s.id);
-                            const areaNameFirma = getAreaName(s.areaId || doc.areaId); // <--- Extrae el área correcta
-                            return `
+            const u = state.db.users.find(user => user.id === s.id);
+            const areaNameFirma = getAreaName(s.areaId || doc.areaId); // <--- Extrae el área correcta
+            return `
                                 <td style="vertical-align: top; padding-right: 20px; border: none; width: 33%;">
                                     <p style="font-style: italic; color: #059669; font-size: 14px; margin: 0; border-bottom: 1px solid #a7f3d0; display: inline-block;">Firmado Digitalmente</p>
                                     <p style="font-weight: bold; margin: 2px 0; font-size: 14px; color: #1e293b;">${u ? u.name : 'Usuario'}</p>
                                     <p style="color: #475569; font-weight: 500; margin: 0 0 2px 0; font-size: 11px;">${areaNameFirma}</p>
                                     <p style="color: #475569; margin: 0; font-size: 11px;">${new Date(s.date).toLocaleString()}</p>
                                 </td>`;
-                        }).join('')}
+        }).join('')}
                     </tr>
                 </table>
             </div>`;
@@ -660,7 +660,7 @@ async function sealAndSaveDocument(doc, hEntry) {
         finalFormData.append('documentData', JSON.stringify(doc));
         finalFormData.append('historyEntry', JSON.stringify(hEntry));
 
-        const res = await fetch(`http://10.31.23.140:3000/api/docs/sign-final/${doc.id}`, {
+        const res = await fetch(`http://localhost:3000/api/docs/sign-final/${doc.id}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: finalFormData
@@ -670,10 +670,10 @@ async function sealAndSaveDocument(doc, hEntry) {
             const errData = await res.json();
             throw new Error(errData.message || 'Fallo en el procesamiento del servidor');
         }
-        
+
         const resData = await res.json();
         doc.pdf_hash = resData.pdfHash; // Guardamos el Hash final
-        
+
         return true;
 
     } catch (error) {
@@ -689,7 +689,7 @@ async function sealAndSaveDocument(doc, hEntry) {
 async function downloadDocumentArchive(docId) {
     const doc = state.db.documents.find(d => d.id === docId);
     if (!doc) return;
-    
+
     if (doc.status === STATUS.BORRADOR || doc.status === STATUS.FIRMANDOSE || doc.status === STATUS.RECHAZADO) {
         return alert("Los borradores en trámite no poseen un PDF oficial generado. Debe firmarse primero.");
     }
@@ -697,23 +697,23 @@ async function downloadDocumentArchive(docId) {
     // Le ponemos un spinner al botón original
     const btn = document.querySelector(`[data-action="download-doc-zip"][data-id="${docId}"]`);
     const origHtml = btn ? btn.innerHTML : '';
-    if(btn) btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
+    if (btn) btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
 
     try {
-        const pdfRes = await fetch(`http://10.31.23.140:3000/api/docs/download-static/${doc.id}`, {
+        const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
-        
+
         if (!pdfRes.ok) throw new Error("No se pudo obtener el PDF sellado.");
-        
+
         const pdfBlob = await pdfRes.blob();
         saveAs(pdfBlob, `${doc.number}_Oficial.pdf`); // Ya es PDF, no ZIP
     } catch (e) {
         console.error(e);
         alert("Error al recuperar el documento encriptado del servidor.");
     } finally {
-        if(btn) btn.innerHTML = origHtml;
-        if(window.lucide) lucide.createIcons();
+        if (btn) btn.innerHTML = origHtml;
+        if (window.lucide) lucide.createIcons();
     }
 }
 
@@ -721,34 +721,34 @@ async function downloadDocumentArchive(docId) {
 async function downloadFullExpediente(expId) {
     const exp = state.db.expedientes.find(e => e.id === expId);
     if (!exp) return;
-    
+
     const zip = new JSZip();
-    
+
     let historyText = `=== HISTORIAL DEL EXPEDIENTE ===\nNÚMERO: ${exp.number}\nASUNTO: ${exp.subject}\nCREADO: ${formatDateOnly(exp.createdAt)}\n\n`;
     [...exp.history].reverse().forEach(h => {
         historyText += `[${new Date(h.date).toLocaleString()}] ${h.action} \nActor: ${getUserName(h.userId)}\nNotas: ${h.notes || 'Sin notas'}\n-----------------------------------\n`;
     });
     zip.file(`Historial_${exp.number}.txt`, historyText);
-    
+
     if (exp.linkedDocs && exp.linkedDocs.length > 0) {
         for (let i = 0; i < exp.linkedDocs.length; i++) {
             const docId = exp.linkedDocs[i];
             const doc = state.db.documents.find(d => d.id === docId);
             if (doc) {
                 try {
-                    const pdfRes = await fetch(`http://10.31.23.140:3000/api/docs/download-static/${doc.id}`, {
+                    const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
                         headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                     });
                     const pdfBlob = await pdfRes.blob();
-                    
+
                     // Nombres limpios, sin subcarpetas innecesarias
                     const fojaName = `Foja_${String(i + 1).padStart(3, '0')}_${doc.number}.pdf`;
                     zip.file(fojaName, pdfBlob);
-                } catch(e) { console.error(e); }
+                } catch (e) { console.error(e); }
             }
         }
     }
-    
+
     const zipBlob = await zip.generateAsync({ type: "blob" });
     saveAs(zipBlob, `${exp.number}_Completo.zip`);
 }
@@ -756,7 +756,7 @@ async function downloadFullExpediente(expId) {
 // === MOTOR DE RECHAZO MASIVO ===
 async function processBatchReject(note) {
     state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Iniciando rechazo...' };
-    renderApp(); 
+    renderApp();
 
     for (let i = 0; i < state.batchSelection.length; i++) {
         const docId = state.batchSelection[i];
@@ -767,7 +767,7 @@ async function processBatchReject(note) {
         if (!item) continue;
 
         item.status = STATUS.RECHAZADO;
-        item.currentOwnerId = item.creatorId; 
+        item.currentOwnerId = item.creatorId;
         const hEntry = createHistoryEntry(state.currentUser.id, 'Rechazado (Firma Masiva)', note);
         item.history.push(hEntry);
         await syncData(item, 'documento', hEntry);
@@ -783,8 +783,8 @@ async function processBatchReject(note) {
 // === MOTOR DE FIRMA MASIVA SECUENCIAL ===
 async function processBatchSign() {
     state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Preparando motor criptográfico...' };
-    renderApp(); 
-    
+    renderApp();
+
     let successCount = 0;
     const docIds = [...state.batchSelection]; // Clonamos para no perderlos
 
@@ -800,9 +800,9 @@ async function processBatchSign() {
         item.areaId = state.currentUser.areaId;
 
         // --- Lógica de Firma (Idéntica a la individual) ---
-        if (!item.signedBy) item.signedBy = []; 
-        item.signedBy.push({ 
-            id: state.currentUser.id, 
+        if (!item.signedBy) item.signedBy = [];
+        item.signedBy.push({
+            id: state.currentUser.id,
             date: new Date().toISOString(),
             areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
         });
@@ -810,16 +810,16 @@ async function processBatchSign() {
         // Caso A: Firma Intermedia (Pasa a otro firmante)
         item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
         if (item.signatories.length > 0) {
-            item.currentOwnerId = item.signatories[0]; 
+            item.currentOwnerId = item.signatories[0];
             const hEntry = createHistoryEntry(state.currentUser.id, 'Firma Aplicada (Masiva)', 'Pasa al siguiente firmante');
             item.history.push(hEntry);
-            await syncData(item, 'documento', hEntry); 
+            await syncData(item, 'documento', hEntry);
             successCount++;
-            continue; 
+            continue;
         }
 
         // Caso B: Firma Final
-        item.status = STATUS.FIRMADO; 
+        item.status = STATUS.FIRMADO;
         // Genera el número usando el área activa (donde el usuario está parado ahora)
         if (!item.number) {
             item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
@@ -827,13 +827,13 @@ async function processBatchSign() {
 
         // Relacionados
         if (item.relatedDocs && item.relatedDocs.length > 0) {
-            for (let relId of item.relatedDocs) { 
-                const targetDoc = state.db.documents.find(d => d.id === relId); 
-                if (targetDoc) { 
-                    if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; 
-                    if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); 
-                    await syncData(targetDoc, 'documento'); 
-                } 
+            for (let relId of item.relatedDocs) {
+                const targetDoc = state.db.documents.find(d => d.id === relId);
+                if (targetDoc) {
+                    if (!targetDoc.relatedDocs) targetDoc.relatedDocs = [];
+                    if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id);
+                    await syncData(targetDoc, 'documento');
+                }
             }
         }
 
@@ -844,7 +844,7 @@ async function processBatchSign() {
         item.history.push(hEntry);
 
         // ¡EL MOMENTO MÁGICO! Llamamos a la generación del PDF.
-        const success = await sealAndSaveDocument(item, hEntry); 
+        const success = await sealAndSaveDocument(item, hEntry);
 
         if (success) {
             if (isConDest && item.recipients && item.recipients.length > 0) {
@@ -864,18 +864,18 @@ async function processBatchSign() {
 
 function getFilteredItemsForModel(model) {
     const term = state.searchTerms[model.replace(/(Doc|Exp)$/, '')] || '';
-    switch(model) {
+    switch (model) {
         case 'inboxDoc': return state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'inboxExp': return state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'areaDoc': return state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'areaExp': return state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id && (!d.areaId || d.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
-        case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u=>u.id===d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
+        case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
         case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
         case 'anuladosExp': return state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'batchSign': return state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
-        case 'search': 
+        case 'search':
             const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)));
             const sExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
             return [...sDocs, ...sExps].filter(item => filterItem(item, term));
@@ -892,7 +892,7 @@ function sortItems(items, model) {
     const s = state.sort[model] || { field: 'date', order: 'desc' };
     return items.sort((a, b) => {
         let vA, vB;
-        switch(s.field) {
+        switch (s.field) {
             case 'number': vA = a.number || ''; vB = b.number || ''; break;
             case 'type': vA = a.docType || a.type; vB = b.docType || b.type; break;
             case 'subject': vA = a.subject.toLowerCase(); vB = b.subject.toLowerCase(); break;
@@ -902,13 +902,13 @@ function sortItems(items, model) {
             case 'fojas': vA = a.type === 'expediente' ? (a.linkedDocs?.length || 0) : -1; vB = b.type === 'expediente' ? (b.linkedDocs?.length || 0) : -1; break;
             case 'date': default: vA = new Date(a.createdAt).getTime(); vB = new Date(b.createdAt).getTime(); break;
         }
-        if(vA < vB) return s.order === 'asc' ? -1 : 1;
-        if(vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
+        if (vA < vB) return s.order === 'asc' ? -1 : 1;
+        if (vA > vB) return s.order === 'asc' ? 1 : -1; return 0;
     });
 }
 
 function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn = false) {
-    const sortedItems = sortItems(items, model); 
+    const sortedItems = sortItems(items, model);
     const s = state.sort[model] || { field: 'date', order: 'desc' };
     const th = (label, field) => `<th class="p-4 font-medium border-b border-gray-200 cursor-pointer hover:bg-gray-100 whitespace-nowrap" data-sort="${model}" data-field="${field}">${label} <i data-lucide="${s.field === field ? (s.order === 'asc' ? 'chevron-up' : 'chevron-down') : 'minus'}" class="inline w-3 h-3 text-gray-400"></i></th>`;
 
@@ -919,12 +919,12 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
     const limit = parseInt(pagInfo.limit);
     const totalItems = sortedItems.length;
     const totalPages = Math.ceil(totalItems / limit);
-    
+
     // Auto-corrección si la búsqueda reduce los resultados
     let currentPage = pagInfo.page;
     if (currentPage > totalPages) currentPage = Math.max(totalPages, 1);
-    state.pagination[model].page = currentPage; 
-    
+    state.pagination[model].page = currentPage;
+
     const startIndex = (currentPage - 1) * limit;
     const endIndex = startIndex + limit;
     const paginatedItems = sortedItems.slice(startIndex, endIndex);
@@ -1003,13 +1003,13 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
 function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
     const o = state.statsOpts;
     if (o.types && !o.types.includes('all') && !o.types.includes(entryDocType)) return false;
-    const uArea = state.db.users.find(u=>u.id===entryUserId)?.areaId;
+    const uArea = state.db.users.find(u => u.id === entryUserId)?.areaId;
     if (o.areas && !o.areas.includes('all') && !o.areas.includes(uArea)) return false;
     if (o.users && !o.users.includes('all') && !o.users.includes(entryUserId)) return false;
     if (entryDateStr) {
         const dTime = new Date(entryDateStr).getTime();
         if (o.dateFrom && dTime < new Date(o.dateFrom).getTime()) return false;
-        if (o.dateTo && dTime > new Date(o.dateTo).setHours(23,59,59)) return false;
+        if (o.dateTo && dTime > new Date(o.dateTo).setHours(23, 59, 59)) return false;
     }
     return true;
 }
@@ -1017,18 +1017,18 @@ function checkStatsFilters(entryDateStr, entryUserId, entryDocType) {
 function getAggregatedStats() {
     let totals = { firmados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, expsCreados: 0, archD: 0, archE: 0, anulados: 0, usuarios: state.db.users.length, areas: state.db.areas.length };
     let usersMap = {}, areasMap = {};
-    const initMap = (map, id, label) => { if(!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
+    const initMap = (map, id, label) => { if (!map[id]) map[id] = { label, firmados: 0, creados: 0, derivaciones: 0, vinculaciones: 0, relaciones: 0, anulaciones: 0, archDesarchD: 0, archDesarchE: 0, rechazados: 0 }; };
 
     state.db.users.forEach(u => initMap(usersMap, u.id, u.name)); state.db.areas.forEach(a => initMap(areasMap, a.id, a.name));
 
     state.db.documents.forEach(d => {
         let relationsCounted = false;
         if (d.relatedDocs && d.relatedDocs.length > 0 && checkStatsFilters(d.createdAt, d.creatorId, d.docType)) {
-            const u = state.db.users.find(x=>x.id===d.creatorId);
+            const u = state.db.users.find(x => x.id === d.creatorId);
             if (u) { usersMap[u.id].relaciones += d.relatedDocs.length; areasMap[u.areaId].relaciones += d.relatedDocs.length; }
         }
         d.history.forEach(h => {
-            const u = state.db.users.find(x=>x.id===h.userId); if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
+            const u = state.db.users.find(x => x.id === h.userId); if (!u || !checkStatsFilters(h.date, h.userId, d.docType)) return;
             const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
             if (h.action.includes('Firma')) { totals.firmados++; inc('firmados'); }
             if (h.action.includes('Derivad')) { totals.derivaciones++; inc('derivaciones'); }
@@ -1041,7 +1041,7 @@ function getAggregatedStats() {
 
     state.db.expedientes.forEach(e => {
         e.history.forEach(h => {
-            const u = state.db.users.find(x=>x.id===h.userId); if (!u || !checkStatsFilters(h.date, h.userId, 'expediente')) return;
+            const u = state.db.users.find(x => x.id === h.userId); if (!u || !checkStatsFilters(h.date, h.userId, 'expediente')) return;
             const inc = (key) => { usersMap[h.userId][key]++; areasMap[u.areaId][key]++; };
             if (h.action === 'Apertura') { totals.expsCreados++; inc('creados'); }
             if (h.action.includes('Derivad')) { totals.derivaciones++; inc('derivaciones'); }
@@ -1051,11 +1051,13 @@ function getAggregatedStats() {
         });
     });
 
-    const getTop = (map, key) => Object.values(map).sort((a,b)=>b[key]-a[key]).slice(0,10).map(x=>({label: x.label, count: x[key]})).filter(x=>x.count>0);
-    return { totals, usersMap, areasMap, top: {
-        u_firmados: getTop(usersMap, 'firmados'), u_creados: getTop(usersMap, 'creados'), u_derivaciones: getTop(usersMap, 'derivaciones'), u_vinculaciones: getTop(usersMap, 'vinculaciones'), u_relaciones: getTop(usersMap, 'relaciones'), u_anulaciones: getTop(usersMap, 'anulaciones'), u_archD: getTop(usersMap, 'archDesarchD'), u_archE: getTop(usersMap, 'archDesarchE'), u_rechazados: getTop(usersMap, 'rechazados'),
-        a_firmados: getTop(areasMap, 'firmados'), a_creados: getTop(areasMap, 'creados'), a_derivaciones: getTop(areasMap, 'derivaciones'), a_vinculaciones: getTop(areasMap, 'vinculaciones'), a_relaciones: getTop(areasMap, 'relaciones'), a_anulaciones: getTop(areasMap, 'anulaciones'), a_archD: getTop(areasMap, 'archDesarchD'), a_archE: getTop(areasMap, 'archDesarchE'), a_rechazados: getTop(areasMap, 'rechazados')
-    }};
+    const getTop = (map, key) => Object.values(map).sort((a, b) => b[key] - a[key]).slice(0, 10).map(x => ({ label: x.label, count: x[key] })).filter(x => x.count > 0);
+    return {
+        totals, usersMap, areasMap, top: {
+            u_firmados: getTop(usersMap, 'firmados'), u_creados: getTop(usersMap, 'creados'), u_derivaciones: getTop(usersMap, 'derivaciones'), u_vinculaciones: getTop(usersMap, 'vinculaciones'), u_relaciones: getTop(usersMap, 'relaciones'), u_anulaciones: getTop(usersMap, 'anulaciones'), u_archD: getTop(usersMap, 'archDesarchD'), u_archE: getTop(usersMap, 'archDesarchE'), u_rechazados: getTop(usersMap, 'rechazados'),
+            a_firmados: getTop(areasMap, 'firmados'), a_creados: getTop(areasMap, 'creados'), a_derivaciones: getTop(areasMap, 'derivaciones'), a_vinculaciones: getTop(areasMap, 'vinculaciones'), a_relaciones: getTop(areasMap, 'relaciones'), a_anulaciones: getTop(areasMap, 'anulaciones'), a_archD: getTop(areasMap, 'archDesarchD'), a_archE: getTop(areasMap, 'archDesarchE'), a_rechazados: getTop(areasMap, 'rechazados')
+        }
+    };
 }
 
 function renderStats() {
@@ -1079,7 +1081,7 @@ function renderStats() {
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-start">
                 ${renderMultiSelect('types', 'Tipo Documento', allTypes, false)} ${renderMultiSelect('areas', 'Área', state.db.areas, true)} ${renderMultiSelect('users', 'Usuario', state.db.users, true)}
                 <div class="flex flex-col gap-2"><div><label class="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" data-stats-filter="dateFrom" value="${o.dateFrom}" class="p-2 border rounded text-xs w-32 outline-none"/></div><div><label class="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" data-stats-filter="dateTo" value="${o.dateTo}" class="p-2 border rounded text-xs w-32 outline-none"/></div></div>
-                <div class="ml-auto mt-auto flex bg-gray-100 p-1 rounded-lg border"><button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType==='pie'?'bg-white shadow text-blue-600':'text-gray-500'}">Torta</button><button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType==='bar'?'bg-white shadow text-blue-600':'text-gray-500'}">Barras</button></div>
+                <div class="ml-auto mt-auto flex bg-gray-100 p-1 rounded-lg border"><button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType === 'pie' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">Torta</button><button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType === 'bar' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">Barras</button></div>
             </div>
             <div id="stats-canvas-container" class="grid grid-cols-2 lg:grid-cols-4 gap-6"></div>
         </div>
@@ -1089,13 +1091,13 @@ function renderStats() {
 function drawCharts() {
     if (!window.Chart) return;
     Object.values(chartInstances).forEach(c => c.destroy()); chartInstances = {};
-    const container = document.getElementById('stats-canvas-container'); if(!container) return;
+    const container = document.getElementById('stats-canvas-container'); if (!container) return;
 
     currentStatsData = getAggregatedStats(); const d = currentStatsData;
     const tab = state.statsOpts.tab; const cType = state.statsOpts.chartType;
 
     let html = '';
-    const addChartContainer = (id, title, span=1) => { html += `<div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-${span}"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">${title}</h4><div class="relative h-64 w-full"><canvas id="${id}"></canvas></div></div>`; };
+    const addChartContainer = (id, title, span = 1) => { html += `<div class="bg-white p-4 rounded-xl shadow-sm border col-span-2 lg:col-span-${span}"><h4 class="font-bold text-sm text-gray-700 mb-4 text-center">${title}</h4><div class="relative h-64 w-full"><canvas id="${id}"></canvas></div></div>`; };
     const addKPI = (title, val, icon, color) => { html += `<div class="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-l-${color}-500 flex items-center justify-between col-span-2 lg:col-span-1"><div><p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p><p class="text-3xl font-black text-gray-800">${val}</p></div><i data-lucide="${icon}" class="w-10 h-10 text-${color}-200"></i></div>`; };
 
     if (tab === 'generales') {
@@ -1109,39 +1111,39 @@ function drawCharts() {
         const docs = state.db.documents.filter(doc => checkStatsFilters(doc.createdAt, doc.creatorId, doc.docType));
         const exps = state.db.expedientes.filter(exp => checkStatsFilters(exp.createdAt, exp.creatorId, 'expediente'));
         const countByType = (items) => {
-            let c = {}; items.forEach(i => { c[i.docType||i.type] = (c[i.docType||i.type]||0)+1; });
-            return { l: Object.keys(c), d: Object.values(c), c: Object.keys(c).map(t=>CHART_COLORS[t]||CHART_COLORS.default) };
+            let c = {}; items.forEach(i => { c[i.docType || i.type] = (c[i.docType || i.type] || 0) + 1; });
+            return { l: Object.keys(c), d: Object.values(c), c: Object.keys(c).map(t => CHART_COLORS[t] || CHART_COLORS.default) };
         };
 
-        const signedDocs = docs.filter(d => d.history.some(h=>h.action.includes('Firma')));
+        const signedDocs = docs.filter(d => d.history.some(h => h.action.includes('Firma')));
         let fD = countByType(signedDocs); addChartContainer('c-firm', 'Total Docs Firmados por Tipo', 2);
         let cE = countByType(exps); addChartContainer('c-exp', 'Expedientes Creados', 2);
-        let arD = countByType(docs.filter(d=>d.status===STATUS.ARCHIVADO)), arE = countByType(exps.filter(e=>e.status===STATUS.ARCHIVADO)); addChartContainer('c-arch', 'Archivados', 2);
-        let anD = countByType(docs.filter(d=>d.status===STATUS.ANULADO)), anE = countByType(exps.filter(e=>e.status===STATUS.ANULADO)); addChartContainer('c-anul', 'Anulados', 2);
-        
+        let arD = countByType(docs.filter(d => d.status === STATUS.ARCHIVADO)), arE = countByType(exps.filter(e => e.status === STATUS.ARCHIVADO)); addChartContainer('c-arch', 'Archivados', 2);
+        let anD = countByType(docs.filter(d => d.status === STATUS.ANULADO)), anE = countByType(exps.filter(e => e.status === STATUS.ANULADO)); addChartContainer('c-anul', 'Anulados', 2);
+
         addChartContainer('c-top-deriv-doc', 'Docs más Derivados', 2); addChartContainer('c-top-vinc-exp', 'Exps más Vinculados', 2);
         addChartContainer('c-top-rel-doc', 'Docs más Relacionados', 2); addChartContainer('c-top-rech-doc', 'Docs más Rechazados', 2);
 
         container.innerHTML = html; if (window.lucide) lucide.createIcons();
         const build = (id, l, dat, c) => buildChart(id, l, dat, c, cType);
-        
-        if(fD.l.length) build('c-firm', fD.l, fD.d, fD.c); if(cE.l.length) build('c-exp', cE.l, cE.d, cE.c);
-        if(arD.l.length || arE.l.length) build('c-arch', [...arD.l,...arE.l], [...arD.d,...arE.d], [...arD.c,...arE.c]);
-        if(anD.l.length || anE.l.length) build('c-anul', [...anD.l,...anE.l], [...anD.d,...anE.d], [...anD.c,...anE.c]);
 
-        const topDerivD = [...docs].sort((a,b) => getDerivationsCount(b) - getDerivationsCount(a)).filter(d=>getDerivationsCount(d)>0).slice(0,10);
-        const topVincE = [...exps].sort((a,b) => (b.linkedDocs?.length||0) - (a.linkedDocs?.length||0)).filter(e=>(e.linkedDocs?.length||0)>0).slice(0,10);
-        const topRelD = [...docs].sort((a,b) => (b.relatedDocs?.length||0) - (a.relatedDocs?.length||0)).filter(d=>(d.relatedDocs?.length||0)>0).slice(0,10);
-        const topRechD = [...docs].sort((a,b) => getRejectionsCount(b) - getRejectionsCount(a)).filter(d=>getRejectionsCount(d)>0).slice(0,10);
-        
+        if (fD.l.length) build('c-firm', fD.l, fD.d, fD.c); if (cE.l.length) build('c-exp', cE.l, cE.d, cE.c);
+        if (arD.l.length || arE.l.length) build('c-arch', [...arD.l, ...arE.l], [...arD.d, ...arE.d], [...arD.c, ...arE.c]);
+        if (anD.l.length || anE.l.length) build('c-anul', [...anD.l, ...anE.l], [...anD.d, ...anE.d], [...anD.c, ...anE.c]);
+
+        const topDerivD = [...docs].sort((a, b) => getDerivationsCount(b) - getDerivationsCount(a)).filter(d => getDerivationsCount(d) > 0).slice(0, 10);
+        const topVincE = [...exps].sort((a, b) => (b.linkedDocs?.length || 0) - (a.linkedDocs?.length || 0)).filter(e => (e.linkedDocs?.length || 0) > 0).slice(0, 10);
+        const topRelD = [...docs].sort((a, b) => (b.relatedDocs?.length || 0) - (a.relatedDocs?.length || 0)).filter(d => (d.relatedDocs?.length || 0) > 0).slice(0, 10);
+        const topRechD = [...docs].sort((a, b) => getRejectionsCount(b) - getRejectionsCount(a)).filter(d => getRejectionsCount(d) > 0).slice(0, 10);
+
         const tc = t => CHART_COLORS[t] || CHART_COLORS['default'];
-        if(topDerivD.length) build('c-top-deriv-doc', topDerivD.map(d=>d.number), topDerivD.map(getDerivationsCount), topDerivD.map(d=>tc(d.docType)));
-        if(topVincE.length) build('c-top-vinc-exp', topVincE.map(e=>e.number), topVincE.map(e=>e.linkedDocs.length), topVincE.map(()=>CHART_COLORS['expediente']));
-        if(topRelD.length) build('c-top-rel-doc', topRelD.map(d=>d.number), topRelD.map(d=>d.relatedDocs.length), topRelD.map(d=>tc(d.docType)));
-        if(topRechD.length) build('c-top-rech-doc', topRechD.map(d=>d.number), topRechD.map(getRejectionsCount), topRechD.map(d=>tc(d.docType)));
+        if (topDerivD.length) build('c-top-deriv-doc', topDerivD.map(d => d.number), topDerivD.map(getDerivationsCount), topDerivD.map(d => tc(d.docType)));
+        if (topVincE.length) build('c-top-vinc-exp', topVincE.map(e => e.number), topVincE.map(e => e.linkedDocs.length), topVincE.map(() => CHART_COLORS['expediente']));
+        if (topRelD.length) build('c-top-rel-doc', topRelD.map(d => d.number), topRelD.map(d => d.relatedDocs.length), topRelD.map(d => tc(d.docType)));
+        if (topRechD.length) build('c-top-rech-doc', topRechD.map(d => d.number), topRechD.map(getRejectionsCount), topRechD.map(d => tc(d.docType)));
         return;
     } else {
-        const pfx = tab === 'usuarios' ? 'u_' : 'a_'; 
+        const pfx = tab === 'usuarios' ? 'u_' : 'a_';
         const chartsToRender = [
             { key: 'firmados', title: 'Más Firmas' }, { key: 'creados', title: 'Más Exps Creados' }, { key: 'derivaciones', title: 'Más Derivaciones' },
             { key: 'vinculaciones', title: 'Más Vinculaciones' }, { key: 'relaciones', title: 'Más Relacionados' }, { key: 'rechazados', title: 'Más Rechazados' },
@@ -1150,15 +1152,15 @@ function drawCharts() {
 
         chartsToRender.forEach(c => addChartContainer(`c-top-${c.key}`, c.title, 2));
         container.innerHTML = html; if (window.lucide) lucide.createIcons();
-        const buildTop = (id, key) => { const arr = d.top[pfx+key]; if(arr && arr.length > 0) buildChart(id, arr.map(x=>x.label), arr.map(x=>x.count), arr.map((_,i)=>getColorPalette(i)), cType); };
+        const buildTop = (id, key) => { const arr = d.top[pfx + key]; if (arr && arr.length > 0) buildChart(id, arr.map(x => x.label), arr.map(x => x.count), arr.map((_, i) => getColorPalette(i)), cType); };
         chartsToRender.forEach(c => buildTop(`c-top-${c.key}`, c.key));
         return;
     }
 }
 
 function buildChart(id, labels, data, bgColors, cType) {
-    const ctx = document.getElementById(id); if(!ctx) return;
-    let options = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: cType==='pie', position: 'right' }, datalabels: { color: cType==='pie'?'#fff':'#475569', font: {weight: 'bold'}, formatter: (v) => v > 0 ? v : '' } } };
+    const ctx = document.getElementById(id); if (!ctx) return;
+    let options = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: cType === 'pie', position: 'right' }, datalabels: { color: cType === 'pie' ? '#fff' : '#475569', font: { weight: 'bold' }, formatter: (v) => v > 0 ? v : '' } } };
     if (cType === 'bar') options.scales = { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } };
     chartInstances[id] = new Chart(ctx, { type: cType, data: { labels, datasets: [{ data, backgroundColor: bgColors, borderWidth: 1 }] }, options: options });
 }
@@ -1173,31 +1175,31 @@ function renderApp() {
     // NUEVO: Manejo de la vista de recuperación de contraseña antes del layout
     if (state.currentView === 'forgot_password') {
         appRoot.innerHTML = renderForgotPassword();
-    } 
+    }
     else if (!state.currentUser) {
         appRoot.innerHTML = renderLogin();
-    } 
+    }
     else {
         appRoot.innerHTML = renderMainLayout();
-        renderNotificationUI(); 
+        renderNotificationUI();
     }
-    
-    restoreInputFocus(); 
+
+    restoreInputFocus();
     if (window.lucide) lucide.createIcons();
     if (state.currentView === 'stats') drawCharts();
 
-    if (document.getElementById('create-doc-content')) { initTinyMCE('#create-doc-content'); } 
-    else if (document.getElementById('edit-doc-content')) { initTinyMCE('#edit-doc-content'); } 
+    if (document.getElementById('create-doc-content')) { initTinyMCE('#create-doc-content'); }
+    else if (document.getElementById('edit-doc-content')) { initTinyMCE('#edit-doc-content'); }
     else { if (window.tinymce) tinymce.remove(); }
 }
 
 function renderMenuSection(id, title, icon, itemsHtml) {
     const isOpen = state.menus[id]; const sbOpen = state.ui.sidebarOpen;
-    
+
     if (!sbOpen) {
         return `<div class="space-y-1 mb-4 border-b border-slate-800 pb-4">${itemsHtml}</div>`;
     }
-    
+
     return `
         <div class="mb-1">
             <button data-action="toggle-menu" data-menu="${id}" class="w-full flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-wider py-3 hover:text-slate-300 transition-colors outline-none">
@@ -1457,9 +1459,9 @@ function renderAdminUsers() {
 
 function renderAdminAreas() {
     return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}"><input type="file" id="csv-upload-areas" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex ${isMobile() ? 'flex-col' : ''} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2 whitespace-nowrap">ID</th><th class="p-2 whitespace-nowrap">Nombre</th><th class="p-2 text-center whitespace-nowrap">Usuarios</th><th class="p-2 whitespace-nowrap">Acciones</th></tr></thead>
-    <tbody class="divide-y">${state.db.areas.map(a => { 
+    <tbody class="divide-y">${state.db.areas.map(a => {
         // Ahora buscamos si el ID del área existe dentro del array de áreas del usuario
-        const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length; 
+        const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length;
         return `<tr>
             <td class="p-2 text-xs text-gray-500">${a.id}</td>
             <td class="p-2 font-medium">${a.name}</td>
@@ -1467,13 +1469,13 @@ function renderAdminAreas() {
                 <button data-action="open-modal" data-modal-type="ver_usuarios_area" data-id="${a.id}" class="hover:underline px-2 py-1 bg-blue-50 rounded" title="Ver usuarios">${uCount}</button>
             </td>
             <td class="p-2 whitespace-nowrap"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
-            </tr>`; 
+            </tr>`;
     }).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminServices() {
     const c = state.servicesConfig || {};
-    
+
     const renderToggle = (id, label, checked) => `
         <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-lg">
             <span class="text-sm font-bold text-gray-700">${label}</span>
@@ -1534,7 +1536,7 @@ function renderAdminServices() {
 
 function renderUserSettings() {
     const u = state.currentUser;
-    const webNotif = u.web_notifications !== 0; 
+    const webNotif = u.web_notifications !== 0;
     const emailNotif = u.email_notifications !== 0;
 
     const renderToggle = (id, label, checked) => `
@@ -1621,7 +1623,7 @@ async function renderPublicVerificationScreen(docId) {
     if (window.lucide) lucide.createIcons();
 
     try {
-        const res = await fetch(`http://10.31.23.140:3000/api/docs/public/verify/${docId}`);
+        const res = await fetch(`http://localhost:3000/api/docs/public/verify/${docId}`);
         const data = await res.json();
 
         if (!res.ok) {
@@ -1729,15 +1731,15 @@ function renderInbox() {
 // VISTA: Firma Masiva
 function renderBatchSign() {
     const term = state.searchTerms.batchSign;
-    
+
     // CORRECCIÓN: Mostrar TODOS los documentos pendientes de firma del usuario, 
     // sin importar en qué área esté parado actualmente.
-    const docs = state.db.documents.filter(d => 
-        d.status === STATUS.FIRMANDOSE && 
+    const docs = state.db.documents.filter(d =>
+        d.status === STATUS.FIRMANDOSE &&
         d.currentOwnerId === state.currentUser.id
         // Eliminamos la validación de d.areaId de aquí
     ).filter(d => filterItem(d, term));
-    
+
     const s = state.sort.batchSign || { field: 'date', order: 'desc' };
     const sortedDocs = docs.sort((a, b) => {
         let vA = new Date(a.createdAt).getTime(), vB = new Date(b.createdAt).getTime();
@@ -1749,11 +1751,11 @@ function renderBatchSign() {
     const limit = parseInt(pagInfo.limit);
     const totalItems = sortedDocs.length;
     const totalPages = Math.ceil(totalItems / limit) || 1;
-    
-    let currentPage = pagInfo.page; 
-    if (currentPage > totalPages) currentPage = Math.max(totalPages, 1); 
+
+    let currentPage = pagInfo.page;
+    if (currentPage > totalPages) currentPage = Math.max(totalPages, 1);
     state.pagination.batchSign.page = currentPage;
-    
+
     const startIndex = (currentPage - 1) * limit;
     const endIndex = startIndex + limit;
     const paginatedDocs = sortedDocs.slice(startIndex, endIndex);
@@ -1844,9 +1846,9 @@ function renderBatchSign() {
 function renderDrafts() {
     const term = state.searchTerms.drafts;
     // CORRECCIÓN: Filtramos por área activa para que solo veas los borradores de este "escritorio"
-    const drafts = state.db.documents.filter(d => 
-        d.creatorId === state.currentUser.id && 
-        (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && 
+    const drafts = state.db.documents.filter(d =>
+        d.creatorId === state.currentUser.id &&
+        (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) &&
         d.currentOwnerId === state.currentUser.id &&
         d.areaId === state.currentUser.areaId // <--- Filtro de área añadido
     ).filter(d => filterItem(d, term));
@@ -1855,7 +1857,7 @@ function renderDrafts() {
 
 function renderArchive() {
     const term = state.searchTerms.archive;
-    const docs = state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u=>u.id===d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
+    const docs = state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
     const exps = state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="archive" placeholder="Filtrar archivo..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos Archivados (${docs.length})</h3></div>${renderTable(docs, 'archiveDoc', 'No hay documentos archivados.')}</div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes Archivados (${exps.length})</h3></div>${renderTable(exps, 'archiveExp', 'No hay expedientes archivados.', true)}</div></div>`;
 }
@@ -1881,12 +1883,12 @@ function renderCreateDocument() {
     const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
 
     return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
-    <div id="dest-container" style="display:none;"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a=>({id:a.id, name:`[Área] ${a.name}`})), ...state.db.users.filter(u=>u.id!==state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
+    <div id="dest-container" style="display:none;"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
     <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
 
 function renderCreateExpediente() {
-    return `<div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2"><i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i><h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3></div><form id="form-create-exp" class="p-6 space-y-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label><input required type="text" id="create-exp-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div><div class="p-4 bg-purple-50 rounded-lg border border-purple-100"><label class="flex items-center gap-3 cursor-pointer mb-2"><input type="checkbox" id="create-exp-public" checked class="w-5 h-5 text-purple-600 rounded" onchange="document.getElementById('private-auth-box').classList.toggle('hidden', this.checked)" /><div><p class="font-medium text-purple-900">Expediente Público</p><p class="text-xs text-purple-700">Si se desmarca, deberá elegir quién puede verlo.</p></div></label><div id="private-auth-box" class="hidden mt-4 pt-4 border-t border-purple-200"><p class="text-sm font-medium mb-2">Autorizados (además de usted y su área):</p><div class="max-h-40 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1">${state.db.areas.map(a => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_areas" value="${a.id}"> Área: ${a.name}</label>`).join('')}${state.db.users.filter(u=>u.id!==state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_users" value="${u.id}"> Usuario: ${u.name}</label>`).join('')}</div></div></div><div class="flex justify-end pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Generar Expediente</button></div></form></div>`;
+    return `<div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2"><i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i><h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3></div><form id="form-create-exp" class="p-6 space-y-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label><input required type="text" id="create-exp-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div><div class="p-4 bg-purple-50 rounded-lg border border-purple-100"><label class="flex items-center gap-3 cursor-pointer mb-2"><input type="checkbox" id="create-exp-public" checked class="w-5 h-5 text-purple-600 rounded" onchange="document.getElementById('private-auth-box').classList.toggle('hidden', this.checked)" /><div><p class="font-medium text-purple-900">Expediente Público</p><p class="text-xs text-purple-700">Si se desmarca, deberá elegir quién puede verlo.</p></div></label><div id="private-auth-box" class="hidden mt-4 pt-4 border-t border-purple-200"><p class="text-sm font-medium mb-2">Autorizados (además de usted y su área):</p><div class="max-h-40 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1">${state.db.areas.map(a => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_areas" value="${a.id}"> Área: ${a.name}</label>`).join('')}${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_users" value="${u.id}"> Usuario: ${u.name}</label>`).join('')}</div></div></div><div class="flex justify-end pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Generar Expediente</button></div></form></div>`;
 }
 
 function renderDocumentDetail() {
@@ -1972,10 +1974,10 @@ function renderDocumentDetail() {
                         ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Central (Global)</button>` : ''}
                         
                         ${doc.status !== STATUS.ARCHIVADO && doc.status !== STATUS.ANULADO ? `
-                            ${isHidden ? 
-                                `<button data-action="item-restaurar" class="w-full py-2 bg-emerald-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Restaurar a mi Bandeja</button>` : 
-                                `<button data-action="item-ocultar" class="w-full py-2 bg-gray-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye-off" class="w-4 h-4"></i> Quitar de mi Bandeja</button>`
-                            }
+                            ${isHidden ?
+                        `<button data-action="item-restaurar" class="w-full py-2 bg-emerald-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Restaurar a mi Bandeja</button>` :
+                        `<button data-action="item-ocultar" class="w-full py-2 bg-gray-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye-off" class="w-4 h-4"></i> Quitar de mi Bandeja</button>`
+                    }
                         ` : ''}
 
                         <button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>
@@ -1992,9 +1994,9 @@ function renderDocumentDetail() {
 function renderExpedienteDetail() {
     const exp = state.selectedItem;
     const isArchived = exp.status === STATUS.ARCHIVADO; const isAnulado = exp.status === STATUS.ANULADO; const isActive = !isArchived && !isAnulado;
-    const isOwnerUser = exp.currentOwnerId === state.currentUser.id; 
+    const isOwnerUser = exp.currentOwnerId === state.currentUser.id;
     const term = state.searchTerms.expDetail.toLowerCase();
-    const linkedDocsList = exp.linkedDocs.map(did => state.db.documents.find(d => d.id === did)).filter(Boolean).filter(d => (d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term));
+    const linkedDocsList = exp.linkedDocs.map(did => state.db.documents.find(d => d.id === did)).filter(Boolean).filter(d => (d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term));
 
     return `
         <div class="max-w-5xl mx-auto ${isMobile() ? 'h-auto' : 'h-[calc(100vh-8rem)]'} flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -2012,8 +2014,8 @@ function renderExpedienteDetail() {
                     <input type="text" data-search-model="expDetail" placeholder="Buscar foja vinculada..." value="${state.searchTerms.expDetail}" class="w-full px-3 py-2 border rounded-lg text-sm mb-4 outline-none" />
                     <div class="space-y-3 overflow-y-auto flex-1 pr-2">
                         ${linkedDocsList.length === 0 ? '<div class="text-center p-8 bg-white border border-dashed text-gray-400 text-sm rounded-lg">No hay fojas que coincidan con la búsqueda.</div>' : linkedDocsList.map((d) => {
-                            const originalIndex = exp.linkedDocs.findIndex(id=>id===d.id) + 1; const isSealed = exp.sealedDocs?.includes(d.id) || isArchived;
-                            return `
+        const originalIndex = exp.linkedDocs.findIndex(id => id === d.id) + 1; const isSealed = exp.sealedDocs?.includes(d.id) || isArchived;
+        return `
                             <div class="bg-white p-4 rounded-lg border shadow-sm flex items-center justify-between group">
                                 <div class="flex items-center gap-4"><div class="font-bold text-slate-500">${originalIndex}</div><div><p class="font-medium text-blue-700">${d.number}</p><p class="text-sm text-gray-600">${d.subject}</p></div></div>
                                 <div class="flex gap-2">
@@ -2050,7 +2052,7 @@ function renderModalOverlay() {
     const m = state.modal; let title = '', content = ''; const term = (m.search || '').toLowerCase();
     const mixedList = [...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))].filter(i => i.name.toLowerCase().includes(term));
     const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
-    const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && ((d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
+    const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
 
     if (m.type === 'editar_usuario') {
         title = 'Editar Usuario';
@@ -2088,7 +2090,7 @@ function renderModalOverlay() {
             <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">${list.map(i => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="radio" name="modal_selection" value="${i.id}" ${m.selectedId === i.id ? 'checked' : ''} data-modal-input="selectedId" /> ${i.name}</label>`).join('')}</div>
             <textarea data-modal-input="note" placeholder="Nota de transferencia (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>
         `;
-    } 
+    }
     else if (m.type === 'derivar_doc' || m.type === 'enviar_firmar' || m.type === 'destinatarios') {
         const titles = { derivar_doc: 'Derivar Documento', enviar_firmar: 'Seleccionar Firmantes', destinatarios: 'Seleccionar Destinatarios' }; title = titles[m.type];
         const list = m.type === 'derivar_doc' || m.type === 'destinatarios' ? mixedList : usersList;
@@ -2104,7 +2106,7 @@ function renderModalOverlay() {
             <p class="text-sm font-medium mb-2">Autorizados:</p>
             <div class="max-h-60 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1 mb-4">
                 ${state.db.areas.map(a => `<label class="flex items-center gap-2"><input type="checkbox" value="${a.id}" ${m.selectionArr.includes(a.id) ? 'checked' : ''} data-modal-toggle="selectionArr"> Área: ${a.name}</label>`).join('')}
-                ${state.db.users.filter(u=>u.id!==state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr"> Usuario: ${u.name}</label>`).join('')}
+                ${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr"> Usuario: ${u.name}</label>`).join('')}
             </div>
         `;
     }
@@ -2130,7 +2132,7 @@ function renderModalOverlay() {
         `;
     }
     else if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
-        const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' }; 
+        const titles = { archivar_doc: 'Archivar Documento', anular_doc: 'Anular Documento', archivar_exp: 'Archivar Expediente', anular_exp: 'Anular Expediente', rechazar_doc: 'Rechazar Documento' };
         title = titles[m.type];
         content = `<p class="text-sm text-gray-600 mb-2">Ingrese un motivo obligatorio:</p><textarea data-modal-input="note" placeholder="Motivo de la acción..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>`;
     }
@@ -2140,7 +2142,7 @@ function renderModalOverlay() {
         title = `Usuarios asignados a: ${areaInfo ? areaInfo.name : 'Área'}`;
         // Filtramos a los usuarios que pertenecen a esta área
         const usersInArea = state.db.users.filter(u => (u.areas || [u.areaId]).includes(m.selectedId));
-        
+
         content = `
             <div class="max-h-80 overflow-y-auto border rounded p-2 bg-gray-50 shadow-inner">
                 ${usersInArea.length > 0 ? usersInArea.map(u => `
@@ -2271,29 +2273,29 @@ function showNewRecoveryCodes(codes) {
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 async function syncData(item, type, historyEntry = null) {
-    const url = type === 'expediente' ? `http://10.31.23.140:3000/api/exps/update/${item.id}` : `http://10.31.23.140:3000/api/docs/update/${item.id}`;
+    const url = type === 'expediente' ? `http://localhost:3000/api/exps/update/${item.id}` : `http://localhost:3000/api/docs/update/${item.id}`;
     try {
         await fetch(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-            body: JSON.stringify({ item, historyEntry }) 
+            body: JSON.stringify({ item, historyEntry })
         });
     } catch (err) { console.error("Error sincronizando", err); }
 }
 
 document.addEventListener('input', (e) => {
-    if (e.target.hasAttribute('data-search-model')) { 
-        const model = e.target.getAttribute('data-search-model'); 
-        state.searchTerms[model] = e.target.value; 
-        
+    if (e.target.hasAttribute('data-search-model')) {
+        const model = e.target.getAttribute('data-search-model');
+        state.searchTerms[model] = e.target.value;
+
         // Resetear página a 1 según la vista que se esté filtrando
         if (model === 'inbox') { state.pagination.inboxDoc.page = 1; state.pagination.inboxExp.page = 1; state.pagination.areaDoc.page = 1; state.pagination.areaExp.page = 1; }
         else if (model === 'archive') { state.pagination.archiveDoc.page = 1; state.pagination.archiveExp.page = 1; }
         else if (model === 'anulados') { state.pagination.anuladosDoc.page = 1; state.pagination.anuladosExp.page = 1; }
         else if (state.pagination[model]) { state.pagination[model].page = 1; }
-        
-        activeInputSelector = `[data-search-model="${model}"]`; 
-        renderApp(); 
+
+        activeInputSelector = `[data-search-model="${model}"]`;
+        renderApp();
     }
     if (e.target.hasAttribute('data-modal-input')) { const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value; if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); } }
     if (e.target.hasAttribute('data-local-search')) { const term = e.target.value.toLowerCase(); document.querySelectorAll('.dest-item').forEach(lbl => { const text = lbl.querySelector('.dest-text').textContent.toLowerCase(); lbl.style.display = text.includes(term) ? 'flex' : 'none'; }); }
@@ -2301,14 +2303,14 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-modal-toggle')) { const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value; if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val); }
-    if (e.target.hasAttribute('data-modal-input')) { 
+    if (e.target.hasAttribute('data-modal-input')) {
         if (e.target.multiple) {
             state.modal[e.target.getAttribute('data-modal-input')] = Array.from(e.target.selectedOptions).map(o => o.value);
         } else if (e.target.type === 'checkbox') {
             // --- NUEVO: CAPTURAR ESTADO DE LOS CHECKBOX EN EL MODAL ---
             state.modal[e.target.getAttribute('data-modal-input')] = e.target.checked;
         } else {
-            state.modal[e.target.getAttribute('data-modal-input')] = e.target.value; 
+            state.modal[e.target.getAttribute('data-modal-input')] = e.target.value;
         }
     }
     if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
@@ -2339,15 +2341,15 @@ document.addEventListener('change', (e) => {
                 return { id: id?.trim(), name: name?.trim() };
             }).filter(a => a.id && a.name);
 
-            if(areas.length === 0) return alert("Formato inválido. La primera fila debe ser la cabecera: id,name");
-            
-            const res = await fetch('http://10.31.23.140:3000/api/areas/bulk', {
+            if (areas.length === 0) return alert("Formato inválido. La primera fila debe ser la cabecera: id,name");
+
+            const res = await fetch('http://localhost:3000/api/areas/bulk', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ areas })
             });
             if (res.ok) {
                 alert(`${areas.length} áreas importadas.`);
-                const sysRes = await fetch('http://10.31.23.140:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.areas = sysData.areas; renderApp();
             } else { alert("Error al importar áreas."); }
@@ -2364,21 +2366,21 @@ document.addEventListener('change', (e) => {
             const lines = event.target.result.split('\n').filter(l => l.trim() !== '');
             const users = lines.slice(1).map(l => {
                 const [name, email, password, areaId, role, areas] = l.split(',');
-                return { 
-                    name: name?.trim(), email: email?.trim(), password: password?.trim(), 
-                    areaId: areaId?.trim(), role: role?.trim(), areas: areas?.trim() 
+                return {
+                    name: name?.trim(), email: email?.trim(), password: password?.trim(),
+                    areaId: areaId?.trim(), role: role?.trim(), areas: areas?.trim()
                 };
             }).filter(u => u.name && u.email && u.areaId);
 
-            if(users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas");
-            
-            const res = await fetch('http://10.31.23.140:3000/api/users/bulk', {
+            if (users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas");
+
+            const res = await fetch('http://localhost:3000/api/users/bulk', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ users })
             });
             if (res.ok) {
                 alert(`${users.length} usuarios importados.`);
-                const sysRes = await fetch('http://10.31.23.140:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.users = sysData.users; renderApp();
             } else { alert("Error al importar usuarios."); }
@@ -2390,16 +2392,16 @@ document.addEventListener('change', (e) => {
 
 async function initializeAppWithToken(token, user) {
     localStorage.setItem('gde_token', token);
-    const sysResponse = await fetch('http://10.31.23.140:3000/api/system/init', {
+    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
         method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
     const sysData = await sysResponse.json();
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
-    const docsResponse = await fetch('http://10.31.23.140:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const docsResponse = await fetch('http://localhost:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.documents = await docsResponse.json();
-    const expsResponse = await fetch('http://10.31.23.140:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.expedientes = await expsResponse.json();
 
     state.db.counters = {};
@@ -2420,7 +2422,7 @@ async function initializeAppWithToken(token, user) {
     localStorage.setItem('gde_login_time', Date.now());
     document.cookie = "gde_session=active; path=/; SameSite=Strict";
     await fetchNotifications();
-    
+
     state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
     setState({ currentUser: user, currentView: 'inbox', selectedItem: null });
 }
@@ -2436,7 +2438,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Validando...';
 
         try {
-            const response = await fetch('http://10.31.23.140:3000/api/auth/login', {
+            const response = await fetch('http://localhost:3000/api/auth/login', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
             });
 
@@ -2446,10 +2448,10 @@ document.addEventListener('submit', async (e) => {
             // Logica para manejar 2FA
             if (data.requires2FA) {
                 state.loginFlow.tempToken = data.tempToken;
-                
+
                 if (!data.isConfigured) {
                     // Si no esta configurado, solicitamos el QR al backend usando el tempToken
-                    const setupRes = await fetch('http://10.31.23.140:3000/api/auth/2fa/setup', {
+                    const setupRes = await fetch('http://localhost:3000/api/auth/2fa/setup', {
                         method: 'POST', headers: { 'Authorization': `Bearer ${data.tempToken}` }
                     });
                     const setupData = await setupRes.json();
@@ -2458,7 +2460,7 @@ document.addEventListener('submit', async (e) => {
                     state.loginFlow.qrCodeUrl = setupData.qrCodeUrl;
                     state.loginFlow.step = 2;
                 } else {
-                    state.loginFlow.step = 3; 
+                    state.loginFlow.step = 3;
                 }
                 return renderApp();
             }
@@ -2483,7 +2485,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Verificando...';
 
         try {
-            const response = await fetch('http://10.31.23.140:3000/api/auth/2fa/verify', {
+            const response = await fetch('http://localhost:3000/api/auth/2fa/verify', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.loginFlow.tempToken}` }, body: JSON.stringify({ code })
             });
 
@@ -2512,22 +2514,22 @@ document.addEventListener('submit', async (e) => {
         const type = document.getElementById('create-doc-type').value;
         const dests = DOC_TYPES.CON_DEST_MULT.includes(type) || DOC_TYPES.CON_DEST_EXCL.includes(type) ? Array.from(document.querySelectorAll('input[name="create_doc_dest"]:checked')).map(el => el.value) : [];
         if (DOC_TYPES.CON_DEST_EXCL.includes(type) && dests.length > 1) return alert("Este documento SOLO admite 1 destinatario inicial (area o usuario).");
-        
+
         const contentHTML = window.tinymce && tinymce.get('create-doc-content') ? tinymce.get('create-doc-content').getContent() : document.getElementById('create-doc-content').value;
 
         const newDoc = {
-            id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value, 
+            id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value,
             content: contentHTML, // <-- Usamos el HTML capturado
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: [],
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://10.31.23.140:3000/api/docs/create', {
+        fetch('http://localhost:3000/api/docs/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newDoc)
         }).then(async res => {
-            if(res.ok) {
+            if (res.ok) {
                 state.db.documents.push({
-                    ...newDoc, type: 'documento', number: null, createdAt: new Date().toISOString(), signatories: [], relatedDocs: [], signedBy: [], attachments: [], 
+                    ...newDoc, type: 'documento', number: null, createdAt: new Date().toISOString(), signatories: [], relatedDocs: [], signedBy: [], attachments: [],
                     history: [createHistoryEntry(state.currentUser.id, 'Creacion', 'Se genero borrador')]
                 });
                 setState({ currentView: 'drafts' });
@@ -2535,33 +2537,33 @@ document.addEventListener('submit', async (e) => {
         });
     }
     else if (e.target.id === 'form-create-exp') {
-        e.preventDefault(); 
-        const isPublic = document.getElementById('create-exp-public').checked; 
-        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value); 
+        e.preventDefault();
+        const isPublic = document.getElementById('create-exp-public').checked;
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value);
         const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
         const expNumber = generateNumber('EX', getAreaName(state.currentUser.areaId));
-        
+
         const newExp = {
-            id: `exp_${Date.now()}`, number: expNumber, subject: document.getElementById('create-exp-subject').value, 
+            id: `exp_${Date.now()}`, number: expNumber, subject: document.getElementById('create-exp-subject').value,
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, status: 'En Tramite', isPublic: isPublic, authAreas: authAreas, authUsers: authUsers,
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://10.31.23.140:3000/api/exps/create', {
+        fetch('http://localhost:3000/api/exps/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newExp)
         }).then(async res => {
-            if(res.ok) {
+            if (res.ok) {
                 state.db.expedientes.push({
-                    ...newExp, type: 'expediente', linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(), 
+                    ...newExp, type: 'expediente', linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(),
                     history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
-                }); 
+                });
                 setState({ currentView: 'inbox' });
             } else { const errData = await res.json(); alert(`Error del servidor: ${errData.message}`); }
         });
     }
     else if (e.target.id === 'form-user-settings') {
         e.preventDefault();
-        
+
         const payload = {
             email: document.getElementById('profile-email').value,
             newPassword: document.getElementById('profile-password').value,
@@ -2573,7 +2575,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://10.31.23.140:3000/api/users/profile', {
+        fetch('http://localhost:3000/api/users/profile', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -2584,7 +2586,7 @@ document.addEventListener('submit', async (e) => {
                 state.currentUser.email = payload.email;
                 state.currentUser.web_notifications = payload.webNotifications ? 1 : 0;
                 state.currentUser.email_notifications = payload.emailNotifications ? 1 : 0;
-                
+
                 document.getElementById('profile-password').value = ''; // Vaciamos el input del password
                 btn.innerHTML = originalHtml;
                 if (window.lucide) lucide.createIcons();
@@ -2596,16 +2598,16 @@ document.addEventListener('submit', async (e) => {
             }
         });
     }
-    else if (e.target.id === 'form-admin-area') { 
-        e.preventDefault(); 
+    else if (e.target.id === 'form-admin-area') {
+        e.preventDefault();
         const id = `a${Date.now()}`; const name = document.getElementById('admin-a-name').value;
-        fetch('http://10.31.23.140:3000/api/areas/create', {
+        fetch('http://localhost:3000/api/areas/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify({ id, name })
-        }).then(res => { if(res.ok) { state.db.areas.push({ id, name }); setState({}); } });
+        }).then(res => { if (res.ok) { state.db.areas.push({ id, name }); setState({}); } });
     }
     else if (e.target.id === 'form-admin-services') {
         e.preventDefault();
-        
+
         const payload = {
             EMAIL_ENABLED: document.getElementById('EMAIL_ENABLED').checked,
             EMAIL_HOST: document.getElementById('EMAIL_HOST').value,
@@ -2625,7 +2627,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://10.31.23.140:3000/api/system/settings', {
+        fetch('http://localhost:3000/api/system/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -2642,19 +2644,19 @@ document.addEventListener('submit', async (e) => {
         });
     }
     else if (e.target.id === 'form-admin-user') {
-        e.preventDefault(); 
+        e.preventDefault();
         const selectedAreas = Array.from(document.getElementById('admin-u-area').selectedOptions).map(o => o.value);
-        const newUser = { 
-            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value, 
-            email: document.getElementById('admin-u-email').value, 
+        const newUser = {
+            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value,
+            email: document.getElementById('admin-u-email').value,
             areaId: selectedAreas[0], // La primera que seleccione será su área principal
             areas: selectedAreas,     // Array con todas sus áreas
-            role: document.getElementById('admin-u-role').value, 
-            password: document.getElementById('admin-u-pass').value 
+            role: document.getElementById('admin-u-role').value,
+            password: document.getElementById('admin-u-pass').value
         };
-        fetch('http://10.31.23.140:3000/api/users/create', {
+        fetch('http://localhost:3000/api/users/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newUser)
-        }).then(res => { if(res.ok) { state.db.users.push(newUser); setState({}); } });
+        }).then(res => { if (res.ok) { state.db.users.push(newUser); setState({}); } });
     }
     else if (e.target.id === 'form-forgot-step1') {
         e.preventDefault();
@@ -2662,7 +2664,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://10.31.23.140:3000/api/auth/forgot-password', {
+        fetch('http://localhost:3000/api/auth/forgot-password', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
         }).then(async res => {
             if (res.ok) {
@@ -2684,7 +2686,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://10.31.23.140:3000/api/auth/validate-reset-code', {
+        fetch('http://localhost:3000/api/auth/validate-reset-code', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code })
         }).then(async res => {
             if (res.ok) {
@@ -2709,7 +2711,7 @@ document.addEventListener('submit', async (e) => {
         const origHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://10.31.23.140:3000/api/auth/reset-password', {
+        fetch('http://localhost:3000/api/auth/reset-password', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code: state.forgotPass.code, newPassword: pass1 })
         }).then(async res => {
             if (res.ok) {
@@ -2726,22 +2728,22 @@ document.addEventListener('submit', async (e) => {
 
 // NUEVO: Función global para autoguardar borradores antes de salir de la vista
 async function autoSaveDraft() {
-    if (state.selectedItem && state.selectedItem.type === 'documento' && 
-       (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
-        
+    if (state.selectedItem && state.selectedItem.type === 'documento' &&
+        (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
+
         const subjectInput = document.getElementById('edit-doc-subject');
         const contentInput = document.getElementById('edit-doc-content');
-        
+
         // Comprobamos que los inputs existan físicamente en pantalla
         if (subjectInput && contentInput) {
             const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             if (docIdx > -1) {
                 state.db.documents[docIdx].subject = subjectInput.value;
-                
-                const htmlContent = window.tinymce && tinymce.get('edit-doc-content') 
-                    ? tinymce.get('edit-doc-content').getContent() 
+
+                const htmlContent = window.tinymce && tinymce.get('edit-doc-content')
+                    ? tinymce.get('edit-doc-content').getContent()
                     : contentInput.value;
-                    
+
                 state.db.documents[docIdx].content = htmlContent;
                 // Guardamos silenciosamente en la base de datos
                 await syncData(state.db.documents[docIdx], 'documento');
@@ -2758,12 +2760,12 @@ document.addEventListener('click', async (e) => {
     if (navBtn) {
         // Guardamos el borrador antes de cambiar de vista ===
         await autoSaveDraft();
-        
+
         const view = navBtn.getAttribute('data-target-view');
-        
+
         // Si entramos a servicios, hacemos un fetch previo a la API
         if (view === 'admin_services') {
-            fetch('http://10.31.23.140:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
+            fetch('http://localhost:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
                 .then(res => res.json())
                 .then(data => {
                     state.servicesConfig = data;
@@ -2778,7 +2780,7 @@ document.addEventListener('click', async (e) => {
     const actionBtn = e.target.closest('[data-action]');
     if (actionBtn) {
         const action = actionBtn.getAttribute('data-action');
-        
+
         if (action === 'toggle-sidebar') { state.ui.sidebarOpen = !state.ui.sidebarOpen; return setState({}); }
         if (action === 'open-mobile-drawer') { state.ui.mobileDrawerOpen = true; return renderApp(); }
         if (action === 'close-mobile-drawer') { state.ui.mobileDrawerOpen = false; return renderApp(); }
@@ -2815,7 +2817,7 @@ document.addEventListener('click', async (e) => {
             renderApp();
             return;
         }
-        
+
         if (action === 'close-detail') {
             // Guardamos el borrador antes de volver ===
             await autoSaveDraft();
@@ -2827,30 +2829,30 @@ document.addEventListener('click', async (e) => {
             }
             return setState({ selectedItem: null });
         }
-        
+
         if (action === 'view-item') {
-            const type = actionBtn.getAttribute('data-type'); 
+            const type = actionBtn.getAttribute('data-type');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
-            
+
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
-            
-            if (item) { 
+
+            if (item) {
                 checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
-                activeInputSelector = null; 
-                return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } }); 
+                activeInputSelector = null;
+                return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
             }
         }
-        
+
         if (action === 'acquire-item') {
             const type = actionBtn.getAttribute('data-type'); const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
-            if (item) { 
-                if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); } 
-                
+            if (item) {
+                if (type === 'expediente') item.currentOwnerId = state.currentUser.id; else { item.owners = item.owners.filter(oId => oId !== state.currentUser.areaId); item.owners.push(state.currentUser.id); }
+
                 item.areaId = state.currentUser.areaId;
                 const hEntry = createHistoryEntry(state.currentUser.id, 'Adquirido', 'Tomado desde la bandeja del area');
-                item.history.push(hEntry); 
+                item.history.push(hEntry);
                 await syncData(item, type, hEntry);
-                setState({}); 
+                setState({});
             } return;
         }
 
@@ -2858,25 +2860,25 @@ document.addEventListener('click', async (e) => {
             e.preventDefault();
             const fileInput = document.getElementById('file-upload-input');
             if (!fileInput.files || fileInput.files.length === 0) return alert("Seleccione un archivo primero.");
-            
+
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
 
-            fetch(`http://10.31.23.140:3000/api/docs/${state.selectedItem.id}/attach`, {
+            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-                body: formData 
+                body: formData
             }).then(async res => {
                 if (res.ok) {
                     const data = await res.json();
-                    
+
                     // Solo actualizamos la memoria central (el espejo se actualiza solo)
                     const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
                     if (docIdx > -1) {
-                        if(!state.db.documents[docIdx].attachments) state.db.documents[docIdx].attachments = [];
+                        if (!state.db.documents[docIdx].attachments) state.db.documents[docIdx].attachments = [];
                         state.db.documents[docIdx].attachments.push(data.attachment);
                         state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Adjuntado', fileInput.files[0].name));
-                        
+
                         state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
                     }
                     setState({});
@@ -2889,19 +2891,19 @@ document.addEventListener('click', async (e) => {
             e.preventDefault();
             if (!confirm('¿Seguro que desea eliminar este archivo adjunto?')) return;
             const filename = actionBtn.getAttribute('data-filename');
-            fetch(`http://10.31.23.140:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
+            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(res => {
                 if (res.ok) {
                     const originalName = state.selectedItem.attachments.find(a => a.filename === filename)?.originalname || filename;
-                    
+
                     // Solo actualizamos la memoria central
                     const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
                     if (docIdx > -1) {
                         state.db.documents[docIdx].attachments = state.db.documents[docIdx].attachments.filter(a => a.filename !== filename);
                         state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
-                        
+
                         state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
                     }
                     setState({});
@@ -2914,24 +2916,24 @@ document.addEventListener('click', async (e) => {
             e.preventDefault();
             const filename = actionBtn.getAttribute('data-filename');
             const originalName = actionBtn.getAttribute('data-original');
-            
+
             // Le ponemos un spinner al botón para que el usuario sepa que está descargando
             const originalHtml = actionBtn.innerHTML;
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
-            
-            fetch(`http://10.31.23.140:3000/api/docs/download/${filename}`, {
+
+            fetch(`http://localhost:3000/api/docs/download/${filename}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(async res => {
                 actionBtn.innerHTML = originalHtml; // Restauramos el botón
                 if (window.lucide) lucide.createIcons();
-                
+
                 if (res.ok) {
                     const blob = await res.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.style.display = 'none';
                     a.href = url;
-                    a.download = originalName; 
+                    a.download = originalName;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
@@ -2946,7 +2948,7 @@ document.addEventListener('click', async (e) => {
             const model = actionBtn.getAttribute('data-model');
             if (state.pagination[model].page > 1) { state.pagination[model].page--; return renderApp(); }
         }
-        
+
         if (action === 'next-page') {
             const model = actionBtn.getAttribute('data-model');
             state.pagination[model].page++;
@@ -2962,25 +2964,25 @@ document.addEventListener('click', async (e) => {
             const notifId = actionBtn.getAttribute('data-notif-id');
             const itemId = actionBtn.getAttribute('data-item-id');
             const itemType = actionBtn.getAttribute('data-item-type');
-            
+
             // Marcar leída visualmente y en el servidor
             const n = state.notifications.find(x => x.id == notifId);
             if (n && !n.is_read) {
                 n.is_read = 1;
-                fetch(`http://10.31.23.140:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }});
+                fetch(`http://localhost:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
             }
-            
+
             state.ui.notificationsOpen = false; // Cerramos el panel
-            
+
             // Navegar al item
             const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
-            if (item) { return setState({ selectedItem: { ...item, type: itemType } }); } 
+            if (item) { return setState({ selectedItem: { ...item, type: itemType } }); }
             else { alert("El elemento ya no está disponible en tu área de trabajo."); return setState({}); }
         }
 
         if (action === 'clear-notifications') {
-            fetch('http://10.31.23.140:3000/api/notifications/read-all', { 
-                method: 'PUT', 
+            fetch('http://localhost:3000/api/notifications/read-all', {
+                method: 'PUT',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
             state.notifications.forEach(n => n.is_read = 1);
@@ -2989,12 +2991,12 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'delete-all-notifications') {
             if (!confirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?')) return;
-            
-            fetch('http://10.31.23.140:3000/api/notifications/delete-all', {
+
+            fetch('http://localhost:3000/api/notifications/delete-all', {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
-            
+
             // Vaciamos el array en memoria local y repintamos la campana
             state.notifications = [];
             return renderNotificationUI();
@@ -3006,24 +3008,26 @@ document.addEventListener('click', async (e) => {
             return renderApp();
         }
 
-        if (action === 'admin-del-user') { 
-            if(confirm('¿Eliminar usuario?')) { 
+        if (action === 'admin-del-user') {
+            if (confirm('¿Eliminar usuario?')) {
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://10.31.23.140:3000/api/users/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
-                }).then(res => { if(res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
-            } 
-            return; 
+                fetch(`http://localhost:3000/api/users/delete/${id}`, {
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(res => { if (res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
+            }
+            return;
         }
-        if (action === 'admin-del-area') { 
-            if(confirm('¿Eliminar area?')) { 
+        if (action === 'admin-del-area') {
+            if (confirm('¿Eliminar area?')) {
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://10.31.23.140:3000/api/areas/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
-                }).then(res => { 
-                    if(res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); } 
-                    else { alert("No se puede eliminar un area que contiene usuarios registrados."); } 
+                fetch(`http://localhost:3000/api/areas/delete/${id}`, {
+                    method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(res => {
+                    if (res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); }
+                    else { alert("No se puede eliminar un area que contiene usuarios registrados."); }
                 });
-            } 
-            return; 
+            }
+            return;
         }
 
         // Caso 1: Usuario pide regenerar los suyos (Pedimos contraseña)
@@ -3031,7 +3035,7 @@ document.addEventListener('click', async (e) => {
             const pass = prompt("Para regenerar sus códigos de seguridad, ingrese su contraseña actual:");
             if (!pass) return;
 
-            fetch('http://10.31.23.140:3000/api/auth/2fa/regenerate-codes', {
+            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ password: pass })
@@ -3047,7 +3051,7 @@ document.addEventListener('click', async (e) => {
             const targetUserId = actionBtn.getAttribute('data-user-id');
             if (!confirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?")) return;
 
-            fetch('http://10.31.23.140:3000/api/auth/2fa/regenerate-codes', {
+            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ targetUserId })
@@ -3068,8 +3072,8 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role;mState.editUAreas = u.areas || [u.areaId]; mState.editU2FA = !!u.twoFactorEnabled; }
-            if (type === 'ver_usuarios_area') {mState.selectedId = actionBtn.getAttribute('data-id');}
+            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role; mState.editUAreas = u.areas || [u.areaId]; mState.editU2FA = !!u.twoFactorEnabled; }
+            if (type === 'ver_usuarios_area') { mState.selectedId = actionBtn.getAttribute('data-id'); }
             return setState({ modal: mState });
         }
 
@@ -3082,7 +3086,7 @@ document.addEventListener('click', async (e) => {
             else state.batchSelection = state.batchSelection.filter(item => item !== id);
             return renderApp();
         }
-        
+
         if (action === 'toggle-batch-all') {
             // Obtenemos los docs actualmente visibles en la página
             const term = state.searchTerms.batchSign;
@@ -3116,22 +3120,22 @@ document.addEventListener('click', async (e) => {
             if (m.type === 'batch_sign_confirm') {
                 return processBatchSign(); // Inicia el motor secuencial
             }
-            
+
             if (m.type === 'editar_usuario') {
                 if (!confirm("¿Esta seguro de aplicar estos cambios al usuario? Se enviara una notificacion por correo al interesado.")) {
                     return;
                 }
                 // Ya no exigimos !m.editUPass
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
-                const updatedUser = { 
+                const updatedUser = {
                     name: m.editUName, email: m.editUEmail, password: m.editUPass, // Si está vacío, el backend lo ignorará
-                    areaId: m.editUAreas[0], 
-                    areas: m.editUAreas, 
+                    areaId: m.editUAreas[0],
+                    areas: m.editUAreas,
                     role: m.editURole,
                     twoFactorEnabled: m.editU2FA
                 };
-                
-                fetch(`http://10.31.23.140:3000/api/users/update/${m.editUId}`, {
+
+                fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(updatedUser)
                 }).then(res => {
                     if (res.ok) {
@@ -3147,14 +3151,14 @@ document.addEventListener('click', async (e) => {
             const itemIdx = isExp ? state.db.expedientes.findIndex(e => e.id === state.selectedItem.id) : state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
-            if (m.type === 'destinatarios') { 
+            if (m.type === 'destinatarios') {
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && m.selectionArr.length !== 1) return alert("Este documento SOLO admite 1 destinatario (area o usuario).");
-                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr]; 
-                await syncData(item, 'documento'); return setState({ modal: null }); 
+                item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr];
+                await syncData(item, 'documento'); return setState({ modal: null });
             }
-            if (m.type === 'editar_permisos_exp') { 
-                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u')); 
-                await syncData(item, 'expediente'); return setState({ modal: null }); 
+            if (m.type === 'editar_permisos_exp') {
+                item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u'));
+                await syncData(item, 'expediente'); return setState({ modal: null });
             }
 
             if (m.type === 'revisar' || m.type === 'derivar_exp') {
@@ -3166,13 +3170,13 @@ document.addEventListener('click', async (e) => {
                     const targetUser = state.db.users.find(u => u.id === m.selectedId);
                     if (targetUser) item.areaId = targetUser.areaId;
                 } else {
-                    item.areaId = null; 
+                    item.areaId = null;
                 }
 
                 if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
                 const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivado a ${destName}`;
-                
+
                 const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
                 item.history.push(hEntry);
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
@@ -3186,16 +3190,16 @@ document.addEventListener('click', async (e) => {
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
-                
+
                 // Ajustamos el área al primer firmante
                 const targetUser = state.db.users.find(u => u.id === item.currentOwnerId);
                 if (targetUser) item.areaId = targetUser.areaId;
-                
+
                 const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
-                
+
                 const hEntry = createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note);
                 item.history.push(hEntry);
-                await syncData(item, 'documento', hEntry); 
+                await syncData(item, 'documento', hEntry);
 
                 // --- NUEVO: NOTIFICACIÓN ---
                 await notifyUsers(m.selectionArr, 'Firma Pendiente', `Requiere tu firma en el documento`, item.id, 'documento');
@@ -3207,35 +3211,35 @@ document.addEventListener('click', async (e) => {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
                 item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                 const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ');
-                
+
                 const hEntry = createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note);
-                item.history.push(hEntry); 
-                await syncData(item, 'documento', hEntry); 
+                item.history.push(hEntry);
+                await syncData(item, 'documento', hEntry);
 
                 // --- NUEVO: NOTIFICACIÓN ---
                 await notifyUsers(m.selectionArr, 'Derivación', `Te derivó el documento ${item.number || ''}`, item.id, 'documento');
 
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
             }
-            
+
             if (m.type === 'vincular_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 for (let docId of m.selectionArr) {
                     const doc = state.db.documents.find(d => d.id === docId);
                     if (!item.linkedDocs.includes(doc.id)) {
-                        item.linkedDocs.push(doc.id); 
-                        
+                        item.linkedDocs.push(doc.id);
+
                         const hEntryExp = createHistoryEntry(state.currentUser.id, 'Foja Vinculada', `Nro: ${doc.number}`);
                         item.history.push(hEntryExp);
-                        
+
                         const hEntryDoc = createHistoryEntry(state.currentUser.id, 'Vinculado a Expediente', `Exp: ${item.number}`);
                         doc.history.push(hEntryDoc);
-                        
-                        await syncData(doc, 'documento', hEntryDoc); 
-                        await syncData(item, 'expediente', hEntryExp); 
+
+                        await syncData(doc, 'documento', hEntryDoc);
+                        await syncData(item, 'expediente', hEntryExp);
                     }
                 }
-                state.selectedItem.linkedDocs = item.linkedDocs; 
+                state.selectedItem.linkedDocs = item.linkedDocs;
                 return setState({ modal: null });
             }
 
@@ -3243,10 +3247,10 @@ document.addEventListener('click', async (e) => {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un documento.");
                 for (let docId of m.selectionArr) {
                     const doc2 = state.db.documents.find(d => d.id === docId);
-                    if (!item.relatedDocs) item.relatedDocs = []; 
+                    if (!item.relatedDocs) item.relatedDocs = [];
                     if (!item.relatedDocs.includes(doc2.id)) item.relatedDocs.push(doc2.id);
                 }
-                state.selectedItem.relatedDocs = item.relatedDocs; 
+                state.selectedItem.relatedDocs = item.relatedDocs;
                 await syncData(item, 'documento'); return setState({ modal: null });
             }
 
@@ -3256,10 +3260,10 @@ document.addEventListener('click', async (e) => {
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
                 if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
-                
-                item.status = newStatus; 
+
+                item.status = newStatus;
                 if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
-                
+
                 const hEntry = createHistoryEntry(state.currentUser.id, actionName, m.note);
                 item.history.push(hEntry);
                 await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
@@ -3281,9 +3285,9 @@ document.addEventListener('click', async (e) => {
                 // === CRÍTICO: Sincronizar el área del documento con el área activa del usuario ===
                 item.areaId = state.currentUser.areaId;
 
-                if (!item.signedBy) item.signedBy = []; 
-                item.signedBy.push({ 
-                    id: state.currentUser.id, 
+                if (!item.signedBy) item.signedBy = [];
+                item.signedBy.push({
+                    id: state.currentUser.id,
                     date: new Date().toISOString(),
                     areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
                 });
@@ -3291,15 +3295,15 @@ document.addEventListener('click', async (e) => {
                 if (m.signAction === 'doc-sign-pending') {
                     item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
                     if (item.signatories.length > 0) {
-                        item.currentOwnerId = item.signatories[0]; 
+                        item.currentOwnerId = item.signatories[0];
                         const hEntry = createHistoryEntry(state.currentUser.id, 'Firma Aplicada', 'Pasa al siguiente firmante');
                         item.history.push(hEntry);
-                        await syncData(item, 'documento', hEntry); 
+                        await syncData(item, 'documento', hEntry);
                         return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
                     }
                 }
 
-                item.status = STATUS.FIRMADO; 
+                item.status = STATUS.FIRMADO;
                 // Genera el número usando el área real a la que pertenece el documento (o la actual si es muy antiguo)
                 if (!item.number) {
                     item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
@@ -3307,13 +3311,13 @@ document.addEventListener('click', async (e) => {
 
                 // ... (lógica de relacionados intacta) ...
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
-                    for (let relId of item.relatedDocs) { 
-                        const targetDoc = state.db.documents.find(d => d.id === relId); 
-                        if (targetDoc) { 
-                            if (!targetDoc.relatedDocs) targetDoc.relatedDocs = []; 
-                            if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id); 
-                            await syncData(targetDoc, 'documento'); 
-                        } 
+                    for (let relId of item.relatedDocs) {
+                        const targetDoc = state.db.documents.find(d => d.id === relId);
+                        if (targetDoc) {
+                            if (!targetDoc.relatedDocs) targetDoc.relatedDocs = [];
+                            if (!targetDoc.relatedDocs.includes(item.id)) targetDoc.relatedDocs.push(item.id);
+                            await syncData(targetDoc, 'documento');
+                        }
                     }
                 }
 
@@ -3352,22 +3356,22 @@ document.addEventListener('click', async (e) => {
             const item = isExp ? state.db.expedientes[itemIdx] : state.db.documents[itemIdx];
 
             if (action === 'doc-sign-direct' || action === 'doc-sign-pending') {
-                await autoSaveDraft(); 
+                await autoSaveDraft();
                 const isConDest = DOC_TYPES.CON_DEST_MULT.includes(item.docType) || DOC_TYPES.CON_DEST_EXCL.includes(item.docType);
                 if (isConDest && (!item.recipients || item.recipients.length === 0)) return alert("Añada al menos un destinatario.");
                 if (DOC_TYPES.CON_DEST_EXCL.includes(item.docType) && item.recipients.length !== 1) return alert("Este documento SOLO admite 1 destinatario (área o usuario).");
-                
+
                 // Interceptamos la ejecución directa y abrimos el modal, guardando la acción original
                 return setState({ modal: { type: 'confirmar_firma', signAction: action } });
             }
             else if (action === 'doc-delete') {
                 e.preventDefault();
                 if (!confirm('¿Seguro que desea eliminar este borrador de forma permanente? Se eliminarán también todos sus archivos adjuntos del servidor.')) return;
-                
+
                 const originalHtml = actionBtn.innerHTML;
                 actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
-                
-                fetch(`http://10.31.23.140:3000/api/docs/delete/${state.selectedItem.id}`, {
+
+                fetch(`http://localhost:3000/api/docs/delete/${state.selectedItem.id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(async res => {
@@ -3384,17 +3388,17 @@ document.addEventListener('click', async (e) => {
                 });
                 return;
             }
-            else if (action === 'doc-unrelate') { 
-                if (!confirm('¿Seguro que desea eliminar esta relación?')) return; 
-                const docId = actionBtn.getAttribute('data-id'); 
-                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs; 
-                await syncData(item, 'documento'); setState({}); 
+            else if (action === 'doc-unrelate') {
+                if (!confirm('¿Seguro que desea eliminar esta relación?')) return;
+                const docId = actionBtn.getAttribute('data-id');
+                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs;
+                await syncData(item, 'documento'); setState({});
             }
-            else if (action === 'exp-desarchivar') { 
-                item.status = 'En Tramite'; 
+            else if (action === 'exp-desarchivar') {
+                item.status = 'En Tramite';
                 const hEntry = createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Se recuperó el expediente para nuevo tramite');
-                item.history.push(hEntry); 
-                await syncData(item, 'expediente', hEntry); setState({ selectedItem: null, currentView: 'archive' }); 
+                item.history.push(hEntry);
+                await syncData(item, 'expediente', hEntry); setState({ selectedItem: null, currentView: 'archive' });
             }
             if (action === 'item-ocultar') {
                 const isExp = state.selectedItem.type === 'expediente';
@@ -3419,14 +3423,14 @@ document.addEventListener('click', async (e) => {
             }
             else if (action === 'exp-unlink') {
                 const docId = actionBtn.getAttribute('data-id'); item.linkedDocs = item.linkedDocs.filter(id => id !== docId); state.selectedItem.linkedDocs = item.linkedDocs;
-                const doc = state.db.documents.find(d => d.id === docId); 
-                
+                const doc = state.db.documents.find(d => d.id === docId);
+
                 const hEntryExp = createHistoryEntry(state.currentUser.id, 'Foja Desvinculada', `Nro: ${doc.number}`);
-                item.history.push(hEntryExp); 
-                
+                item.history.push(hEntryExp);
+
                 const hEntryDoc = createHistoryEntry(state.currentUser.id, 'Desvinculado de Expediente', `Exp: ${item.number}`);
-                doc.history.push(hEntryDoc); 
-                
+                doc.history.push(hEntryDoc);
+
                 await syncData(doc, 'documento', hEntryDoc); await syncData(item, 'expediente', hEntryExp); setState({});
             }
         }
@@ -3437,10 +3441,10 @@ document.addEventListener('click', async (e) => {
     if (tr && !e.target.closest('[data-action]')) {
         const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
         const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
-        if (item) { 
+        if (item) {
             checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
-            activeInputSelector = null; 
-            setState({ selectedItem: { ...item, type } }); 
+            activeInputSelector = null;
+            setState({ selectedItem: { ...item, type } });
         }
         return;
     }
