@@ -1,0 +1,22 @@
+{
+  "name": "Sistema GDE - Gestión de Documentos Electrónicos",
+  "short_name": "GDE",
+  "description": "Sistema de Gestión Documental Electrónica para organismos públicos y privados",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "lang": "es",
+  "dir": "ltr"
+}

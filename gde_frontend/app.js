@@ -83,15 +83,78 @@ let state = {
     loginFlow: { step: 1, tempToken: null, qrCodeUrl: null, recoveryCodes: [] },
     menus: { trabajo: true, nuevo: true, consultas: true, admin: true, cuenta: true, inboxPersonal: true, inboxArea: true },
     ui: { 
-        sidebarOpen: true, 
+        sidebarOpen: window.innerWidth > 768, 
+        mobileDrawerOpen: false,
         notificationsOpen: false, 
         darkMode: localStorage.getItem('gde_dark_mode') === 'true' 
     },
     servicesConfig: null,
     statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
     notifications: [], 
-    modal: null
+    modal: null,
+    pwa: { installPrompt: null, showBanner: false, bannerDismissed: false }
 };
+
+// ==========================================
+// MOBILE DETECTION & PWA
+// ==========================================
+function isMobile() { return window.innerWidth <= 768; }
+
+// Resize listener: Auto-toggle sidebar based on screen size
+window.addEventListener('resize', () => {
+    const wasMobile = !state.ui.sidebarOpen && !state.ui.mobileDrawerOpen;
+    if (!isMobile()) {
+        state.ui.mobileDrawerOpen = false;
+    }
+});
+
+// PWA Install Prompt capture
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    state.pwa.installPrompt = e;
+    if (!state.pwa.bannerDismissed && isMobile()) {
+        state.pwa.showBanner = true;
+        renderInstallBanner();
+    }
+});
+
+function renderInstallBanner() {
+    if (!state.pwa.showBanner || !state.currentUser) return;
+    let existing = document.getElementById('pwa-install-banner');
+    if (existing) existing.remove();
+    
+    const banner = document.createElement('div');
+    banner.id = 'pwa-install-banner';
+    banner.className = 'pwa-install-banner';
+    banner.innerHTML = `
+        <div class="install-icon"><i data-lucide="download" class="w-6 h-6"></i></div>
+        <div class="install-text"><h4>Instalar GDE</h4><p>Acceso rápido desde tu pantalla</p></div>
+        <button class="install-btn" data-action="pwa-install">Instalar</button>
+        <button class="install-close" data-action="pwa-dismiss">&times;</button>
+    `;
+    document.body.appendChild(banner);
+    if (window.lucide) lucide.createIcons();
+}
+
+async function handlePWAInstall() {
+    if (!state.pwa.installPrompt) {
+        alert("Para instalar la aplicación, toca el menú de tu navegador (los 3 puntitos) y selecciona 'Instalar aplicación' o 'Agregar a la pantalla principal'.\n\nNota: Si estás usando una IP local (ej. 192.168...) en lugar de HTTPS, algunos navegadores bloquean la instalación automática por seguridad.");
+        return;
+    }
+    state.pwa.installPrompt.prompt();
+    const result = await state.pwa.installPrompt.userChoice;
+    state.pwa.installPrompt = null;
+    state.pwa.showBanner = false;
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.remove();
+}
+
+function dismissPWABanner() {
+    state.pwa.showBanner = false;
+    state.pwa.bannerDismissed = true;
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.remove();
+}
 
 function initTinyMCE(selector) {
     if (window.tinymce) {
@@ -238,7 +301,7 @@ function checkAndMarkRead(item, type) {
             // Si no lo ha leído, lo marcamos en memoria y avisamos al servidor
             if (!item.readBy.includes(state.currentUser.id)) {
                 item.readBy.push(state.currentUser.id);
-                fetch(`http://localhost:3000/api/docs/${item.id}/read`, {
+                fetch(`http://10.31.23.140:3000/api/docs/${item.id}/read`, {
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).catch(e => console.error("Error registrando lectura", e));
@@ -294,7 +357,7 @@ const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '
 async function notifyUsers(userIds, action, message, itemId, itemType) {
     if(!userIds || userIds.length === 0) return;
     try {
-        await fetch('http://localhost:3000/api/notifications/create', {
+        await fetch('http://10.31.23.140:3000/api/notifications/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify({ userIds, action, message, itemId, itemType })
         });
@@ -305,7 +368,7 @@ async function notifyUsers(userIds, action, message, itemId, itemType) {
 async function fetchNotifications() {
     if (!state.currentUser) return;
     try {
-        const res = await fetch('http://localhost:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+        const res = await fetch('http://10.31.23.140:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
         if (res.ok) {
             state.notifications = await res.json();
             renderNotificationUI(); // <-- Solo actualiza la campana
@@ -365,7 +428,7 @@ function clearSession() {
 
 // Función auxiliar para cargar todos los datos del sistema
 async function loadFullState(token) {
-    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+    const sysResponse = await fetch('http://10.31.23.140:3000/api/system/init', {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
@@ -374,12 +437,12 @@ async function loadFullState(token) {
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
 
-    const docsResponse = await fetch('http://localhost:3000/api/docs/all', { 
+    const docsResponse = await fetch('http://10.31.23.140:3000/api/docs/all', { 
         headers: { 'Authorization': `Bearer ${token}` } 
     });
     state.db.documents = await docsResponse.json();
 
-    const expsResponse = await fetch('http://localhost:3000/api/exps/all', { 
+    const expsResponse = await fetch('http://10.31.23.140:3000/api/exps/all', { 
         headers: { 'Authorization': `Bearer ${token}` } 
     });
     state.db.expedientes = await expsResponse.json();
@@ -415,7 +478,7 @@ async function initSession() {
     }
 
     try {
-        const res = await fetch('http://localhost:3000/api/users/me', {
+        const res = await fetch('http://10.31.23.140:3000/api/users/me', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -597,7 +660,7 @@ async function sealAndSaveDocument(doc, hEntry) {
         finalFormData.append('documentData', JSON.stringify(doc));
         finalFormData.append('historyEntry', JSON.stringify(hEntry));
 
-        const res = await fetch(`http://localhost:3000/api/docs/sign-final/${doc.id}`, {
+        const res = await fetch(`http://10.31.23.140:3000/api/docs/sign-final/${doc.id}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: finalFormData
@@ -637,7 +700,7 @@ async function downloadDocumentArchive(docId) {
     if(btn) btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
 
     try {
-        const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
+        const pdfRes = await fetch(`http://10.31.23.140:3000/api/docs/download-static/${doc.id}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
         
@@ -673,7 +736,7 @@ async function downloadFullExpediente(expId) {
             const doc = state.db.documents.find(d => d.id === docId);
             if (doc) {
                 try {
-                    const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
+                    const pdfRes = await fetch(`http://10.31.23.140:3000/api/docs/download-static/${doc.id}`, {
                         headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                     });
                     const pdfBlob = await pdfRes.blob();
@@ -849,7 +912,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
     const s = state.sort[model] || { field: 'date', order: 'desc' };
     const th = (label, field) => `<th class="p-4 font-medium border-b border-gray-200 cursor-pointer hover:bg-gray-100 whitespace-nowrap" data-sort="${model}" data-field="${field}">${label} <i data-lucide="${s.field === field ? (s.order === 'asc' ? 'chevron-up' : 'chevron-down') : 'minus'}" class="inline w-3 h-3 text-gray-400"></i></th>`;
 
-    if (sortedItems.length === 0) return `<table class="w-full text-left border-collapse"><tbody><tr><td class="p-8 text-center text-gray-500 text-sm">${emptyMsg}</td></tr></tbody></table>`;
+    if (sortedItems.length === 0) return `<div class="p-8 text-center text-gray-500 text-sm">${emptyMsg}</div>`;
 
     // Lógica Matemática de Paginación
     const pagInfo = state.pagination[model] || { page: 1, limit: 10 };
@@ -867,7 +930,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
     const paginatedItems = sortedItems.slice(startIndex, endIndex);
 
     const paginationControls = `
-        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
+        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 ${isMobile() ? 'flex-col gap-2' : ''}">
             <div class="flex items-center gap-4">
                 <p class="text-sm text-gray-700">Mostrando <span class="font-medium">${startIndex + 1}</span> a <span class="font-medium">${Math.min(endIndex, totalItems)}</span> de <span class="font-medium">${totalItems}</span></p>
                 <select data-action="change-limit" data-model="${model}" class="border-gray-300 rounded-md text-sm py-1 px-2 outline-none border cursor-pointer hover:bg-gray-50">
@@ -882,6 +945,32 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         </div>
     `;
 
+    // === MOBILE: Render as cards ===
+    if (isMobile()) {
+        return `
+            <div class="relative">
+                <div class="space-y-2 p-2">
+                    ${paginatedItems.map(item => `
+                        <div class="mobile-card" data-id="${item.id}" data-type="${item.type}">
+                            <div class="card-header">
+                                <div class="card-subject">${getReadReceiptUI(item)}${item.subject}</div>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${getBadgeColor(item.status)}">${item.status}</span>
+                            </div>
+                            <div class="card-meta">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span>
+                                <span class="card-number">${item.number || 'Borrador'}</span>
+                                <span>${formatDateOnly(item.createdAt)}</span>
+                            </div>
+                            ${showAcquireBtn ? `<div class="mt-2"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="w-full px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                ${paginationControls}
+            </div>
+        `;
+    }
+
+    // === DESKTOP: Original table ===
     return `
         <div class="overflow-x-auto relative">
             <div class="absolute top-2 right-4 z-10"><button data-action="export-csv" data-model="${model}" class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> CSV</button></div>
@@ -981,9 +1070,11 @@ function renderStats() {
 
     return `
         <div class="max-w-7xl mx-auto space-y-6">
-            <div class="flex gap-2 border-b border-gray-200">
-                ${['generales', 'docs', 'usuarios', 'areas'].map(t => `<button data-action="set-stats-tab" data-tab="${t}" class="px-6 py-3 text-sm font-bold border-b-2 outline-none ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}">${t.toUpperCase()}</button>`).join('')}
-                <div class="ml-auto pb-2"><button data-action="export-csv" data-model="stats" class="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Exportar CSV</button></div>
+            <div class="flex ${isMobile() ? 'flex-col' : ''} gap-2 border-b border-gray-200">
+                <div class="flex overflow-x-auto gap-2 scrollbar-hide w-full">
+                    ${['generales', 'docs', 'usuarios', 'areas'].map(t => `<button data-action="set-stats-tab" data-tab="${t}" class="px-4 py-3 text-sm font-bold border-b-2 outline-none whitespace-nowrap ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}">${t.toUpperCase()}</button>`).join('')}
+                </div>
+                <div class="${isMobile() ? 'w-full mb-2' : 'ml-auto pb-2'}"><button data-action="export-csv" data-model="stats" class="w-full justify-center text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Exportar CSV</button></div>
             </div>
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-start">
                 ${renderMultiSelect('types', 'Tipo Documento', allTypes, false)} ${renderMultiSelect('areas', 'Área', state.db.areas, true)} ${renderMultiSelect('users', 'Usuario', state.db.users, true)}
@@ -1119,6 +1210,7 @@ function renderMenuSection(id, title, icon, itemsHtml) {
 }
 
 function renderMainLayout() {
+    if (isMobile()) return renderMobileLayout();
     const sbw = state.ui.sidebarOpen ? 'w-64' : 'w-20'; const sbo = state.ui.sidebarOpen;
     return `
         <div class="flex h-screen bg-gray-50 font-sans text-gray-800">
@@ -1199,9 +1291,92 @@ function renderMainLayout() {
     `;
 }
 
+// ==========================================
+// MOBILE LAYOUT
+// ==========================================
+function renderMobileLayout() {
+    const drawerOpen = state.ui.mobileDrawerOpen;
+    const unreadCount = state.notifications.filter(n => !n.is_read).length;
+    const viewTitle = state.selectedItem ? `Detalle` : state.currentView.replace(/_/g, ' ');
+
+    const sidebarContent = `
+        <div class="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2"><i data-lucide="building" class="text-blue-400"></i><h1 class="text-xl font-bold text-blue-400">GDE</h1></div>
+            <button data-action="close-mobile-drawer" class="text-slate-400 hover:text-white outline-none"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="p-4 border-b border-slate-800">
+            <p class="text-xs text-slate-400 truncate font-bold">${getUserName(state.currentUser.id)}</p>
+            ${state.currentUser.areas && state.currentUser.areas.length > 1 ? `
+                <select data-action="switch-active-area" class="mt-1 w-full bg-slate-800 text-xs text-slate-300 border border-slate-700 rounded p-1 outline-none cursor-pointer">
+                    ${state.currentUser.areas.map(aId => `<option value="${aId}" ${state.currentUser.areaId === aId ? 'selected' : ''}>${getAreaName(aId)}</option>`).join('')}
+                </select>
+            ` : `<p class="text-xs text-slate-500 truncate mt-1">${getAreaName(state.currentUser.areaId)}</p>`}
+        </div>
+        <nav class="flex-1 p-2 overflow-y-auto">
+            ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+            ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
+            ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
+            ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
+            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services')) : ''}
+        </nav>
+        <div class="p-4 border-t border-slate-800">
+            <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
+        </div>
+    `;
+
+    return `
+        <div class="flex flex-col h-screen bg-gray-50 font-sans text-gray-800">
+            <!-- Mobile Drawer Overlay -->
+            <div class="mobile-drawer-overlay ${drawerOpen ? 'open' : ''}" data-action="close-mobile-drawer"></div>
+            <div class="mobile-drawer ${drawerOpen ? 'open' : ''} text-white flex flex-col">${sidebarContent}</div>
+
+            <!-- Mobile Header -->
+            <div class="mobile-header shrink-0">
+                <div class="flex items-center gap-3">
+                    <button data-action="open-mobile-drawer" class="text-gray-600 outline-none p-1"><i data-lucide="menu" class="w-6 h-6"></i></button>
+                    <h2 class="text-base font-semibold text-gray-700 capitalize truncate">${viewTitle}</h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button data-action="toggle-dark-mode" class="text-gray-500 outline-none p-1"><i data-lucide="${state.ui.darkMode ? 'sun' : 'moon'}" class="w-5 h-5"></i></button>
+                    <div class="relative">
+                        <div id="notif-bell-container" class="relative"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mobile Content -->
+            <main class="flex-1 overflow-auto p-3 bg-slate-50/50 mobile-main-content">${getViewContent()}</main>
+
+            <!-- Bottom Navigation -->
+            <div class="mobile-bottom-nav">
+                <button data-target-view="inbox" class="${state.currentView === 'inbox' && !state.selectedItem ? 'active' : ''}"><i data-lucide="inbox" class="w-5 h-5"></i><span>Entrada</span></button>
+                <button data-target-view="drafts" class="${state.currentView === 'drafts' && !state.selectedItem ? 'active' : ''}"><i data-lucide="file-text" class="w-5 h-5"></i><span>Borradores</span></button>
+                <button data-target-view="search" class="${state.currentView === 'search' && !state.selectedItem ? 'active' : ''}"><i data-lucide="search" class="w-5 h-5"></i><span>Buscar</span></button>
+                <button data-action="open-mobile-drawer" class=""><i data-lucide="menu" class="w-5 h-5"></i><span>Menú</span></button>
+            </div>
+
+            ${renderModalOverlay()}
+
+            ${state.batchProgress ? `
+                <div class="fixed inset-0 bg-slate-900/80 z-[9999] flex flex-col items-center justify-center backdrop-blur-sm">
+                    <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center mx-4">
+                        <i data-lucide="settings" class="w-10 h-10 text-blue-600 animate-spin mx-auto mb-3"></i>
+                        <h3 class="text-lg font-bold text-gray-900 mb-2">Procesando...</h3>
+                        <p class="text-gray-600 font-medium mb-3 text-sm">${state.batchProgress.status}</p>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${(state.batchProgress.current / state.batchProgress.total) * 100}%"></div>
+                        </div>
+                        <p class="text-xs text-gray-500 font-bold">${Math.round((state.batchProgress.current / state.batchProgress.total) * 100)}%</p>
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
 function renderNavItem(icon, label, view) {
     const isActive = state.currentView === view && !state.selectedItem; const activeClass = isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white';
-    const sbOpen = state.ui.sidebarOpen;
+    const sbOpen = isMobile() ? true : state.ui.sidebarOpen;
     return `<button data-target-view="${view}" class="w-full flex items-center ${sbOpen ? 'gap-3 px-3' : 'justify-center px-0'} py-2.5 rounded-lg text-sm transition-all duration-200 ${activeClass} outline-none" title="${!sbOpen ? label : ''}"><i data-lucide="${icon}" class="w-5 h-5 shrink-0"></i> <span class="${sbOpen ? 'block' : 'hidden'} truncate">${label}</span></button>`;
 }
 
@@ -1277,11 +1452,11 @@ function renderLogin() {
 }
 
 function renderAdminUsers() {
-    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex flex-wrap gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="w-32 px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="w-48 h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="w-32 px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2">Email</th><th class="p-2">Área</th><th class="p-2">Rol / 2FA</th><th class="p-2">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500">${u.id}</td><td class="p-2 font-medium">${u.name}</td><td class="p-2">${u.email}</td><td class="p-2">${getAreaName(u.areaId)}</td><td class="p-2"><span class="uppercase text-xs font-bold block">${u.role}</span><span class="text-[10px] ${u.twoFactorEnabled ? 'text-emerald-600' : 'text-gray-400'}">${u.twoFactorEnabled ? '2FA Activo' : '2FA Inactivo'}</span></td><td class="p-2"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex ${isMobile() ? 'flex-col' : 'flex-wrap'} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="${isMobile() ? 'w-full' : 'w-48'} h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2 whitespace-nowrap">ID</th><th class="p-2 whitespace-nowrap">Nombre</th><th class="p-2 whitespace-nowrap">Email</th><th class="p-2 whitespace-nowrap">Área</th><th class="p-2 whitespace-nowrap">Rol / 2FA</th><th class="p-2 whitespace-nowrap">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500 whitespace-nowrap">${u.id}</td><td class="p-2 font-medium whitespace-nowrap">${u.name}</td><td class="p-2 whitespace-nowrap">${u.email}</td><td class="p-2 whitespace-nowrap">${getAreaName(u.areaId)}</td><td class="p-2 whitespace-nowrap"><span class="uppercase text-xs font-bold block">${u.role}</span><span class="text-[10px] ${u.twoFactorEnabled ? 'text-emerald-600' : 'text-gray-400'}">${u.twoFactorEnabled ? '2FA Activo' : '2FA Inactivo'}</span></td><td class="p-2 whitespace-nowrap"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminAreas() {
-    return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="absolute top-6 right-6 z-10 flex gap-2"><input type="file" id="csv-upload-areas" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded hover:bg-emerald-200 font-bold flex items-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2">ID</th><th class="p-2">Nombre</th><th class="p-2 text-center">Usuarios</th><th class="p-2">Acciones</th></tr></thead>
+    return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}"><input type="file" id="csv-upload-areas" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex ${isMobile() ? 'flex-col' : ''} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2 whitespace-nowrap">ID</th><th class="p-2 whitespace-nowrap">Nombre</th><th class="p-2 text-center whitespace-nowrap">Usuarios</th><th class="p-2 whitespace-nowrap">Acciones</th></tr></thead>
     <tbody class="divide-y">${state.db.areas.map(a => { 
         // Ahora buscamos si el ID del área existe dentro del array de áreas del usuario
         const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length; 
@@ -1291,9 +1466,9 @@ function renderAdminAreas() {
             <td class="p-2 text-center font-bold text-blue-600">
                 <button data-action="open-modal" data-modal-type="ver_usuarios_area" data-id="${a.id}" class="hover:underline px-2 py-1 bg-blue-50 rounded" title="Ver usuarios">${uCount}</button>
             </td>
-            <td class="p-2"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
+            <td class="p-2 whitespace-nowrap"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
             </tr>`; 
-    }).join('')}</tbody></table></div>`;
+    }).join('')}</tbody></table></div></div>`;
 }
 
 function renderAdminServices() {
@@ -1414,6 +1589,20 @@ function renderUserSettings() {
                 </div>
             </div>
             ` : ''}
+
+            <!-- PWA Install Option -->
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="smartphone"></i> Aplicación Móvil</h3>
+                <div class="p-4 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-bold text-blue-900">Instalar Sistema GDE</p>
+                        <p class="text-xs text-blue-700">Instale la aplicación en su dispositivo para un acceso rápido y directo.</p>
+                    </div>
+                    <button type="button" data-action="pwa-install" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm outline-none whitespace-nowrap ml-4">
+                        Instalar App
+                    </button>
+                </div>
+            </div>
         </div>
     `;
 }
@@ -1432,7 +1621,7 @@ async function renderPublicVerificationScreen(docId) {
     if (window.lucide) lucide.createIcons();
 
     try {
-        const res = await fetch(`http://localhost:3000/api/docs/public/verify/${docId}`);
+        const res = await fetch(`http://10.31.23.140:3000/api/docs/public/verify/${docId}`);
         const data = await res.json();
 
         if (!res.ok) {
@@ -1720,7 +1909,7 @@ function renderDocumentDetail() {
     const relacionados = (doc.relatedDocs || []).map(did => state.db.documents.find(d => d.id === did)).filter(Boolean);
 
     return `
-        <div class="flex gap-6 max-w-7xl mx-auto h-[calc(100vh-8rem)]">
+        <div class="flex ${isMobile() ? 'flex-col h-auto' : 'h-[calc(100vh-8rem)]'} gap-6 max-w-7xl mx-auto">
             <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                 <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm ${getTypeColorClass(doc.docType)}">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
                 <div class="flex-1 overflow-auto p-8 bg-gray-50/50">
@@ -1766,7 +1955,7 @@ function renderDocumentDetail() {
                     </div>
                 </div>
             </div>
-            <div class="w-80 flex flex-col gap-4">
+            <div class="${isMobile() ? 'w-full' : 'w-80'} flex flex-col gap-4">
                 <div class="flex gap-2">
                     <button data-action="close-detail" class="flex-1 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 flex justify-center items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
                     <button data-action="download-doc-zip" data-id="${doc.id}" class="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex justify-center items-center gap-2" title="Descargar PDF y Adjuntos"><i data-lucide="download" class="w-4 h-4"></i> Descargar</button>
@@ -1808,8 +1997,8 @@ function renderExpedienteDetail() {
     const linkedDocsList = exp.linkedDocs.map(did => state.db.documents.find(d => d.id === did)).filter(Boolean).filter(d => (d.number||'').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term));
 
     return `
-        <div class="max-w-5xl mx-auto h-[calc(100vh-8rem)] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div class="px-8 py-6 border-b border-gray-200 bg-purple-50 flex justify-between items-center shrink-0">
+        <div class="max-w-5xl mx-auto ${isMobile() ? 'h-auto' : 'h-[calc(100vh-8rem)]'} flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-200 bg-purple-50 flex ${isMobile() ? 'flex-col gap-4' : 'justify-between'} items-center shrink-0">
                 <div class="flex items-center gap-4"><div class="p-3 bg-white rounded-lg shadow-sm text-purple-600"><i data-lucide="folder-open" class="w-8 h-8"></i></div><div><h2 class="text-2xl font-bold">${exp.number}</h2><p class="text-gray-600 font-medium">${exp.subject}</p></div></div>
                 <div class="flex items-center gap-4">
                     ${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800">RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
@@ -1986,11 +2175,12 @@ function renderModalOverlay() {
 
     const confirmBtnHtml = m.type === 'ver_usuarios_area' ? '' : `<button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>`;
 
+    const mobile = isMobile();
     return `
-        <div class="absolute inset-0 bg-slate-900/40 z-50 flex items-center justify-center backdrop-blur-sm">
-            <div class="bg-white rounded-xl p-6 w-[500px] shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="${mobile ? 'fixed' : 'absolute'} inset-0 bg-slate-900/40 z-[9999] flex items-center justify-center backdrop-blur-sm">
+            <div class="bg-white ${mobile ? 'mobile-modal-fullscreen p-4' : 'rounded-xl p-6 w-[500px] max-h-[90vh]'} shadow-2xl flex flex-col overflow-y-auto">
                 <h3 class="font-bold text-lg mb-4 text-gray-800">${title}</h3>${content}
-                <div class="flex justify-end gap-2 mt-auto">
+                <div class="flex justify-end gap-2 mt-auto pt-4">
                     <button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 border rounded">${m.type === 'ver_usuarios_area' ? 'Cerrar' : 'Cancelar'}</button>
                     ${confirmBtnHtml}
                 </div>
@@ -2081,7 +2271,7 @@ function showNewRecoveryCodes(codes) {
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 async function syncData(item, type, historyEntry = null) {
-    const url = type === 'expediente' ? `http://localhost:3000/api/exps/update/${item.id}` : `http://localhost:3000/api/docs/update/${item.id}`;
+    const url = type === 'expediente' ? `http://10.31.23.140:3000/api/exps/update/${item.id}` : `http://10.31.23.140:3000/api/docs/update/${item.id}`;
     try {
         await fetch(url, {
             method: 'PUT',
@@ -2151,13 +2341,13 @@ document.addEventListener('change', (e) => {
 
             if(areas.length === 0) return alert("Formato inválido. La primera fila debe ser la cabecera: id,name");
             
-            const res = await fetch('http://localhost:3000/api/areas/bulk', {
+            const res = await fetch('http://10.31.23.140:3000/api/areas/bulk', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ areas })
             });
             if (res.ok) {
                 alert(`${areas.length} áreas importadas.`);
-                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch('http://10.31.23.140:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.areas = sysData.areas; renderApp();
             } else { alert("Error al importar áreas."); }
@@ -2182,13 +2372,13 @@ document.addEventListener('change', (e) => {
 
             if(users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas");
             
-            const res = await fetch('http://localhost:3000/api/users/bulk', {
+            const res = await fetch('http://10.31.23.140:3000/api/users/bulk', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ users })
             });
             if (res.ok) {
                 alert(`${users.length} usuarios importados.`);
-                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch('http://10.31.23.140:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.users = sysData.users; renderApp();
             } else { alert("Error al importar usuarios."); }
@@ -2200,16 +2390,16 @@ document.addEventListener('change', (e) => {
 
 async function initializeAppWithToken(token, user) {
     localStorage.setItem('gde_token', token);
-    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+    const sysResponse = await fetch('http://10.31.23.140:3000/api/system/init', {
         method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
     const sysData = await sysResponse.json();
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
-    const docsResponse = await fetch('http://localhost:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const docsResponse = await fetch('http://10.31.23.140:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.documents = await docsResponse.json();
-    const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const expsResponse = await fetch('http://10.31.23.140:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.expedientes = await expsResponse.json();
 
     state.db.counters = {};
@@ -2246,7 +2436,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Validando...';
 
         try {
-            const response = await fetch('http://localhost:3000/api/auth/login', {
+            const response = await fetch('http://10.31.23.140:3000/api/auth/login', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
             });
 
@@ -2259,7 +2449,7 @@ document.addEventListener('submit', async (e) => {
                 
                 if (!data.isConfigured) {
                     // Si no esta configurado, solicitamos el QR al backend usando el tempToken
-                    const setupRes = await fetch('http://localhost:3000/api/auth/2fa/setup', {
+                    const setupRes = await fetch('http://10.31.23.140:3000/api/auth/2fa/setup', {
                         method: 'POST', headers: { 'Authorization': `Bearer ${data.tempToken}` }
                     });
                     const setupData = await setupRes.json();
@@ -2293,7 +2483,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Verificando...';
 
         try {
-            const response = await fetch('http://localhost:3000/api/auth/2fa/verify', {
+            const response = await fetch('http://10.31.23.140:3000/api/auth/2fa/verify', {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.loginFlow.tempToken}` }, body: JSON.stringify({ code })
             });
 
@@ -2332,7 +2522,7 @@ document.addEventListener('submit', async (e) => {
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://localhost:3000/api/docs/create', {
+        fetch('http://10.31.23.140:3000/api/docs/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newDoc)
         }).then(async res => {
             if(res.ok) {
@@ -2357,7 +2547,7 @@ document.addEventListener('submit', async (e) => {
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://localhost:3000/api/exps/create', {
+        fetch('http://10.31.23.140:3000/api/exps/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newExp)
         }).then(async res => {
             if(res.ok) {
@@ -2383,7 +2573,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://localhost:3000/api/users/profile', {
+        fetch('http://10.31.23.140:3000/api/users/profile', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -2409,7 +2599,7 @@ document.addEventListener('submit', async (e) => {
     else if (e.target.id === 'form-admin-area') { 
         e.preventDefault(); 
         const id = `a${Date.now()}`; const name = document.getElementById('admin-a-name').value;
-        fetch('http://localhost:3000/api/areas/create', {
+        fetch('http://10.31.23.140:3000/api/areas/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify({ id, name })
         }).then(res => { if(res.ok) { state.db.areas.push({ id, name }); setState({}); } });
     }
@@ -2435,7 +2625,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://localhost:3000/api/system/settings', {
+        fetch('http://10.31.23.140:3000/api/system/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -2462,7 +2652,7 @@ document.addEventListener('submit', async (e) => {
             role: document.getElementById('admin-u-role').value, 
             password: document.getElementById('admin-u-pass').value 
         };
-        fetch('http://localhost:3000/api/users/create', {
+        fetch('http://10.31.23.140:3000/api/users/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newUser)
         }).then(res => { if(res.ok) { state.db.users.push(newUser); setState({}); } });
     }
@@ -2472,7 +2662,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/forgot-password', {
+        fetch('http://10.31.23.140:3000/api/auth/forgot-password', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
         }).then(async res => {
             if (res.ok) {
@@ -2494,7 +2684,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/validate-reset-code', {
+        fetch('http://10.31.23.140:3000/api/auth/validate-reset-code', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code })
         }).then(async res => {
             if (res.ok) {
@@ -2519,7 +2709,7 @@ document.addEventListener('submit', async (e) => {
         const origHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/reset-password', {
+        fetch('http://10.31.23.140:3000/api/auth/reset-password', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code: state.forgotPass.code, newPassword: pass1 })
         }).then(async res => {
             if (res.ok) {
@@ -2573,7 +2763,7 @@ document.addEventListener('click', async (e) => {
         
         // Si entramos a servicios, hacemos un fetch previo a la API
         if (view === 'admin_services') {
-            fetch('http://localhost:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
+            fetch('http://10.31.23.140:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
                 .then(res => res.json())
                 .then(data => {
                     state.servicesConfig = data;
@@ -2581,6 +2771,7 @@ document.addEventListener('click', async (e) => {
                 });
             return;
         }
+        if (isMobile()) state.ui.mobileDrawerOpen = false;
         return setState({ currentView: view, selectedItem: null, modal: null });
     }
 
@@ -2589,6 +2780,10 @@ document.addEventListener('click', async (e) => {
         const action = actionBtn.getAttribute('data-action');
         
         if (action === 'toggle-sidebar') { state.ui.sidebarOpen = !state.ui.sidebarOpen; return setState({}); }
+        if (action === 'open-mobile-drawer') { state.ui.mobileDrawerOpen = true; return renderApp(); }
+        if (action === 'close-mobile-drawer') { state.ui.mobileDrawerOpen = false; return renderApp(); }
+        if (action === 'pwa-install') { return handlePWAInstall(); }
+        if (action === 'pwa-dismiss') { return dismissPWABanner(); }
         if (action === 'set-stats-tab') { state.statsOpts.tab = actionBtn.getAttribute('data-tab'); return renderApp(); }
         if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
@@ -2667,7 +2862,7 @@ document.addEventListener('click', async (e) => {
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
 
-            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach`, {
+            fetch(`http://10.31.23.140:3000/api/docs/${state.selectedItem.id}/attach`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: formData 
@@ -2694,7 +2889,7 @@ document.addEventListener('click', async (e) => {
             e.preventDefault();
             if (!confirm('¿Seguro que desea eliminar este archivo adjunto?')) return;
             const filename = actionBtn.getAttribute('data-filename');
-            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
+            fetch(`http://10.31.23.140:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(res => {
@@ -2724,7 +2919,7 @@ document.addEventListener('click', async (e) => {
             const originalHtml = actionBtn.innerHTML;
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
             
-            fetch(`http://localhost:3000/api/docs/download/${filename}`, {
+            fetch(`http://10.31.23.140:3000/api/docs/download/${filename}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(async res => {
                 actionBtn.innerHTML = originalHtml; // Restauramos el botón
@@ -2772,7 +2967,7 @@ document.addEventListener('click', async (e) => {
             const n = state.notifications.find(x => x.id == notifId);
             if (n && !n.is_read) {
                 n.is_read = 1;
-                fetch(`http://localhost:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }});
+                fetch(`http://10.31.23.140:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }});
             }
             
             state.ui.notificationsOpen = false; // Cerramos el panel
@@ -2784,7 +2979,7 @@ document.addEventListener('click', async (e) => {
         }
 
         if (action === 'clear-notifications') {
-            fetch('http://localhost:3000/api/notifications/read-all', { 
+            fetch('http://10.31.23.140:3000/api/notifications/read-all', { 
                 method: 'PUT', 
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
@@ -2795,7 +2990,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'delete-all-notifications') {
             if (!confirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?')) return;
             
-            fetch('http://localhost:3000/api/notifications/delete-all', {
+            fetch('http://10.31.23.140:3000/api/notifications/delete-all', {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
@@ -2814,7 +3009,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'admin-del-user') { 
             if(confirm('¿Eliminar usuario?')) { 
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://localhost:3000/api/users/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                fetch(`http://10.31.23.140:3000/api/users/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
                 }).then(res => { if(res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
             } 
             return; 
@@ -2822,7 +3017,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'admin-del-area') { 
             if(confirm('¿Eliminar area?')) { 
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://localhost:3000/api/areas/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+                fetch(`http://10.31.23.140:3000/api/areas/delete/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
                 }).then(res => { 
                     if(res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); } 
                     else { alert("No se puede eliminar un area que contiene usuarios registrados."); } 
@@ -2836,7 +3031,7 @@ document.addEventListener('click', async (e) => {
             const pass = prompt("Para regenerar sus códigos de seguridad, ingrese su contraseña actual:");
             if (!pass) return;
 
-            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+            fetch('http://10.31.23.140:3000/api/auth/2fa/regenerate-codes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ password: pass })
@@ -2852,7 +3047,7 @@ document.addEventListener('click', async (e) => {
             const targetUserId = actionBtn.getAttribute('data-user-id');
             if (!confirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?")) return;
 
-            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+            fetch('http://10.31.23.140:3000/api/auth/2fa/regenerate-codes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ targetUserId })
@@ -2936,7 +3131,7 @@ document.addEventListener('click', async (e) => {
                     twoFactorEnabled: m.editU2FA
                 };
                 
-                fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
+                fetch(`http://10.31.23.140:3000/api/users/update/${m.editUId}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(updatedUser)
                 }).then(res => {
                     if (res.ok) {
@@ -3172,7 +3367,7 @@ document.addEventListener('click', async (e) => {
                 const originalHtml = actionBtn.innerHTML;
                 actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
                 
-                fetch(`http://localhost:3000/api/docs/delete/${state.selectedItem.id}`, {
+                fetch(`http://10.31.23.140:3000/api/docs/delete/${state.selectedItem.id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(async res => {
@@ -3238,7 +3433,7 @@ document.addEventListener('click', async (e) => {
         return;
     }
 
-    const tr = e.target.closest('tr[data-id]');
+    const tr = e.target.closest('tr[data-id]') || e.target.closest('.mobile-card[data-id]');
     if (tr && !e.target.closest('[data-action]')) {
         const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
         const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));

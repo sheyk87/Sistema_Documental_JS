@@ -1,3 +1,6 @@
 Features:
-- Código de colores para confirmación de lectura (No leído (Rojo), Leído (Verde), No leído por algún destinatario (Naranja, se debe poder saber quien lo abrió y quien no)).
+- Documentación con clasificación de seguridad
+- 2fa para firma de documentación con clasificación de seguridad
+- Stress Test
+- Aplicación mobile (con uso de biometría)
 - IA para que pueda hacer un resumen de entre todos los documentos de que se tratan

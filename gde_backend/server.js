@@ -40,8 +40,9 @@ const allowedOrigins = process.env.CORS_ORIGINS
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Permitir requests sin origin (curl, mobile apps, etc.) en desarrollo
-        if (!origin && process.env.NODE_ENV !== 'production') return callback(null, true);
+        // Permitir todo en desarrollo para facilitar testing en red local (celulares)
+        if (process.env.NODE_ENV !== 'production') return callback(null, true);
+        
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
