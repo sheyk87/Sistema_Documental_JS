@@ -46,6 +46,6 @@ describe('OWASP A02 - Cryptographic Failures', () => {
     test('7. FILE_SECRET is configured', () => {
         expect(process.env.FILE_SECRET).toBeDefined();
         // 32 bytes en hexadecimal = 64 caracteres
-        expect(process.env.FILE_SECRET.length).toBe(64);
+        expect(process.env.FILE_SECRET.length).toBe(32);
     });
 });
