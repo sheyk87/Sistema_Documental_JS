@@ -1943,7 +1943,7 @@ function renderDocumentDetail() {
                                                 <i data-lucide="paperclip" class="w-4 h-4"></i> 
                                                 ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span>
                                             </div>
-                                            ${!isSignedOrArchived ? `
+                                            ${!(isSignedOrArchived || doc.status === STATUS.ANULADO) ? `
                                                 <div class="flex items-center gap-2">
                                                     <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 text-sm outline-none"><i data-lucide="download" class="w-4 h-4"></i></button>
                                                     ${canEdit ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
