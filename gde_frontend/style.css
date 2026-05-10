@@ -434,3 +434,264 @@ html.dark .mobile-card .card-meta {
 html.dark .mobile-card .card-number {
     color: #64748b !important;
 }
+
+/* ==========================================
+   DASHBOARD DE MÉTRICAS — Estilos Premium
+   ========================================== */
+
+/* KPI Cards con gradiente sutil */
+.dashboard-kpi {
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.dashboard-kpi:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+.dashboard-kpi::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 12px 12px 0 0;
+}
+.dashboard-kpi.kpi-blue::before { background: linear-gradient(90deg, #3b82f6, #06b6d4); }
+.dashboard-kpi.kpi-green::before { background: linear-gradient(90deg, #10b981, #22c55e); }
+.dashboard-kpi.kpi-amber::before { background: linear-gradient(90deg, #f59e0b, #f97316); }
+.dashboard-kpi.kpi-purple::before { background: linear-gradient(90deg, #8b5cf6, #a855f7); }
+
+/* Animación de pulso para métricas en tiempo real */
+@keyframes metricPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.metric-pulse {
+    animation: metricPulse 2s ease-in-out infinite;
+}
+.metric-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    display: inline-block;
+    animation: metricPulse 1.5s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+/* Métricas en tiempo real - Panel */
+.realtime-panel {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+html.dark .realtime-panel {
+    background: linear-gradient(135deg, #0c1222 0%, #162033 100%) !important;
+    border-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+.realtime-metric-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.realtime-metric-row:last-child {
+    border-bottom: none;
+}
+.realtime-metric-value {
+    font-size: 28px;
+    font-weight: 900;
+    color: #f8fafc;
+    line-height: 1;
+}
+.realtime-metric-unit {
+    font-size: 13px;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-left: 4px;
+}
+.realtime-metric-label {
+    font-size: 12px;
+    color: #94a3b8;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+.realtime-metric-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Selector de métricas (min/hora/día) */
+.metric-time-selector {
+    display: flex;
+    gap: 2px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 2px;
+}
+.metric-time-btn {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    color: #64748b;
+    background: transparent;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.metric-time-btn.active {
+    background: rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
+}
+.metric-time-btn:hover:not(.active) {
+    color: #cbd5e1;
+}
+
+/* Actividad Reciente — Feed */
+.activity-feed {
+    max-height: 380px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+}
+.activity-feed::-webkit-scrollbar { width: 4px; }
+.activity-feed::-webkit-scrollbar-track { background: transparent; }
+.activity-feed::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+.activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s ease;
+}
+.activity-item:hover {
+    background: #f8fafc;
+    margin: 0 -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+    border-radius: 8px;
+}
+html.dark .activity-item {
+    border-color: #334155 !important;
+}
+html.dark .activity-item:hover {
+    background: #334155 !important;
+}
+
+.activity-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+/* Eficiencia de Procesos — Barras */
+.efficiency-bar {
+    height: 20px;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.efficiency-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+    animation: shimmer 2s infinite;
+}
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Dashboard Grid Responsive */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 20px;
+}
+.dashboard-grid .span-2 { grid-column: span 2; }
+.dashboard-grid .span-3 { grid-column: span 3; }
+.dashboard-grid .span-4 { grid-column: span 4; }
+.dashboard-grid .span-1 { grid-column: span 1; }
+
+@media (max-width: 1024px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .dashboard-grid .span-3,
+    .dashboard-grid .span-4 { grid-column: span 2; }
+    .dashboard-grid .span-1 { grid-column: span 1; }
+}
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .dashboard-grid .span-1,
+    .dashboard-grid .span-2,
+    .dashboard-grid .span-3,
+    .dashboard-grid .span-4 { grid-column: span 1; }
+}
+
+/* Dashboard Card base */
+.dash-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+html.dark .dash-card {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+
+/* Timestamp relativo */
+.time-ago {
+    font-size: 10px;
+    color: #94a3b8;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* Auto-refresh indicator */
+.refresh-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #22c55e;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Chart container fix for dashboard */
+.dash-chart-container {
+    position: relative;
+    width: 100%;
+    height: 260px;
+}
+@media (max-width: 768px) {
+    .dash-chart-container {
+        height: 200px;
+    }
+}

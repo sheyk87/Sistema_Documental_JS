@@ -206,6 +206,7 @@ exports.deleteAttachment = async (req, res) => {
 exports.downloadAttachment = async (req, res) => {
     try {
         const { filename } = req.params;
+        const userId = req.user.id;
 
         // OWASP A03: Prevenir path traversal
         if (!isValidFilename(filename)) {
@@ -224,6 +225,21 @@ exports.downloadAttachment = async (req, res) => {
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
         }
+
+        // Registrar la descarga en el historial para métricas del dashboard
+        try {
+            // Buscar el documento al que pertenece el adjunto
+            const [docRows] = await pool.query(
+                `SELECT id FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
+                [filename]
+            );
+            if (docRows.length > 0) {
+                await pool.query(
+                    `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Descarga Adjunto', ?, ?)`,
+                    [docRows[0].id, userId, filename.substring(33).replace('.enc', ''), getArgTime()]
+                );
+            }
+        } catch (logErr) { console.error('Error registrando descarga:', logErr); }
 
         // Extraemos el IV que escondimos en el nombre del archivo
         const parts = filename.split('-');
@@ -494,6 +510,7 @@ exports.signFinalAndSeal = async (req, res) => {
 // NUEVO: Descarga estática del PDF encriptado
 exports.downloadStaticPdf = async (req, res) => {
     const { id } = req.params;
+    const userId = req.user.id;
 
     try {
         const [rows] = await pool.query('SELECT number, status FROM documents WHERE id = ?', [id]);
@@ -508,6 +525,14 @@ exports.downloadStaticPdf = async (req, res) => {
         
         // Desencriptamos al vuelo
         const decryptedPdf = cryptoService.decryptAndRead(securePath);
+
+        // Registrar la descarga en el historial para métricas del dashboard
+        try {
+            await pool.query(
+                `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Descarga PDF', ?, ?)`,
+                [id, userId, doc.number || 'S/N', getArgTime()]
+            );
+        } catch (logErr) { console.error('Error registrando descarga:', logErr); }
 
         // Enviamos el PDF directamente al navegador
         res.setHeader('Content-Type', 'application/pdf');

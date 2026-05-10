@@ -89,7 +89,9 @@ let state = {
         darkMode: localStorage.getItem('gde_dark_mode') === 'true'
     },
     servicesConfig: null,
-    statsOpts: { tab: 'generales', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar' },
+    statsOpts: { tab: 'dashboard', types: ['all'], areas: ['all'], users: ['all'], dateFrom: '', dateTo: '', chartType: 'bar', timelineRange: 30, realtimeUnit: 'min' },
+    dashboardData: null,
+    dashboardPolling: null,
     notifications: [],
     modal: null,
     pwa: { installPrompt: null, showBanner: false, bannerDismissed: false }
@@ -1060,36 +1062,410 @@ function getAggregatedStats() {
     };
 }
 
+// ==========================================
+// DASHBOARD — Fetch de datos del servidor
+// ==========================================
+async function fetchDashboardData() {
+    try {
+        const range = state.statsOpts.timelineRange || 30;
+        const res = await fetch(`${API_BASE}/api/system/dashboard-stats?timeRange=${range}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        });
+        if (res.ok) {
+            state.dashboardData = await res.json();
+            drawDashboardCharts();
+            updateDashboardDynamic();
+        }
+    } catch (e) { console.error('Error fetching dashboard:', e); }
+}
+
+function startDashboardPolling() {
+    if (state.dashboardPolling) clearInterval(state.dashboardPolling);
+    fetchDashboardData();
+    state.dashboardPolling = setInterval(fetchDashboardData, 30000);
+}
+
+function stopDashboardPolling() {
+    if (state.dashboardPolling) { clearInterval(state.dashboardPolling); state.dashboardPolling = null; }
+}
+
+function getTimeAgo(dateStr) {
+    const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+    if (diff < 60) return 'hace un momento';
+    if (diff < 3600) return `hace ${Math.floor(diff/60)} min`;
+    if (diff < 86400) return `hace ${Math.floor(diff/3600)}h`;
+    return `hace ${Math.floor(diff/86400)}d`;
+}
+
+function getActivityIcon(action) {
+    if (action.includes('Firma')) return { icon: 'pen-tool', bg: 'bg-emerald-100', color: 'text-emerald-600' };
+    if (action.includes('Creación') || action.includes('Apertura')) return { icon: 'file-plus', bg: 'bg-blue-100', color: 'text-blue-600' };
+    if (action.includes('Derivad')) return { icon: 'share-2', bg: 'bg-indigo-100', color: 'text-indigo-600' };
+    if (action.includes('Archivado')) return { icon: 'archive', bg: 'bg-stone-100', color: 'text-stone-600' };
+    if (action === 'Anulado') return { icon: 'ban', bg: 'bg-red-100', color: 'text-red-600' };
+    if (action === 'Rechazado') return { icon: 'x-circle', bg: 'bg-rose-100', color: 'text-rose-600' };
+    if (action.includes('Enviado a firmar')) return { icon: 'send', bg: 'bg-amber-100', color: 'text-amber-600' };
+    if (action.includes('Descarga')) return { icon: 'download', bg: 'bg-cyan-100', color: 'text-cyan-600' };
+    if (action.includes('Adjuntado')) return { icon: 'paperclip', bg: 'bg-purple-100', color: 'text-purple-600' };
+    if (action.includes('Vinculad')) return { icon: 'link', bg: 'bg-sky-100', color: 'text-sky-600' };
+    return { icon: 'activity', bg: 'bg-gray-100', color: 'text-gray-600' };
+}
+
+function updateDashboardDynamic() {
+    const d = state.dashboardData;
+    if (!d) return;
+    const el = (id) => document.getElementById(id);
+    if (el('kpi-total')) el('kpi-total').textContent = d.totalDocuments.toLocaleString();
+    if (el('kpi-signed-today')) el('kpi-signed-today').textContent = `+${d.signedToday}`;
+    if (el('kpi-approved')) el('kpi-approved').textContent = d.totalSigned.toLocaleString();
+    if (el('kpi-pending')) el('kpi-pending').textContent = d.pendingReview.toLocaleString();
+
+    // Realtime metrics
+    const u = state.statsOpts.realtimeUnit || 'min';
+    const m = d.realtimeMetrics;
+    const sigVal = u === 'min' ? m.signaturesPerMinute : u === 'hora' ? m.signaturesPerHour : m.signaturesPerDay;
+    const uplVal = u === 'min' ? m.uploadsPerMinute : u === 'hora' ? m.uploadsPerHour : m.uploadsPerDay;
+    const dlVal = u === 'min' ? m.downloadsPerMinute : u === 'hora' ? m.downloadsPerHour : m.downloadsPerDay;
+    if (el('rt-signatures')) el('rt-signatures').textContent = sigVal;
+    if (el('rt-uploads')) el('rt-uploads').textContent = uplVal;
+    if (el('rt-downloads')) el('rt-downloads').textContent = dlVal;
+    if (el('rt-online')) el('rt-online').textContent = m.onlineUsers;
+    // Fix: actualizar labels de unidad directamente (no depende de ID inexistente)
+    document.querySelectorAll('.rt-unit-label').forEach(e => e.textContent = `/ ${u}.`);
+
+    // Activity feed (respetar filtro de búsqueda)
+    const feedEl = el('activity-feed-list');
+    if (feedEl && d.recentActivity) {
+        const searchInput = el('activity-search-input');
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        const filtered = query ? d.recentActivity.filter(a =>
+            a.userName.toLowerCase().includes(query) ||
+            a.action.toLowerCase().includes(query) ||
+            (a.itemLabel || '').toLowerCase().includes(query) ||
+            (a.notes || '').toLowerCase().includes(query)
+        ) : d.recentActivity;
+        feedEl.innerHTML = filtered.length > 0 ? filtered.map(a => {
+            const ic = getActivityIcon(a.action);
+            return `<div class="activity-item">
+                <div class="activity-icon ${ic.bg}"><i data-lucide="${ic.icon}" class="w-4 h-4 ${ic.color}"></i></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-gray-800 font-medium truncate"><span class="font-bold">${escapeHtml(a.userName)}</span> <span class="text-gray-500">${escapeHtml(a.action)}</span></p>
+                    <p class="text-xs text-gray-500 truncate">${escapeHtml(a.itemLabel)} ${a.notes ? '— ' + escapeHtml(a.notes) : ''}</p>
+                </div>
+                <span class="time-ago">${getTimeAgo(a.createdAt)}</span>
+            </div>`;
+        }).join('') : '<p class="text-xs text-gray-400 text-center py-4">Sin resultados para esta búsqueda.</p>';
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
 function renderStats() {
-    const o = state.statsOpts; const tab = o.tab; const allTypes = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST, 'expediente'];
+    const o = state.statsOpts; const tab = o.tab;
+    const allTypes = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST, 'expediente'];
+
+    const tabsList = ['dashboard', 'generales', 'docs', 'usuarios', 'areas'];
+    const tabLabels = { dashboard: '📊 DASHBOARD', generales: 'GENERALES', docs: 'DOCS', usuarios: 'USUARIOS', areas: 'ÁREAS' };
+
+    const tabsHtml = `<div class="flex ${isMobile() ? 'flex-col' : ''} gap-2 border-b border-gray-200 mb-4">
+        <div class="flex overflow-x-auto gap-1 scrollbar-hide w-full">
+            ${tabsList.map(t => `<button data-action="set-stats-tab" data-tab="${t}" class="px-4 py-3 text-sm font-bold border-b-2 outline-none whitespace-nowrap ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}">${tabLabels[t]}</button>`).join('')}
+        </div>
+        ${tab !== 'dashboard' ? `<div class="${isMobile() ? 'w-full mb-2' : 'ml-auto pb-2'}"><button data-action="export-csv" data-model="stats" class="w-full justify-center text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Exportar CSV</button></div>` : ''}
+    </div>`;
+
+    if (tab === 'dashboard') {
+        // Start polling when dashboard is active
+        if (!state.dashboardPolling) startDashboardPolling();
+        const d = state.dashboardData;
+        const u = o.realtimeUnit || 'min';
+        const m = d?.realtimeMetrics || {};
+        const sigVal = u === 'min' ? (m.signaturesPerMinute||0) : u === 'hora' ? (m.signaturesPerHour||0) : (m.signaturesPerDay||0);
+        const uplVal = u === 'min' ? (m.uploadsPerMinute||0) : u === 'hora' ? (m.uploadsPerHour||0) : (m.uploadsPerDay||0);
+        const dlVal = u === 'min' ? (m.downloadsPerMinute||0) : u === 'hora' ? (m.downloadsPerHour||0) : (m.downloadsPerDay||0);
+
+        return `<div class="max-w-7xl mx-auto space-y-0">${tabsHtml}
+            <div class="dashboard-grid">
+                <!-- KPI CARDS -->
+                <div class="span-1 dashboard-kpi kpi-blue dash-card flex items-center justify-between">
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Documentos Totales</p><p id="kpi-total" class="text-3xl font-black text-gray-800">${d ? d.totalDocuments.toLocaleString() : '...'}</p></div>
+                    <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center"><i data-lucide="file-text" class="w-6 h-6 text-blue-500"></i></div>
+                </div>
+                <div class="span-1 dashboard-kpi kpi-amber dash-card flex items-center justify-between">
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Firmados Hoy</p><p id="kpi-signed-today" class="text-3xl font-black text-amber-600">${d ? '+'+d.signedToday : '...'}</p></div>
+                    <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center"><i data-lucide="pen-tool" class="w-6 h-6 text-amber-500"></i></div>
+                </div>
+                <div class="span-1 dashboard-kpi kpi-green dash-card flex items-center justify-between">
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Docs Aprobados</p><p id="kpi-approved" class="text-3xl font-black text-emerald-600">${d ? d.totalSigned.toLocaleString() : '...'}</p></div>
+                    <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center"><i data-lucide="check-circle" class="w-6 h-6 text-emerald-500"></i></div>
+                </div>
+                <div class="span-1 dashboard-kpi kpi-purple dash-card flex items-center justify-between">
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Pendientes de Revisión</p><p id="kpi-pending" class="text-3xl font-black text-purple-600">${d ? d.pendingReview.toLocaleString() : '...'}</p></div>
+                    <div class="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center"><i data-lucide="clock" class="w-6 h-6 text-purple-500"></i></div>
+                </div>
+
+                <!-- LINE CHART: Carga de Documentos -->
+                <div class="span-3 dash-card">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="font-bold text-sm text-gray-700">Documentos Firmados</h4>
+                        <select data-action="set-timeline-range" class="text-xs border rounded-lg px-3 py-1.5 outline-none font-medium bg-gray-50">
+                            <option value="7" ${o.timelineRange==7?'selected':''}>Últimos 7 días</option>
+                            <option value="30" ${o.timelineRange==30?'selected':''}>Últimos 30 días</option>
+                            <option value="90" ${o.timelineRange==90?'selected':''}>Últimos 90 días</option>
+                            <option value="365" ${o.timelineRange==365?'selected':''}>Este año</option>
+                        </select>
+                    </div>
+                    <div class="dash-chart-container"><canvas id="dash-line-chart"></canvas></div>
+                </div>
+
+                <!-- REALTIME METRICS PANEL -->
+                <div class="span-1 realtime-panel rounded-2xl p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-sm font-bold text-white">Métricas en Tiempo Real</h4>
+                        <span class="refresh-indicator"><span class="metric-live-dot"></span> LIVE</span>
+                    </div>
+                    <div class="metric-time-selector mb-4">
+                        <button data-action="set-realtime-unit" data-unit="min" class="metric-time-btn ${u==='min'?'active':''}">Min</button>
+                        <button data-action="set-realtime-unit" data-unit="hora" class="metric-time-btn ${u==='hora'?'active':''}">Hora</button>
+                        <button data-action="set-realtime-unit" data-unit="dia" class="metric-time-btn ${u==='dia'?'active':''}">Día</button>
+                    </div>
+                    <div class="realtime-metric-row">
+                        <div class="flex items-center gap-3">
+                            <div class="realtime-metric-icon bg-emerald-500/20"><i data-lucide="pen-tool" class="w-4 h-4 text-emerald-400"></i></div>
+                            <div><p class="realtime-metric-label">Docs Firmados</p></div>
+                        </div>
+                        <div class="text-right"><span id="rt-signatures" class="realtime-metric-value">${sigVal}</span><span class="rt-unit-label realtime-metric-unit">/ ${u}.</span></div>
+                    </div>
+                    <div class="realtime-metric-row">
+                        <div class="flex items-center gap-3">
+                            <div class="realtime-metric-icon bg-purple-500/20"><i data-lucide="paperclip" class="w-4 h-4 text-purple-400"></i></div>
+                            <div><p class="realtime-metric-label">Adjuntos Subidos</p></div>
+                        </div>
+                        <div class="text-right"><span id="rt-uploads" class="realtime-metric-value">${uplVal}</span><span class="rt-unit-label realtime-metric-unit">/ ${u}.</span></div>
+                    </div>
+                    <div class="realtime-metric-row">
+                        <div class="flex items-center gap-3">
+                            <div class="realtime-metric-icon bg-cyan-500/20"><i data-lucide="download" class="w-4 h-4 text-cyan-400"></i></div>
+                            <div><p class="realtime-metric-label">Descargas</p></div>
+                        </div>
+                        <div class="text-right"><span id="rt-downloads" class="realtime-metric-value">${dlVal}</span><span class="rt-unit-label realtime-metric-unit">/ ${u}.</span></div>
+                    </div>
+                    <div class="realtime-metric-row">
+                        <div class="flex items-center gap-3">
+                            <div class="realtime-metric-icon bg-blue-500/20"><i data-lucide="users" class="w-4 h-4 text-blue-400"></i></div>
+                            <div><p class="realtime-metric-label">Usuarios Online</p></div>
+                        </div>
+                        <div class="text-right"><span id="rt-online" class="realtime-metric-value">${m.onlineUsers||0}</span><span class="realtime-metric-unit">activos</span></div>
+                    </div>
+                </div>
+
+                <!-- PIE CHART: Tipos de Documentos -->
+                <div class="span-2 dash-card">
+                    <h4 class="font-bold text-sm text-gray-700 mb-4">Tipos de Documentos</h4>
+                    <div class="dash-chart-container"><canvas id="dash-pie-chart"></canvas></div>
+                </div>
+
+                <!-- BAR CHART: Estado de Documentos -->
+                <div class="span-2 dash-card">
+                    <h4 class="font-bold text-sm text-gray-700 mb-4">Estado de los Documentos</h4>
+                    <div class="dash-chart-container"><canvas id="dash-bar-chart"></canvas></div>
+                </div>
+
+                <!-- ACTIVITY FEED -->
+                <div class="span-2 dash-card">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-bold text-sm text-gray-700">Actividad Reciente</h4>
+                        <span class="refresh-indicator"><span class="metric-live-dot"></span> Auto-refresh</span>
+                    </div>
+                    <div class="mb-3">
+                        <div class="relative">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                            <input id="activity-search-input" type="text" placeholder="Buscar usuario, acción, documento..." class="w-full pl-9 pr-3 py-2 text-xs border rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50" oninput="updateDashboardDynamic()" />
+                        </div>
+                    </div>
+                    <div id="activity-feed-list" class="activity-feed">
+                        ${d && d.recentActivity ? d.recentActivity.map(a => {
+                            const ic = getActivityIcon(a.action);
+                            return `<div class="activity-item">
+                                <div class="activity-icon ${ic.bg}"><i data-lucide="${ic.icon}" class="w-4 h-4 ${ic.color}"></i></div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-gray-800 font-medium truncate"><span class="font-bold">${escapeHtml(a.userName)}</span> <span class="text-gray-500">${escapeHtml(a.action)}</span></p>
+                                    <p class="text-xs text-gray-500 truncate">${escapeHtml(a.itemLabel)} ${a.notes ? '— '+escapeHtml(a.notes) : ''}</p>
+                                </div>
+                                <span class="time-ago">${getTimeAgo(a.createdAt)}</span>
+                            </div>`;
+                        }).join('') : '<p class="text-xs text-gray-400 text-center py-8">Cargando actividad...</p>'}
+                    </div>
+                </div>
+
+                <!-- EFFICIENCY CHART -->
+                <div class="span-2 dash-card">
+                    <h4 class="font-bold text-sm text-gray-700 mb-4">Eficiencia de Procesos</h4>
+                    <div class="dash-chart-container"><canvas id="dash-efficiency-chart"></canvas></div>
+                    <div class="flex justify-center gap-6 mt-3 text-xs font-medium">
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> Rápido (≤24h)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-500 inline-block"></span> Normal (24-72h)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-500 inline-block"></span> Lento (>72h)</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // Stop polling when not on dashboard
+    stopDashboardPolling();
+
+    // ORIGINAL TABS (generales, docs, usuarios, areas)
     const renderMultiSelect = (key, label, optionsArr, isObj) => {
         const isAll = o[key].includes('all');
-        return `
-            <div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
+        return `<div class="flex-1 min-w-[150px]"><label class="block text-xs font-bold text-gray-500 mb-1">${label} <span class="text-[9px] font-normal">(Ctrl+Click)</span></label>
             <select multiple data-stats-filter-multi="${key}" class="w-full p-2 border rounded text-xs h-20 outline-none"><option value="all" ${isAll ? 'selected' : ''}>Todos</option>
             ${optionsArr.map(opt => `<option value="${isObj ? opt.id : opt}" ${o[key].includes(isObj ? opt.id : opt) && !isAll ? 'selected' : ''}>${isObj ? opt.name : opt}</option>`).join('')}</select></div>`;
     };
 
-    return `
-        <div class="max-w-7xl mx-auto space-y-6">
-            <div class="flex ${isMobile() ? 'flex-col' : ''} gap-2 border-b border-gray-200">
-                <div class="flex overflow-x-auto gap-2 scrollbar-hide w-full">
-                    ${['generales', 'docs', 'usuarios', 'areas'].map(t => `<button data-action="set-stats-tab" data-tab="${t}" class="px-4 py-3 text-sm font-bold border-b-2 outline-none whitespace-nowrap ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}">${t.toUpperCase()}</button>`).join('')}
-                </div>
-                <div class="${isMobile() ? 'w-full mb-2' : 'ml-auto pb-2'}"><button data-action="export-csv" data-model="stats" class="w-full justify-center text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold flex items-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Exportar CSV</button></div>
-            </div>
+    return `<div class="max-w-7xl mx-auto space-y-6">${tabsHtml}
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-start">
                 ${renderMultiSelect('types', 'Tipo Documento', allTypes, false)} ${renderMultiSelect('areas', 'Área', state.db.areas, true)} ${renderMultiSelect('users', 'Usuario', state.db.users, true)}
                 <div class="flex flex-col gap-2"><div><label class="block text-xs font-bold text-gray-500 mb-1">Desde</label><input type="date" data-stats-filter="dateFrom" value="${o.dateFrom}" class="p-2 border rounded text-xs w-32 outline-none"/></div><div><label class="block text-xs font-bold text-gray-500 mb-1">Hasta</label><input type="date" data-stats-filter="dateTo" value="${o.dateTo}" class="p-2 border rounded text-xs w-32 outline-none"/></div></div>
                 <div class="ml-auto mt-auto flex bg-gray-100 p-1 rounded-lg border"><button data-action="set-chart-type" data-type="pie" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType === 'pie' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">Torta</button><button data-action="set-chart-type" data-type="bar" class="px-3 py-1 text-xs font-bold rounded outline-none ${o.chartType === 'bar' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">Barras</button></div>
             </div>
             <div id="stats-canvas-container" class="grid grid-cols-2 lg:grid-cols-4 gap-6"></div>
-        </div>
-    `;
+        </div>`;
+}
+
+function drawDashboardCharts() {
+    if (!window.Chart || !state.dashboardData) return;
+    const d = state.dashboardData;
+    const isDark = state.ui.darkMode;
+    const textColor = isDark ? '#cbd5e1' : '#475569';
+    const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+    // Destroy existing dashboard charts
+    ['dash-line-chart', 'dash-pie-chart', 'dash-bar-chart', 'dash-efficiency-chart'].forEach(id => {
+        if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+    });
+
+    // 1. LINE CHART — Carga de Documentos
+    const lineCtx = document.getElementById('dash-line-chart');
+    if (lineCtx && d.loadTimeline && d.loadTimeline.length > 0) {
+        const labels = d.loadTimeline.map(r => { const dt = new Date(r.date); return `${dt.getDate()}/${dt.getMonth()+1}`; });
+        const data = d.loadTimeline.map(r => r.count);
+        chartInstances['dash-line-chart'] = new Chart(lineCtx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Documentos',
+                    data,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#3b82f6',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    borderWidth: 2.5
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, datalabels: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, color: textColor }, grid: { color: gridColor } },
+                    x: { ticks: { color: textColor, maxRotation: 0 }, grid: { display: false } }
+                }
+            }
+        });
+    }
+
+    // 2. PIE/DOUGHNUT CHART — Tipos de Documentos
+    const pieCtx = document.getElementById('dash-pie-chart');
+    if (pieCtx && d.docsByType && d.docsByType.length > 0) {
+        const labels = d.docsByType.map(r => r.type);
+        const data = d.docsByType.map(r => r.count);
+        const total = data.reduce((a, b) => a + b, 0);
+        const colors = labels.map(t => CHART_COLORS[t] || CHART_COLORS.default);
+        chartInstances['dash-pie-chart'] = new Chart(pieCtx, {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: isDark ? '#1e293b' : '#fff' }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right', labels: { color: textColor, font: { size: 11 }, padding: 12, usePointStyle: true } },
+                    datalabels: {
+                        color: '#fff', font: { weight: 'bold', size: 11 },
+                        formatter: (v) => { const pct = Math.round((v / total) * 100); return pct >= 5 ? `${pct}%` : ''; }
+                    }
+                },
+                cutout: '55%'
+            }
+        });
+    }
+
+    // 3. BAR CHART — Estado de Documentos
+    const barCtx = document.getElementById('dash-bar-chart');
+    if (barCtx && d.docsByStatus && d.docsByStatus.length > 0) {
+        const statusColors = {
+            'Borrador': '#94a3b8', 'Firmandose': '#f59e0b', 'Firmado': '#22c55e',
+            'Rechazado': '#ef4444', 'Anulado': '#1e293b', 'Derivado': '#6366f1',
+            'Archivado': '#78716c', 'Eliminado': '#991b1b'
+        };
+        const labels = d.docsByStatus.map(r => r.status);
+        const data = d.docsByStatus.map(r => r.count);
+        const colors = labels.map(s => statusColors[s] || '#94a3b8');
+        chartInstances['dash-bar-chart'] = new Chart(barCtx, {
+            type: 'bar',
+            data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 6, borderWidth: 0 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, datalabels: { color: textColor, font: { weight: 'bold' }, anchor: 'end', align: 'top', formatter: v => v > 0 ? v : '' } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, color: textColor }, grid: { color: gridColor } },
+                    x: { ticks: { color: textColor }, grid: { display: false } }
+                }
+            }
+        });
+    }
+
+    // 4. EFFICIENCY CHART
+    const effCtx = document.getElementById('dash-efficiency-chart');
+    if (effCtx && d.processEfficiency) {
+        const e = d.processEfficiency;
+        const total = e.fast + e.normal + e.slow;
+        chartInstances['dash-efficiency-chart'] = new Chart(effCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Rápido (≤24h)', 'Normal (24-72h)', 'Lento (>72h)'],
+                datasets: [{
+                    data: [e.fast, e.normal, e.slow],
+                    backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
+                    borderRadius: 8,
+                    borderWidth: 0,
+                    barPercentage: 0.6
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        color: textColor, font: { weight: 'bold', size: 13 },
+                        formatter: (v) => total > 0 ? `${v} (${Math.round(v/total*100)}%)` : v
+                    }
+                },
+                scales: {
+                    x: { beginAtZero: true, ticks: { color: textColor }, grid: { color: gridColor } },
+                    y: { ticks: { color: textColor, font: { weight: '600' } }, grid: { display: false } }
+                }
+            }
+        });
+    }
 }
 
 function drawCharts() {
     if (!window.Chart) return;
+    // Dashboard has its own chart drawing
+    if (state.statsOpts.tab === 'dashboard') return;
     Object.values(chartInstances).forEach(c => c.destroy()); chartInstances = {};
     const container = document.getElementById('stats-canvas-container'); if (!container) return;
 
@@ -2315,6 +2691,7 @@ document.addEventListener('change', (e) => {
     }
     if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
+    if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'set-timeline-range') { state.statsOpts.timelineRange = parseInt(e.target.value); fetchDashboardData(); return; }
     if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
     if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'change-limit') {
         const model = e.target.getAttribute('data-model');
@@ -2774,6 +3151,7 @@ document.addEventListener('click', async (e) => {
             return;
         }
         if (isMobile()) state.ui.mobileDrawerOpen = false;
+        if (view !== 'stats') stopDashboardPolling();
         return setState({ currentView: view, selectedItem: null, modal: null });
     }
 
@@ -2788,6 +3166,8 @@ document.addEventListener('click', async (e) => {
         if (action === 'pwa-dismiss') { return dismissPWABanner(); }
         if (action === 'set-stats-tab') { state.statsOpts.tab = actionBtn.getAttribute('data-tab'); return renderApp(); }
         if (action === 'set-chart-type') { state.statsOpts.chartType = actionBtn.getAttribute('data-type'); return renderApp(); }
+        if (action === 'set-timeline-range') { state.statsOpts.timelineRange = parseInt(actionBtn.value); fetchDashboardData(); return; }
+        if (action === 'set-realtime-unit') { state.statsOpts.realtimeUnit = actionBtn.getAttribute('data-unit'); updateDashboardDynamic(); document.querySelectorAll('.metric-time-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-unit') === state.statsOpts.realtimeUnit)); return; }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') { clearSession(); return renderApp(); }

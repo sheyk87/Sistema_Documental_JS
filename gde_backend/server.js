@@ -42,7 +42,7 @@ app.use(cors({
     origin: function (origin, callback) {
         // Permitir todo en desarrollo para facilitar testing en red local (celulares)
         if (process.env.NODE_ENV !== 'production') return callback(null, true);
-        
+
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {

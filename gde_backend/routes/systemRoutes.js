@@ -8,5 +8,6 @@ const authMiddleware = require('../middlewares/authMiddleware'); // Importamos a
 router.get('/init', authMiddleware, systemController.getInitialData);
 router.get('/settings', authMiddleware, systemController.getSettings);
 router.put('/settings', authMiddleware, systemController.updateSettings);
+router.get('/dashboard-stats', authMiddleware, systemController.getDashboardStats);
 
 module.exports = router;
