@@ -1,9 +1,11 @@
 const pool = require('../config/db');
+const { invalidateInitialDataCache } = require('./systemController');
 
 exports.createArea = async (req, res) => {
     const { id, name } = req.body;
     try {
         await pool.query(`INSERT INTO areas (id, name) VALUES (?, ?)`, [id, name]);
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Área creada exitosamente' });
     } catch (error) {
         console.error(error);
@@ -15,6 +17,7 @@ exports.deleteArea = async (req, res) => {
     const { id } = req.params;
     try {
         await pool.query(`DELETE FROM areas WHERE id = ?`, [id]);
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.json({ message: 'Área eliminada' });
     } catch (error) {
         console.error(error);
@@ -30,6 +33,7 @@ exports.bulkCreateAreas = async (req, res) => {
         for (let a of areas) {
             await pool.query(`INSERT IGNORE INTO areas (id, name) VALUES (?, ?)`, [a.id, a.name]);
         }
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Áreas importadas exitosamente' });
     } catch (error) {
         console.error(error);

@@ -1,13 +1,22 @@
 const signpdf = require('node-signpdf').default;
 const { plainAddPlaceholder } = require('node-signpdf/dist/helpers');
-const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 
-exports.signPdfBuffer = (pdfBuffer) => {
+// Cache del certificado PKCS#12 en memoria para evitar leerlo del disco en cada firma
+let p12Cache = null;
+
+async function loadCertificate() {
+    if (p12Cache) return p12Cache;
+    const p12Path = path.join(__dirname, '../certs/certificado.p12');
+    p12Cache = await fsPromises.readFile(p12Path);
+    return p12Cache;
+}
+
+exports.signPdfBuffer = async (pdfBuffer) => {
     try {
-        // 1. Cargar el contenedor PKCS#12
-        const p12Path = path.join(__dirname, '../certs/certificado.p12');
-        const p12Buffer = fs.readFileSync(p12Path);
+        // 1. Cargar el contenedor PKCS#12 (cacheado tras primera lectura)
+        const p12Buffer = await loadCertificate();
 
         // 2. Inyectar el espacio reservado (ByteRange) en el PDF crudo
         const pdfWithPlaceholder = plainAddPlaceholder({
@@ -18,7 +27,6 @@ exports.signPdfBuffer = (pdfBuffer) => {
         });
 
         // 3. Aplicar la firma criptográfica
-        // Nota: Reemplaza 'tu_contraseña' por la que pusiste en el paso 1 de OpenSSL
         const signedPdf = signpdf.sign(pdfWithPlaceholder, p12Buffer, {
             passphrase: '' 
         });
@@ -29,3 +37,6 @@ exports.signPdfBuffer = (pdfBuffer) => {
         throw error;
     }
 };
+
+// Permite invalidar la caché si se cambia el certificado en caliente
+exports.clearCertCache = () => { p12Cache = null; };

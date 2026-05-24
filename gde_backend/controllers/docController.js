@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const cryptoService = require('../services/cryptoService');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
 const crypto = require('crypto');
@@ -51,12 +52,30 @@ exports.createDocument = async (req, res) => {
 
 exports.getAllDocuments = async (req, res) => {
     try {
-        const [docs] = await pool.query('SELECT * FROM documents');
-        const [history] = await pool.query("SELECT * FROM history WHERE item_type = 'documento' ORDER BY created_at ASC");
+        // Optimización: Excluimos 'content' del listado (el frontend no lo necesita en la tabla)
+        // Si se requiere el contenido, se obtiene al abrir un documento individual
+        const includeContent = req.query.includeContent === 'true';
+        const columns = includeContent
+            ? '*'
+            : 'id, doc_type, subject, creator_id, current_owner_id, area_id, status, number, created_at, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, pdf_hash';
+        
+        const [docs] = await pool.query(`SELECT ${columns} FROM documents`);
+        const [history] = await pool.query(
+            "SELECT item_id, created_at, user_id, action, notes FROM history WHERE item_type = 'documento' ORDER BY created_at ASC"
+        );
+        
+        // Optimización: Pre-indexamos el historial en un Map para lookup O(1) por documento
+        // En lugar de history.filter() por cada doc (O(N*M)), ahora es O(N+M)
+        const historyMap = new Map();
+        for (const h of history) {
+            if (!historyMap.has(h.item_id)) historyMap.set(h.item_id, []);
+            historyMap.get(h.item_id).push({ date: h.created_at, userId: h.user_id, action: h.action, notes: h.notes });
+        }
         
         const formattedDocs = docs.map(doc => {
             return {
-                id: doc.id, type: 'documento', docType: doc.doc_type, subject: doc.subject, content: doc.content,
+                id: doc.id, type: 'documento', docType: doc.doc_type, subject: doc.subject,
+                content: includeContent ? doc.content : '',
                 creatorId: doc.creator_id, currentOwnerId: doc.current_owner_id, areaId: doc.area_id, status: doc.status, number: doc.number, createdAt: doc.created_at,
                 owners: typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []),
                 recipients: typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []),
@@ -64,16 +83,28 @@ exports.getAllDocuments = async (req, res) => {
                 signedBy: typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []),
                 relatedDocs: typeof doc.related_docs === 'string' ? JSON.parse(doc.related_docs) : (doc.related_docs || []),
                 signatories: typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []),
-                attachments: typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []), // <-- NUEVO
-                history: history.filter(h => h.item_id === doc.id).map(h => ({
-                    date: h.created_at, userId: h.user_id, action: h.action, notes: h.notes
-                }))
+                attachments: typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []),
+                history: historyMap.get(doc.id) || []
             };
         });
         res.json(formattedDocs);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al obtener los documentos' });
+    }
+};
+
+// Endpoint para carga lazy del contenido de un documento individual
+// Usado cuando el frontend necesita el content (vista detalle, edición, firma)
+exports.getDocumentContent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT content FROM documents WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Documento no encontrado' });
+        res.json({ content: rows[0].content });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener el contenido del documento' });
     }
 };
 
@@ -139,7 +170,7 @@ exports.uploadAttachment = async (req, res) => {
         });
 
         // 3. Borramos el archivo original sin cifrar
-        fs.unlinkSync(file.path);
+        await fsPromises.unlink(file.path);
 
         // 4. Guardamos la referencia en la Base de Datos
         const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
@@ -185,7 +216,7 @@ exports.deleteAttachment = async (req, res) => {
             if (!resolvedPath.startsWith(uploadsDir)) {
                 return res.status(400).json({ message: 'Ruta de archivo inválida.' });
             }
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            try { await fsPromises.unlink(filePath); } catch (e) { /* archivo ya no existe */ }
         }
 
         attachments = attachments.filter(a => a.filename !== filename);
@@ -222,7 +253,9 @@ exports.downloadAttachment = async (req, res) => {
             return res.status(400).json({ message: 'Ruta de archivo inválida.' });
         }
 
-        if (!fs.existsSync(filePath)) {
+        try {
+            await fsPromises.access(filePath, fs.constants.R_OK);
+        } catch {
             return res.status(404).json({ message: 'El archivo físico no existe en el servidor' });
         }
 
@@ -287,12 +320,10 @@ exports.deleteDocument = async (req, res) => {
         const attachments = typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []);
 
         // 3. Iteramos y borramos cada archivo físico del disco duro
-        attachments.forEach(file => {
+        for (const file of attachments) {
             const filePath = path.join(__dirname, '../uploads', file.filename);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath); // Elimina el archivo
-            }
-        });
+            try { await fsPromises.unlink(filePath); } catch (e) { /* archivo ya no existe */ }
+        }
 
         // 4. Eliminamos el documento y su historial de la Base de Datos
         await pool.query('DELETE FROM documents WHERE id = ?', [id]);
@@ -310,7 +341,7 @@ exports.cryptographicSign = async (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'No se recibió el PDF crudo' });
 
         // req.file.buffer contiene el PDF generado por html2pdf en el frontend
-        const signedBuffer = signatureService.signPdfBuffer(req.file.buffer);
+        const signedBuffer = await signatureService.signPdfBuffer(req.file.buffer);
 
         // Configuramos las cabeceras para forzar la descarga del binario
         res.setHeader('Content-Type', 'application/pdf');
@@ -399,6 +430,7 @@ exports.verifyPublicDoc = async (req, res) => {
 };
 
 // FUNCIÓN UNIFICADA: Desencripta adjuntos, Embebe, Firma, Hashea y Encripta el final
+// Fase 4: La operación pesada se encola en BullMQ y se procesa en background
 exports.signFinalAndSeal = async (req, res) => {
     const { id } = req.params;
     
@@ -408,101 +440,31 @@ exports.signFinalAndSeal = async (req, res) => {
         const docData = JSON.parse(req.body.documentData);
         const historyEntry = JSON.parse(req.body.historyEntry);
 
-        // --- FASE 1: CARGAR PDF BASE ---
-        let pdfBuffer = fs.readFileSync(req.file.path);
-        
-        // Buscamos los adjuntos en la BD
-        const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
-        let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
-
-        // --- FASE 2: DESENCRIPTAR Y EMBEBER ADJUNTOS ---
-        if (attachments.length > 0) {
-            const pdfDoc = await PDFDocument.load(pdfBuffer);
-            
-            for (let att of attachments) {
-                const attPath = path.join(__dirname, '../uploads', att.filename);
-                
-                if (fs.existsSync(attPath)) {
-                    let fileBytesToEmbed;
-                    
-                    try {
-                        // Extraemos el IV del nombre del archivo, tal como se guardó en uploadAttachment
-                        const parts = att.filename.split('-');
-                        const ivHex = parts[0];
-                        
-                        if (ivHex.length === 32) {
-                            // Está cifrado. Desciframos en memoria.
-                            const iv = Buffer.from(ivHex, 'hex');
-                            const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-                            const encryptedData = fs.readFileSync(attPath);
-                            
-                            // Concatenamos el resultado del decipher
-                            fileBytesToEmbed = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-                        } else {
-                            // Por compatibilidad con archivos súper antiguos que no se cifraron
-                            fileBytesToEmbed = fs.readFileSync(attPath);
-                        }
-                    } catch (cryptoErr) {
-                        console.error(`[Error] Fallo al desencriptar el anexo ${att.filename}:`, cryptoErr);
-                        // Si falla catastróficamente, usamos el archivo crudo como último recurso
-                        fileBytesToEmbed = fs.readFileSync(attPath);
-                    }
-                    
-                    await pdfDoc.attach(fileBytesToEmbed, att.originalname, {
-                        mimeType: att.mimetype,
-                        description: 'Anexo Oficial',
-                        creationDate: new Date(),
-                        modificationDate: new Date(),
-                    });
-                }
-            }
-            // Guardamos el PDF con los adjuntos legibles internamente (sin Object Streams para compatibilidad)
-            pdfBuffer = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+        // Validar que el documento existe antes de encolar
+        const [checkRows] = await pool.query('SELECT id FROM documents WHERE id = ?', [id]);
+        if (!checkRows || checkRows.length === 0) {
+            try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
+            return res.status(404).json({ message: 'Documento no encontrado' });
         }
 
-        // --- FASE 3: FIRMA CRIPTOGRÁFICA (PKCS#7) ---
-        const signatureService = require('../services/signatureService');
-        try {
-            // Firmamos el buffer que ya contiene los adjuntos desencriptados
-            pdfBuffer = await signatureService.signPdfBuffer(pdfBuffer);
-        } catch (signErr) {
-            console.error("Error en firma interna:", signErr);
-            throw new Error("No se pudo aplicar la firma con certificado al documento.");
-        }
+        // Encolar el trabajo pesado en BullMQ (respuesta instantánea)
+        const { signatureQueue } = require('../config/queues');
+        const job = await signatureQueue.add('sign-seal', {
+            documentId: id,
+            tempFilePath: req.file.path,
+            docData,
+            historyEntry,
+        });
 
-        // --- FASE 4: HASH, ENCRIPTACIÓN DEL PDF FINAL Y GUARDADO ---
-        // Aquí encriptamos TODO el paquete (PDF + Adjuntos internos + Firma)
-        const pdfHash = cryptoService.calculateHash(pdfBuffer);
-        const securePath = path.join(__dirname, '../uploads/secure_docs', `${id}.enc`);
-        cryptoService.encryptAndSave(pdfBuffer, securePath);
-
-        // Limpieza de archivos temporales y adjuntos originales encriptados
-        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        if (attachments.length > 0) {
-            for (let att of attachments) {
-                const attPath = path.join(__dirname, '../uploads', att.filename);
-                if (fs.existsSync(attPath)) fs.unlinkSync(attPath);
-            }
-        }
-
-        // --- FASE 5: ACTUALIZAR BASE DE DATOS ---
-        await pool.query(
-            `UPDATE documents SET status = 'Firmado', number = ?, signed_by = ?, owners = ?, pdf_hash = ? WHERE id = ?`,
-            [docData.number, JSON.stringify(docData.signedBy), JSON.stringify(docData.owners), pdfHash, id]
-        );
-
-        if (historyEntry) {
-            await pool.query(
-                'INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                [id, 'documento', historyEntry.userId, historyEntry.action, historyEntry.notes, getArgTime()]
-            );
-        }
-
-        res.json({ message: 'Documento procesado, firmado y encriptado correctamente.', pdfHash });
+        // HTTP 202 Accepted — el trabajo se procesa en background
+        res.status(202).json({ 
+            jobId: job.id, 
+            message: 'Documento encolado para firma y sellado'
+        });
 
     } catch (error) {
-        console.error("Error en el proceso unificado:", error);
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error("Error al encolar firma:", error);
+        if (req.file) { try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ } }
         res.status(500).json({ message: error.message });
     }
 };
@@ -524,7 +486,7 @@ exports.downloadStaticPdf = async (req, res) => {
         const securePath = path.join(__dirname, '../uploads/secure_docs', `${id}.enc`);
         
         // Desencriptamos al vuelo
-        const decryptedPdf = cryptoService.decryptAndRead(securePath);
+        const decryptedPdf = await cryptoService.decryptAndRead(securePath);
 
         // Registrar la descarga en el historial para métricas del dashboard
         try {
@@ -558,11 +520,11 @@ exports.embedAttachments = async (req, res) => {
         
         let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
 
-        const pdfBytes = fs.readFileSync(req.file.path);
+        const pdfBytes = await fsPromises.readFile(req.file.path);
 
         // Si no hay adjuntos, devolvemos el PDF intacto inmediatamente
         if (attachments.length === 0) {
-            fs.unlinkSync(req.file.path); // Limpiamos temp
+            await fsPromises.unlink(req.file.path); // Limpiamos temp
             res.setHeader('Content-Type', 'application/pdf');
             return res.send(pdfBytes);
         }
@@ -573,8 +535,10 @@ exports.embedAttachments = async (req, res) => {
         // 3. Iteramos e inyectamos físicamente cada archivo
         for (let att of attachments) {
             const attPath = path.join(__dirname, '../uploads', att.filename); // Ajusta '../uploads' si tu carpeta real se llama distinto
-            if (fs.existsSync(attPath)) {
-                const fileBytes = fs.readFileSync(attPath);
+            let exists = true;
+            try { await fsPromises.access(attPath, fs.constants.R_OK); } catch { exists = false; }
+            if (exists) {
+                const fileBytes = await fsPromises.readFile(attPath);
                 await pdfDoc.attach(fileBytes, att.originalname, {
                     mimeType: att.mimetype,
                     description: 'Anexo Oficial del Documento',
@@ -588,14 +552,14 @@ exports.embedAttachments = async (req, res) => {
         const finalPdfBytes = await pdfDoc.save({ useObjectStreams: false });
         
         // Limpiamos el archivo temporal
-        fs.unlinkSync(req.file.path);
+        await fsPromises.unlink(req.file.path);
 
         res.setHeader('Content-Type', 'application/pdf');
         res.send(Buffer.from(finalPdfBytes));
 
     } catch (error) {
         console.error("Error al embeber adjuntos:", error);
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (req.file) { try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ } }
         res.status(500).json({ message: 'Error interno al inyectar anexos en el PDF.' });
     }
 };

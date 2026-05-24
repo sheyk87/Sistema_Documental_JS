@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const emailService = require('../services/emailService');
 const { logAdminAction, logSecurityError } = require('../utils/logger');
+const redis = require('../config/redisClient');
 
 // OWASP A03, A08: Whitelist de variables permitidas en updateSettings
 const ALLOWED_SETTINGS_KEYS = [
@@ -13,8 +14,62 @@ const ALLOWED_SETTINGS_KEYS = [
     'TWO_FACTOR_GLOBAL_ENABLED', 'TWO_FACTOR_MANDATORY'
 ];
 
+// ==========================================
+// CACHE KEYS Y TTLs
+// ==========================================
+const CACHE_KEYS = {
+    INITIAL_DATA: 'gde:cache:initialData',
+    DASHBOARD_PREFIX: 'gde:cache:dashboard:', // + timeRange
+};
+const CACHE_TTL = {
+    INITIAL_DATA: 60,   // 60 segundos — áreas/usuarios cambian poco
+    DASHBOARD: 30,      // 30 segundos — métricas en tiempo real
+};
+
+// ==========================================
+// Helper: Cache get/set con fallback a MySQL si Redis falla
+// ==========================================
+async function cacheGet(key) {
+    try {
+        const cached = await redis.get(key);
+        return cached ? JSON.parse(cached) : null;
+    } catch (err) {
+        // Degradación elegante: si Redis falla, seguimos sin cache
+        console.error('Redis GET fallback:', err.message);
+        return null;
+    }
+}
+
+async function cacheSet(key, data, ttlSeconds) {
+    try {
+        await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    } catch (err) {
+        console.error('Redis SET fallback:', err.message);
+    }
+}
+
+async function cacheDel(key) {
+    try {
+        await redis.del(key);
+    } catch (err) {
+        console.error('Redis DEL fallback:', err.message);
+    }
+}
+
+// ==========================================
+// Invalidar cache de datos iniciales (llamado desde user/area controllers)
+// ==========================================
+exports.invalidateInitialDataCache = async () => {
+    await cacheDel(CACHE_KEYS.INITIAL_DATA);
+};
+
 exports.getInitialData = async (req, res) => {
     try {
+        // --- CACHE HIT: Devolver datos cacheados (0 queries SQL) ---
+        const cached = await cacheGet(CACHE_KEYS.INITIAL_DATA);
+        if (cached) return res.json(cached);
+
+        // --- CACHE MISS: Consultar MySQL y cachear ---
         const [areas] = await pool.query('SELECT id, name FROM areas');
         const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled FROM users');
         
@@ -24,7 +79,10 @@ exports.getInitialData = async (req, res) => {
             areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId])
         }));
         
-        res.json({ areas, users });
+        const responseData = { areas, users };
+        await cacheSet(CACHE_KEYS.INITIAL_DATA, responseData, CACHE_TTL.INITIAL_DATA);
+
+        res.json(responseData);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al obtener datos del sistema' });
@@ -103,45 +161,73 @@ exports.updateSettings = (req, res) => {
 };
 
 // ==========================================
-// DASHBOARD STATS — Endpoint para métricas avanzadas
+// DASHBOARD STATS — Endpoint optimizado para métricas avanzadas
+// Consolidado: De ~14 queries individuales a 6 queries eficientes
+// + Cache Redis con TTL 30 segundos (Fase 3)
 // ==========================================
 exports.getDashboardStats = async (req, res) => {
     try {
-        // OWASP A01: Validar que el usuario está autenticado (ya lo hace el middleware)
+        // Parámetro de rango sanitizado (OWASP A03)
+        const timeRange = parseInt(req.query.timeRange) || 30;
+        const safeRange = Math.min(Math.max(timeRange, 7), 365);
+
+        // --- CACHE HIT: Devolver stats cacheadas (0 queries SQL) ---
+        const cacheKey = `${CACHE_KEYS.DASHBOARD_PREFIX}${safeRange}`;
+        const cached = await cacheGet(cacheKey);
+        if (cached) return res.json(cached);
+
+        // --- CACHE MISS: Ejecutar las 6 queries y cachear ---
         const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" }));
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
         const pad = (n) => n.toString().padStart(2, '0');
-        const formatMysqlDate = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-        // 1. Total de documentos
-        const [[{ totalDocuments }]] = await pool.query('SELECT COUNT(*) AS totalDocuments FROM documents');
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        const fiveMinAgo = new Date(now - 5 * 60 * 1000);
+        const oneHourAgo = new Date(now - 60 * 60 * 1000);
+        const fifteenMinAgo = new Date(now - 15 * 60 * 1000);
 
-        // 2. Documentos firmados hoy
-        const [[{ signedToday }]] = await pool.query(
-            `SELECT COUNT(DISTINCT item_id) AS signedToday FROM history 
-             WHERE item_type = 'documento' AND action LIKE '%Firma%' AND created_at >= ?`,
-            [formatMysqlDate(todayStart)]
-        );
+        // === QUERY 1: Todas las métricas de documentos en una sola query ===
+        const [[docMetrics]] = await pool.query(`
+            SELECT 
+                COUNT(*) AS totalDocuments,
+                SUM(CASE WHEN status IN ('Firmado', 'Archivado') THEN 1 ELSE 0 END) AS totalSigned,
+                SUM(CASE WHEN status = 'Firmandose' THEN 1 ELSE 0 END) AS pendingReview,
+                SUM(CASE WHEN status IN ('Borrador', 'Firmandose') AND created_at < DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) AS stuckDocs
+            FROM documents
+        `);
 
-        // 3. Total de documentos firmados (todos los tiempos)
-        const [[{ totalSigned }]] = await pool.query(
-            `SELECT COUNT(*) AS totalSigned FROM documents WHERE status = 'Firmado' OR status = 'Archivado'`
-        );
+        // === QUERY 2: Todas las métricas de historial en una sola query (condicional) ===
+        const [[histMetrics]] = await pool.query(`
+            SELECT
+                COUNT(DISTINCT CASE WHEN item_type = 'documento' AND action LIKE '%Firma%' AND created_at >= ? THEN item_id END) AS signedToday,
+                COUNT(CASE WHEN action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ? THEN 1 END) AS signaturesLast5Min,
+                COUNT(CASE WHEN action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ? THEN 1 END) AS signaturesLastHour,
+                COUNT(CASE WHEN action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ? THEN 1 END) AS signaturesToday,
+                COUNT(CASE WHEN action LIKE '%Adjuntado%' AND created_at >= ? THEN 1 END) AS uploadsLast5Min,
+                COUNT(CASE WHEN action LIKE '%Adjuntado%' AND created_at >= ? THEN 1 END) AS uploadsLastHour,
+                COUNT(CASE WHEN action LIKE '%Adjuntado%' AND created_at >= ? THEN 1 END) AS uploadsToday,
+                COUNT(CASE WHEN action LIKE '%Descarga%' AND created_at >= ? THEN 1 END) AS downloadsLast5Min,
+                COUNT(CASE WHEN action LIKE '%Descarga%' AND created_at >= ? THEN 1 END) AS downloadsLastHour,
+                COUNT(CASE WHEN action LIKE '%Descarga%' AND created_at >= ? THEN 1 END) AS downloadsToday,
+                COUNT(DISTINCT CASE WHEN created_at >= ? THEN user_id END) AS onlineUsers
+            FROM history
+        `, [
+            fmt(todayStart),
+            fmt(fiveMinAgo), fmt(oneHourAgo), fmt(todayStart),
+            fmt(fiveMinAgo), fmt(oneHourAgo), fmt(todayStart),
+            fmt(fiveMinAgo), fmt(oneHourAgo), fmt(todayStart),
+            fmt(fifteenMinAgo)
+        ]);
 
-        // 4. Pendientes de revisión (en proceso de firma)
-        const [[{ pendingReview }]] = await pool.query(
-            `SELECT COUNT(*) AS pendingReview FROM documents WHERE status = 'Firmandose'`
-        );
-
-        // 5. Documentos por tipo
+        // === QUERY 3: Agrupaciones (docs por tipo, por estado) — 2 queries ligeras ===
         const [docsByType] = await pool.query(
             'SELECT doc_type AS type, COUNT(*) AS count FROM documents GROUP BY doc_type ORDER BY count DESC'
         );
+        const [docsByStatus] = await pool.query(
+            'SELECT status, COUNT(*) AS count FROM documents GROUP BY status ORDER BY count DESC'
+        );
 
-        // 6. Timeline de documentos firmados (últimos 30 días por defecto)
-        const timeRange = parseInt(req.query.timeRange) || 30;
-        // OWASP A03: Sanitizar parámetro de rango de tiempo
-        const safeRange = Math.min(Math.max(timeRange, 7), 365);
+        // === QUERY 4: Timeline de firmas (con rango sanitizado) ===
         const rangeStart = new Date(now);
         rangeStart.setDate(rangeStart.getDate() - safeRange);
 
@@ -151,73 +237,10 @@ exports.getDashboardStats = async (req, res) => {
              WHERE h.item_type = 'documento' AND h.action LIKE '%Firma%' AND h.created_at >= ?
              GROUP BY DATE(h.created_at) 
              ORDER BY date ASC`,
-            [formatMysqlDate(rangeStart)]
+            [fmt(rangeStart)]
         );
 
-        // 7. Métricas en tiempo real
-        const oneMinuteAgo = new Date(now - 60 * 1000);
-        const oneHourAgo = new Date(now - 60 * 60 * 1000);
-
-        // Firmas por minuto (últimos 5 min promediados)
-        const fiveMinAgo = new Date(now - 5 * 60 * 1000);
-        const [[{ signaturesLast5Min }]] = await pool.query(
-            `SELECT COUNT(*) AS signaturesLast5Min FROM history 
-             WHERE action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ?`,
-            [formatMysqlDate(fiveMinAgo)]
-        );
-        const [[{ signaturesLastHour }]] = await pool.query(
-            `SELECT COUNT(*) AS signaturesLastHour FROM history 
-             WHERE action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ?`,
-            [formatMysqlDate(oneHourAgo)]
-        );
-        const [[{ signaturesToday }]] = await pool.query(
-            `SELECT COUNT(*) AS signaturesToday FROM history 
-             WHERE action LIKE '%Firma%' AND item_type = 'documento' AND created_at >= ?`,
-            [formatMysqlDate(todayStart)]
-        );
-
-        // Adjuntos subidos
-        const [[{ uploadsLast5Min }]] = await pool.query(
-            `SELECT COUNT(*) AS uploadsLast5Min FROM history 
-             WHERE action LIKE '%Adjuntado%' AND created_at >= ?`,
-            [formatMysqlDate(fiveMinAgo)]
-        );
-        const [[{ uploadsLastHour }]] = await pool.query(
-            `SELECT COUNT(*) AS uploadsLastHour FROM history 
-             WHERE action LIKE '%Adjuntado%' AND created_at >= ?`,
-            [formatMysqlDate(oneHourAgo)]
-        );
-        const [[{ uploadsToday }]] = await pool.query(
-            `SELECT COUNT(*) AS uploadsToday FROM history 
-             WHERE action LIKE '%Adjuntado%' AND created_at >= ?`,
-            [formatMysqlDate(todayStart)]
-        );
-
-        // Descargas
-        const [[{ downloadsLast5Min }]] = await pool.query(
-            `SELECT COUNT(*) AS downloadsLast5Min FROM history 
-             WHERE action LIKE '%Descarga%' AND created_at >= ?`,
-            [formatMysqlDate(fiveMinAgo)]
-        );
-        const [[{ downloadsLastHour }]] = await pool.query(
-            `SELECT COUNT(*) AS downloadsLastHour FROM history 
-             WHERE action LIKE '%Descarga%' AND created_at >= ?`,
-            [formatMysqlDate(oneHourAgo)]
-        );
-        const [[{ downloadsToday }]] = await pool.query(
-            `SELECT COUNT(*) AS downloadsToday FROM history 
-             WHERE action LIKE '%Descarga%' AND created_at >= ?`,
-            [formatMysqlDate(todayStart)]
-        );
-
-        // Usuarios activos (realizaron alguna acción en los últimos 15 min)
-        const fifteenMinAgo = new Date(now - 15 * 60 * 1000);
-        const [[{ onlineUsers }]] = await pool.query(
-            `SELECT COUNT(DISTINCT user_id) AS onlineUsers FROM history WHERE created_at >= ?`,
-            [formatMysqlDate(fifteenMinAgo)]
-        );
-
-        // 8. Actividad reciente (últimas 25 acciones)
+        // === QUERY 5: Actividad reciente (últimas 25 acciones) ===
         const [recentActivity] = await pool.query(
             `SELECT h.item_id, h.item_type, h.user_id, h.action, h.notes, h.created_at,
                     u.name AS user_name,
@@ -231,8 +254,7 @@ exports.getDashboardStats = async (req, res) => {
              LIMIT 25`
         );
 
-        // 9. Eficiencia de procesos
-        // Medimos el tiempo entre Creación y Firma para documentos firmados
+        // === QUERY 6: Eficiencia de procesos ===
         const [processData] = await pool.query(
             `SELECT d.id, d.created_at AS doc_created,
                     (SELECT MIN(h.created_at) FROM history h WHERE h.item_id = d.id AND h.action LIKE '%Firma%' AND h.item_type = 'documento') AS first_signature
@@ -251,39 +273,27 @@ exports.getDashboardStats = async (req, res) => {
             else if (diffHours <= 72) normal++;
             else slow++;
         });
+        slow += docMetrics.stuckDocs;
 
-        // También contar documentos pendientes que llevan más de 72h sin firmar
-        const [[{ stuckDocs }]] = await pool.query(
-            `SELECT COUNT(*) AS stuckDocs FROM documents 
-             WHERE status IN ('Borrador', 'Firmandose') 
-             AND created_at < DATE_SUB(NOW(), INTERVAL 72 HOUR)`
-        );
-        slow += stuckDocs;
-
-        // 10. Documentos por estado (para gráfico de barras)
-        const [docsByStatus] = await pool.query(
-            `SELECT status, COUNT(*) AS count FROM documents GROUP BY status ORDER BY count DESC`
-        );
-
-        res.json({
-            totalDocuments,
-            signedToday,
-            totalSigned,
-            pendingReview,
+        const responseData = {
+            totalDocuments: docMetrics.totalDocuments,
+            signedToday: histMetrics.signedToday,
+            totalSigned: docMetrics.totalSigned,
+            pendingReview: docMetrics.pendingReview,
             docsByType,
             docsByStatus,
             loadTimeline: loadTimeline.map(r => ({ date: r.date, count: r.count })),
             realtimeMetrics: {
-                signaturesPerMinute: Math.round(signaturesLast5Min / 5),
-                signaturesPerHour: signaturesLastHour,
-                signaturesPerDay: signaturesToday,
-                uploadsPerMinute: Math.round(uploadsLast5Min / 5),
-                uploadsPerHour: uploadsLastHour,
-                uploadsPerDay: uploadsToday,
-                downloadsPerMinute: Math.round(downloadsLast5Min / 5),
-                downloadsPerHour: downloadsLastHour,
-                downloadsPerDay: downloadsToday,
-                onlineUsers
+                signaturesPerMinute: Math.round(histMetrics.signaturesLast5Min / 5),
+                signaturesPerHour: histMetrics.signaturesLastHour,
+                signaturesPerDay: histMetrics.signaturesToday,
+                uploadsPerMinute: Math.round(histMetrics.uploadsLast5Min / 5),
+                uploadsPerHour: histMetrics.uploadsLastHour,
+                uploadsPerDay: histMetrics.uploadsToday,
+                downloadsPerMinute: Math.round(histMetrics.downloadsLast5Min / 5),
+                downloadsPerHour: histMetrics.downloadsLastHour,
+                downloadsPerDay: histMetrics.downloadsToday,
+                onlineUsers: histMetrics.onlineUsers
             },
             recentActivity: recentActivity.map(a => ({
                 userId: a.user_id,
@@ -296,7 +306,12 @@ exports.getDashboardStats = async (req, res) => {
                 createdAt: a.created_at
             })),
             processEfficiency: { fast, normal, slow }
-        });
+        };
+
+        // Guardar en cache (TTL 30 segundos)
+        await cacheSet(cacheKey, responseData, CACHE_TTL.DASHBOARD);
+
+        res.json(responseData);
     } catch (error) {
         console.error('Error en dashboard stats:', error);
         res.status(500).json({ message: 'Error al obtener estadísticas del dashboard' });

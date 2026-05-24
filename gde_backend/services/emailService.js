@@ -1,13 +1,16 @@
+// services/emailService.js
+// Fase 4: Los emails se encolan en BullMQ en vez de enviarse directamente.
+// El emailWorker.js se encarga de procesarlos en background.
 const nodemailer = require('nodemailer');
 
 let transporter;
 
 exports.initTransporter = () => {
     const isEnabled = process.env.EMAIL_ENABLED === 'true';
-    
+
     if (isEnabled) {
         const port = parseInt(process.env.EMAIL_PORT) || 587;
-        const isSecure = process.env.EMAIL_SECURE === 'true'; 
+        const isSecure = process.env.EMAIL_SECURE === 'true';
 
         transporter = nodemailer.createTransport({
             host: process.env.EMAIL_HOST,
@@ -29,18 +32,31 @@ exports.initTransporter = () => {
     }
 };
 
-// Inicializamos al arrancar el servidor
+// Inicializamos al arrancar el servidor (para verificación SMTP)
 exports.initTransporter();
 
+// Fase 4: sendMail ahora ENCOLA el email en BullMQ en vez de enviarlo directamente.
+// Todas las 8 llamadas existentes en el sistema se benefician automáticamente
+// sin cambiar ningún controller. La interfaz es idéntica: fire-and-forget.
 exports.sendMail = async (to, subject, text, html) => {
     const isEnabled = process.env.EMAIL_ENABLED === 'true';
-    if (!isEnabled || !transporter) return; 
+    if (!isEnabled) return;
+
     try {
-        await transporter.sendMail({
-            from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-            to, subject, text, html
-        });
-    } catch (error) {
-        console.error("❌ Error al enviar correo a", to, ":", error.message);
+        const { emailQueue } = require('../config/queues');
+        await emailQueue.add('send', { to, subject, text, html });
+    } catch (err) {
+        // Fallback: Si BullMQ/Redis falla, intentar envío directo
+        console.error('⚠️ Cola de email no disponible, intentando envío directo:', err.message);
+        if (transporter) {
+            try {
+                await transporter.sendMail({
+                    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+                    to, subject, text, html
+                });
+            } catch (sendErr) {
+                console.error("❌ Error al enviar correo a", to, ":", sendErr.message);
+            }
+        }
     }
 };

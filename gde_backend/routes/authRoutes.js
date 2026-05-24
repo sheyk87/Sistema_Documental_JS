@@ -16,4 +16,7 @@ router.post('/2fa/setup', authMiddleware, authController.setup2FA);
 router.post('/2fa/verify', twoFactorLimiter, authMiddleware, validate2FACode, authController.verify2FA);
 router.post('/2fa/regenerate-codes', authMiddleware, authController.regenerateRecoveryCodes);
 
+// Fase 3: Logout con revocación real de JWT via Redis blacklist
+router.post('/logout', authMiddleware, authController.logout);
+
 module.exports = router;

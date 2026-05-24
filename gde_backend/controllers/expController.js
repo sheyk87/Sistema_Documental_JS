@@ -44,7 +44,16 @@ exports.createExpediente = async (req, res) => {
 exports.getAllExpedientes = async (req, res) => {
     try {
         const [exps] = await pool.query('SELECT * FROM expedientes');
-        const [history] = await pool.query("SELECT * FROM history WHERE item_type = 'expediente' ORDER BY created_at ASC");
+        const [history] = await pool.query(
+            "SELECT item_id, created_at, user_id, action, notes FROM history WHERE item_type = 'expediente' ORDER BY created_at ASC"
+        );
+
+        // Optimización: Pre-indexamos el historial en un Map para lookup O(1)
+        const historyMap = new Map();
+        for (const h of history) {
+            if (!historyMap.has(h.item_id)) historyMap.set(h.item_id, []);
+            historyMap.get(h.item_id).push({ date: h.created_at, userId: h.user_id, action: h.action, notes: h.notes });
+        }
 
         const formattedExps = exps.map(e => {
             return {
@@ -58,18 +67,11 @@ exports.getAllExpedientes = async (req, res) => {
                 status: e.status,
                 isPublic: e.is_public === 1,
                 createdAt: e.created_at,
-                // Parseamos los JSON de MySQL a Arreglos de JavaScript
                 authAreas: typeof e.auth_areas === 'string' ? JSON.parse(e.auth_areas) : (e.auth_areas || []),
                 authUsers: typeof e.auth_users === 'string' ? JSON.parse(e.auth_users) : (e.auth_users || []),
                 linkedDocs: typeof e.linked_docs === 'string' ? JSON.parse(e.linked_docs) : (e.linked_docs || []),
                 sealedDocs: typeof e.sealed_docs === 'string' ? JSON.parse(e.sealed_docs) : (e.sealed_docs || []),
-                
-                history: history.filter(h => h.item_id === e.id).map(h => ({
-                    date: h.created_at,
-                    userId: h.user_id,
-                    action: h.action,
-                    notes: h.notes
-                }))
+                history: historyMap.get(e.id) || []
             };
         });
 

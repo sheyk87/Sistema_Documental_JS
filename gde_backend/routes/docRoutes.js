@@ -70,6 +70,7 @@ router.get('/download-static/:id', authMiddleware, docController.downloadStaticP
 
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
+router.get('/:id/content', authMiddleware, docController.getDocumentContent);
 router.put('/update/:id', authMiddleware, docController.updateDocument);
 router.put('/:id/read', authMiddleware, docController.markAsRead);
 

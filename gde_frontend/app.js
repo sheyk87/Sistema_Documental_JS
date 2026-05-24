@@ -312,6 +312,25 @@ function checkAndMarkRead(item, type) {
     }
 }
 
+// Carga lazy del contenido de un documento desde el servidor
+// Optimización: El listado no incluye 'content' para reducir tamaño de respuesta
+async function ensureDocContent(item) {
+    if (item.type !== 'documento' || (item.content && item.content.length > 0)) return item;
+    try {
+        const res = await fetch(`http://localhost:3000/api/docs/${item.id}/content`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            item.content = data.content;
+            // Actualizar también en el store global
+            const docInStore = state.db.documents.find(d => d.id === item.id);
+            if (docInStore) docInStore.content = data.content;
+        }
+    } catch (e) { console.error('Error cargando contenido:', e); }
+    return item;
+}
+
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
     const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
@@ -420,12 +439,54 @@ function renderNotificationUI() {
 }
 
 // Limpia todos los rastros de la sesión
-function clearSession() {
+// Fase 3/4: Llama al backend para revocar el JWT en Redis (blacklist)
+async function clearSession() {
+    const token = localStorage.getItem('gde_token');
+    if (token) {
+        try {
+            await fetch('http://localhost:3000/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        } catch (e) { /* Si el server está offline, solo limpiamos local */ }
+    }
     localStorage.removeItem('gde_token');
     localStorage.removeItem('gde_login_time');
     // OWASP A02: Cookie con flags de seguridad
     document.cookie = "gde_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict";
     state.currentUser = null;
+}
+
+// Fase 4: Polling de estado de jobs BullMQ (firma async)
+// Consulta el backend cada 2 segundos hasta que el job termine o falle
+async function pollJobStatus(queueName, jobId, maxWaitMs = 120000) {
+    const startTime = Date.now();
+    const pollInterval = 2000; // 2 segundos
+
+    while (Date.now() - startTime < maxWaitMs) {
+        try {
+            const res = await fetch(`http://localhost:3000/api/jobs/${queueName}/${jobId}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            });
+
+            if (!res.ok) throw new Error('Error consultando estado del trabajo');
+
+            const data = await res.json();
+
+            if (data.state === 'completed' || data.state === 'failed') {
+                return data;
+            }
+
+            // Job aún en proceso — esperar antes de volver a consultar
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+        } catch (e) {
+            console.error('Error en polling de job:', e);
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+    }
+
+    // Timeout alcanzado
+    return { state: 'failed', failReason: 'Tiempo de espera agotado. El trabajo puede seguir procesándose en el servidor.' };
 }
 
 // Función auxiliar para cargar todos los datos del sistema
@@ -540,6 +601,9 @@ async function sealAndSaveDocument(doc, hEntry) {
     tempDiv.style.backgroundColor = '#ffffff';
     tempDiv.style.color = '#333333';
     tempDiv.style.fontFamily = 'Georgia, serif';
+
+    // Asegurar que el contenido esté cargado antes de generar el PDF
+    await ensureDocContent(doc);
 
     // 2. Generamos el QR
     let qrHtml = '';
@@ -656,7 +720,7 @@ async function sealAndSaveDocument(doc, hEntry) {
     try {
         const rawBlob = await html2pdf().set(opt).from(tempDiv).output('blob');
 
-        // 2. ENVIAR AL SERVIDOR (Él se encarga de embeber, firmar y encriptar)
+        // 2. ENVIAR AL SERVIDOR — Fase 4: El backend encola el trabajo y responde con jobId
         const finalFormData = new FormData();
         finalFormData.append('pdf', rawBlob, 'documento_crudo.pdf');
         finalFormData.append('documentData', JSON.stringify(doc));
@@ -674,9 +738,21 @@ async function sealAndSaveDocument(doc, hEntry) {
         }
 
         const resData = await res.json();
-        doc.pdf_hash = resData.pdfHash; // Guardamos el Hash final
 
-        return true;
+        // Fase 4: Si el backend devuelve jobId (async), hacemos polling
+        if (resData.jobId) {
+            const result = await pollJobStatus('signature', resData.jobId);
+            if (result.state === 'completed') {
+                doc.pdf_hash = result.result?.pdfHash;
+                return true;
+            } else {
+                throw new Error(result.failReason || 'La firma falló en el servidor');
+            }
+        } else {
+            // Fallback: respuesta síncrona legacy (por compatibilidad)
+            doc.pdf_hash = resData.pdfHash;
+            return true;
+        }
 
     } catch (error) {
         console.error("Error sellando documento:", error);
@@ -3170,7 +3246,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'set-realtime-unit') { state.statsOpts.realtimeUnit = actionBtn.getAttribute('data-unit'); updateDashboardDynamic(); document.querySelectorAll('.metric-time-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-unit') === state.statsOpts.realtimeUnit)); return; }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
         if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
-        if (action === 'logout') { clearSession(); return renderApp(); }
+        if (action === 'logout') { await clearSession(); return renderApp(); }
 
         if (action === 'go-forgot-password') {
             state.forgotPass = { step: 1, email: '', maskedEmail: '', code: '' };
@@ -3219,6 +3295,8 @@ document.addEventListener('click', async (e) => {
             if (item) {
                 checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
                 activeInputSelector = null;
+                // Carga lazy del contenido del documento
+                if (type === 'documento') await ensureDocContent(item);
                 return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
             }
         }
@@ -3356,7 +3434,10 @@ document.addEventListener('click', async (e) => {
 
             // Navegar al item
             const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
-            if (item) { return setState({ selectedItem: { ...item, type: itemType } }); }
+            if (item) {
+                if (itemType === 'documento') await ensureDocContent(item);
+                return setState({ selectedItem: { ...item, type: itemType } });
+            }
             else { alert("El elemento ya no está disponible en tu área de trabajo."); return setState({}); }
         }
 

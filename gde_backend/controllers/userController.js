@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const emailService = require('../services/emailService');
 const { logAdminAction, logDataModification, logSecurityError } = require('../utils/logger');
 const { escapeHtml, sanitizeText } = require('../utils/sanitizer');
+const { invalidateInitialDataCache } = require('./systemController');
 
 exports.createUser = async (req, res) => {
     const { id, name, email, password, areaId, role, areas } = req.body;
@@ -13,6 +14,7 @@ exports.createUser = async (req, res) => {
             [id, name, email, hash, areaId, role, JSON.stringify(areas || [areaId])] // <-- Guardar JSON
         );
         logAdminAction('USER_CREATED', { userId: id, by: req.user?.id });
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Usuario creado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -83,6 +85,7 @@ exports.updateUser = async (req, res) => {
         }
 
         logAdminAction('USER_UPDATED', { userId: id, by: req.user?.id });
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.json({ message: 'Usuario actualizado exitosamente' });
     } catch (error) {
         console.error(error);
@@ -95,6 +98,7 @@ exports.deleteUser = async (req, res) => {
     try {
         await pool.query(`DELETE FROM users WHERE id = ?`, [id]);
         logAdminAction('USER_DELETED', { userId: id, by: req.user?.id });
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.json({ message: 'Usuario eliminado' });
     } catch (error) {
         console.error(error);
@@ -121,6 +125,7 @@ exports.bulkCreateUsers = async (req, res) => {
                 [uid, u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray)]
             );
         }
+        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Usuarios importados exitosamente' });
     } catch (error) {
         console.error(error);

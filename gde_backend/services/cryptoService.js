@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 
 const ALGORITHM = 'aes-256-cbc';
@@ -24,8 +25,8 @@ exports.calculateHash = (buffer) => {
     return crypto.createHash('sha256').update(buffer).digest('hex');
 };
 
-// 2. Encripta un PDF crudo y lo guarda blindado en el disco
-exports.encryptAndSave = (buffer, filePath) => {
+// 2. Encripta un PDF crudo y lo guarda blindado en el disco (ASYNC - no bloquea Event Loop)
+exports.encryptAndSave = async (buffer, filePath) => {
     const keyBuffer = getSecureKey();
     
     // Vector de inicialización aleatorio (IV). Hace que el cifrado sea único cada vez.
@@ -40,19 +41,24 @@ exports.encryptAndSave = (buffer, filePath) => {
     // Guardamos el IV pegado al inicio del archivo cifrado (lo necesitamos para abrirlo luego)
     const fileData = Buffer.concat([iv, encrypted]);
     
-    // Aseguramos que la carpeta exista
+    // Aseguramos que la carpeta exista (async)
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await fsPromises.mkdir(dir, { recursive: true });
 
-    // Guardamos físicamente en el disco
-    fs.writeFileSync(filePath, fileData);
+    // Guardamos físicamente en el disco (async - libera Event Loop durante I/O)
+    await fsPromises.writeFile(filePath, fileData);
 };
 
-// 3. Lee del disco cerrado y desencripta el PDF directo a la memoria RAM
-exports.decryptAndRead = (filePath) => {
-    if (!fs.existsSync(filePath)) throw new Error("Archivo seguro no encontrado en el disco.");
+// 3. Lee del disco cerrado y desencripta el PDF directo a la memoria RAM (ASYNC)
+exports.decryptAndRead = async (filePath) => {
+    // Verificación async de existencia
+    try {
+        await fsPromises.access(filePath, fs.constants.R_OK);
+    } catch {
+        throw new Error("Archivo seguro no encontrado en el disco.");
+    }
 
-    const fileData = fs.readFileSync(filePath);
+    const fileData = await fsPromises.readFile(filePath);
     
     // Extraemos el IV de los primeros 16 bytes
     const iv = fileData.subarray(0, 16);

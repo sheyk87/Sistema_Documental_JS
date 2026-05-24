@@ -149,6 +149,23 @@ services:
           # para mantener la consistencia del disco físico.
           - node.role == manager 
 
+  # Fase 3/4: Redis para cache, rate limiting, blacklist JWT y colas BullMQ
+  redis:
+    image: redis:7-alpine
+    # AOF (Append Only File) para persistencia de jobs ante reinicios
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    networks:
+      - gde_network
+    volumes:
+      - redis_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
 networks:
   gde_network:
     driver: overlay
@@ -178,6 +195,10 @@ volumes:
 
   # Volumen local para MySQL (ya que corre en un solo nodo por constraint)
   db_data:
+    driver: local
+
+  # Volumen local para Redis (persistencia AOF/RDB)
+  redis_data:
     driver: local
 ```
 

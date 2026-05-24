@@ -7,6 +7,7 @@ const emailService = require('../services/emailService');
 const qrcode = require('qrcode');
 const { logAuthEvent, logSecurityError, logDataModification } = require('../utils/logger');
 const { escapeHtml } = require('../utils/sanitizer');
+const redis = require('../config/redisClient');
 
 // ============================================================================
 // MOTOR TOTP NATIVO (Cero dependencias) - Compatible con Google Authenticator
@@ -449,5 +450,34 @@ exports.resetPassword = async (req, res) => {
     } catch (error) {
         logSecurityError(error, { context: 'resetPassword' });
         res.status(500).json({ message: 'Error interno' });
+    }
+};
+
+// ==========================================
+// LOGOUT — Revocación real de JWT via Redis blacklist (Fase 3)
+// OWASP A07: El token se agrega a una blacklist con TTL = tiempo restante de expiración
+// ==========================================
+exports.logout = async (req, res) => {
+    try {
+        const token = req.header('Authorization')?.replace('Bearer ', '');
+        if (!token) return res.json({ message: 'Sesión cerrada' });
+
+        // Decodificar sin verificar para obtener la expiración
+        const decoded = jwt.decode(token);
+        if (decoded && decoded.exp) {
+            const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+            if (ttl > 0) {
+                // Agregar a blacklist con TTL = tiempo restante del token
+                // Cuando el token expire naturalmente, la key se auto-elimina
+                await redis.setex(`gde:bl:${token}`, ttl, '1');
+            }
+        }
+
+        logAuthEvent('LOGOUT', { userId: req.user?.id, ip: req.ip });
+        res.json({ message: 'Sesión cerrada correctamente' });
+    } catch (error) {
+        logSecurityError(error, { context: 'logout' });
+        // Siempre responder éxito en logout para no filtrar información
+        res.json({ message: 'Sesión cerrada' });
     }
 };
