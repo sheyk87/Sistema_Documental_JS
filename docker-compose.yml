@@ -48,8 +48,7 @@ services:
       - backend_certs:/app/certs            # Certificado PKCS#12 para firma
       - backend_logs:/app/logs              # Logs de Winston
       - ./gde_backend/.env:/app/.env        # Variables de entorno (editable sin rebuild)
-    tmpfs:
-      - /app/uploads/temp_sealing:size=256M # Disco en RAM ultrarrápido para firmas temporales
+      - sealing_temp:/app/uploads/temp_sealing # Compartido tmpfs en RAM para firmas temporales
     environment:
       # Overrides de red: apuntan a servicios Docker en vez de localhost
       # Estos toman precedencia sobre lo que diga el .env
@@ -81,6 +80,7 @@ services:
       - backend_uploads:/app/uploads        # Lee adjuntos, escribe PDFs sellados
       - backend_certs:/app/certs            # Necesita el certificado PKCS#12
       - ./gde_backend/.env:/app/.env        # Editable sin rebuild
+      - sealing_temp:/app/uploads/temp_sealing # Compartido tmpfs en RAM para firmas temporales
     environment:
       - DB_HOST=db
       - REDIS_HOST=redis
@@ -180,3 +180,9 @@ volumes:
     driver: local
   backend_logs:
     driver: local
+  sealing_temp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=256m

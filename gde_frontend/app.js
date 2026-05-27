@@ -879,11 +879,14 @@ async function processBatchSign() {
 
         // --- Lógica de Firma (Idéntica a la individual) ---
         if (!item.signedBy) item.signedBy = [];
-        item.signedBy.push({
-            id: state.currentUser.id,
-            date: new Date().toISOString(),
-            areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
-        });
+        const alreadySigned = item.signedBy.some(s => s.id === state.currentUser.id);
+        if (!alreadySigned) {
+            item.signedBy.push({
+                id: state.currentUser.id,
+                date: new Date().toISOString(),
+                areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
+            });
+        }
 
         // Caso A: Firma Intermedia (Pasa a otro firmante)
         item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
@@ -931,6 +934,9 @@ async function processBatchSign() {
             successCount++;
         } else {
             item.status = STATUS.FIRMANDOSE; // Si falla, lo devuelve a su estado original
+            if (item.signedBy) {
+                item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
+            }
         }
     }
 
@@ -1191,10 +1197,10 @@ function updateDashboardDynamic() {
     const d = state.dashboardData;
     if (!d) return;
     const el = (id) => document.getElementById(id);
-    if (el('kpi-total')) el('kpi-total').textContent = d.totalDocuments.toLocaleString();
-    if (el('kpi-signed-today')) el('kpi-signed-today').textContent = `+${d.signedToday}`;
-    if (el('kpi-approved')) el('kpi-approved').textContent = d.totalSigned.toLocaleString();
-    if (el('kpi-pending')) el('kpi-pending').textContent = d.pendingReview.toLocaleString();
+    if (el('kpi-total')) el('kpi-total').textContent = (d.totalDocuments || 0).toLocaleString();
+    if (el('kpi-signed-today')) el('kpi-signed-today').textContent = `+${d.signedToday || 0}`;
+    if (el('kpi-approved')) el('kpi-approved').textContent = (d.totalSigned || 0).toLocaleString();
+    if (el('kpi-pending')) el('kpi-pending').textContent = (d.pendingReview || 0).toLocaleString();
 
     // Realtime metrics
     const u = state.statsOpts.realtimeUnit || 'min';
@@ -1261,21 +1267,20 @@ function renderStats() {
 
         return `<div class="max-w-7xl mx-auto space-y-0">${tabsHtml}
             <div class="dashboard-grid">
-                <!-- KPI CARDS -->
                 <div class="span-1 dashboard-kpi kpi-blue dash-card flex items-center justify-between">
-                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Documentos Totales</p><p id="kpi-total" class="text-3xl font-black text-gray-800">${d ? d.totalDocuments.toLocaleString() : '...'}</p></div>
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Documentos Totales</p><p id="kpi-total" class="text-3xl font-black text-gray-800">${d ? (d.totalDocuments || 0).toLocaleString() : '...'}</p></div>
                     <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center"><i data-lucide="file-text" class="w-6 h-6 text-blue-500"></i></div>
                 </div>
                 <div class="span-1 dashboard-kpi kpi-amber dash-card flex items-center justify-between">
-                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Firmados Hoy</p><p id="kpi-signed-today" class="text-3xl font-black text-amber-600">${d ? '+'+d.signedToday : '...'}</p></div>
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Firmados Hoy</p><p id="kpi-signed-today" class="text-3xl font-black text-amber-600">${d ? '+' + (d.signedToday || 0) : '...'}</p></div>
                     <div class="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center"><i data-lucide="pen-tool" class="w-6 h-6 text-amber-500"></i></div>
                 </div>
                 <div class="span-1 dashboard-kpi kpi-green dash-card flex items-center justify-between">
-                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Docs Aprobados</p><p id="kpi-approved" class="text-3xl font-black text-emerald-600">${d ? d.totalSigned.toLocaleString() : '...'}</p></div>
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Docs Aprobados</p><p id="kpi-approved" class="text-3xl font-black text-emerald-600">${d ? (d.totalSigned || 0).toLocaleString() : '...'}</p></div>
                     <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center"><i data-lucide="check-circle" class="w-6 h-6 text-emerald-500"></i></div>
                 </div>
                 <div class="span-1 dashboard-kpi kpi-purple dash-card flex items-center justify-between">
-                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Pendientes de Revisión</p><p id="kpi-pending" class="text-3xl font-black text-purple-600">${d ? d.pendingReview.toLocaleString() : '...'}</p></div>
+                    <div><p class="text-xs text-gray-500 font-bold uppercase mb-1">Pendientes de Revisión</p><p id="kpi-pending" class="text-3xl font-black text-purple-600">${d ? (d.pendingReview || 0).toLocaleString() : '...'}</p></div>
                     <div class="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center"><i data-lucide="clock" class="w-6 h-6 text-purple-500"></i></div>
                 </div>
 
@@ -3747,11 +3752,14 @@ document.addEventListener('click', async (e) => {
                 item.areaId = state.currentUser.areaId;
 
                 if (!item.signedBy) item.signedBy = [];
-                item.signedBy.push({
-                    id: state.currentUser.id,
-                    date: new Date().toISOString(),
-                    areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
-                });
+                const alreadySigned = item.signedBy.some(s => s.id === state.currentUser.id);
+                if (!alreadySigned) {
+                    item.signedBy.push({
+                        id: state.currentUser.id,
+                        date: new Date().toISOString(),
+                        areaId: state.currentUser.areaId // <--- GUARDAMOS EL ÁREA EN LA FIRMA
+                    });
+                }
 
                 if (m.signAction === 'doc-sign-pending') {
                     item.signatories = (item.signatories || []).filter(id => id !== state.currentUser.id);
@@ -3804,8 +3812,11 @@ document.addEventListener('click', async (e) => {
                 } else {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
-                    // Si falla, revertimos estado visual
+                    // Si falla, revertimos estado visual y removemos la firma fallida
                     item.status = STATUS.FIRMANDOSE;
+                    if (item.signedBy) {
+                        item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
+                    }
                 }
                 return;
             }

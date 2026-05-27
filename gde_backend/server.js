@@ -119,6 +119,17 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
         fs.mkdirSync(uploadsDir);
     }
 
+    // Asegurar subdirectorios dentro de uploads (resuelve problemas de volúmenes limpios)
+    const tempSealingDir = path.join(uploadsDir, 'temp_sealing');
+    if (!fs.existsSync(tempSealingDir)) {
+        fs.mkdirSync(tempSealingDir);
+    }
+
+    const secureDocsDir = path.join(uploadsDir, 'secure_docs');
+    if (!fs.existsSync(secureDocsDir)) {
+        fs.mkdirSync(secureDocsDir);
+    }
+
     // Crear directorio de logs si no existe
     const logsDir = path.join(__dirname, 'logs');
     if (!fs.existsSync(logsDir)) {

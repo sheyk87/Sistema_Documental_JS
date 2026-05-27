@@ -202,9 +202,9 @@ exports.getDashboardStats = async (req, res) => {
         const [[docMetrics]] = await pool.query(`
             SELECT 
                 COUNT(*) AS totalDocuments,
-                SUM(CASE WHEN status IN ('Firmado', 'Archivado') THEN 1 ELSE 0 END) AS totalSigned,
-                SUM(CASE WHEN status = 'Firmandose' THEN 1 ELSE 0 END) AS pendingReview,
-                SUM(CASE WHEN status IN ('Borrador', 'Firmandose') AND created_at < DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) AS stuckDocs
+                COALESCE(SUM(CASE WHEN status IN ('Firmado', 'Archivado') THEN 1 ELSE 0 END), 0) AS totalSigned,
+                COALESCE(SUM(CASE WHEN status = 'Firmandose' THEN 1 ELSE 0 END), 0) AS pendingReview,
+                COALESCE(SUM(CASE WHEN status IN ('Borrador', 'Firmandose') AND created_at < DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END), 0) AS stuckDocs
             FROM documents
         `);
 
