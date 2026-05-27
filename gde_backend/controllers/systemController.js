@@ -92,6 +92,18 @@ exports.getInitialData = async (req, res) => {
 exports.getSettings = (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado' });
     
+    // Fase 5: Forzar recarga dinámica del archivo .env desde el disco (volumen montado)
+    // Esto previene inconsistencia entre diferentes procesos del cluster Express/Docker.
+    try {
+        const path = require('path');
+        const envPath = path.join(__dirname, '../.env');
+        if (require('fs').existsSync(envPath)) {
+            require('dotenv').config({ path: envPath, override: true });
+        }
+    } catch (err) {
+        console.error('Error al recargar dynamic .env en getSettings:', err.message);
+    }
+    
     // OWASP A02: No exponer la contraseña real del email
     res.json({
         EMAIL_ENABLED: process.env.EMAIL_ENABLED === 'true',

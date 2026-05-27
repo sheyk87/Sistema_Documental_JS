@@ -1,0 +1,172 @@
+# docker-compose.yml
+# Fase 5: Despliegue completo de GDE en servidor único
+# Uso: docker compose up --build -d
+#
+# PRIMERA VEZ:
+#   1. Verificar que gde_backend/.env tenga las credenciales correctas
+#   2. Verificar que gde_backend/certs/ tenga el certificado.p12
+#   3. docker compose up --build -d
+#   4. docker compose exec backend node setup_full.js
+#   5. docker compose exec backend node migrations/add_indexes.js
+#
+# NOTA: Si cambiás DB_PASSWORD en el .env, también cambialo en
+# MYSQL_ROOT_PASSWORD de este archivo. O borrá el volumen db_data
+# y recreá la base: docker compose down -v && docker compose up -d
+
+services:
+  # ============================================
+  # FRONTEND — Nginx (ÚNICO punto de entrada)
+  # ============================================
+  frontend:
+    build: ./gde_frontend
+    container_name: gde-frontend
+    ports:
+      - "80:80"      # HTTP directo
+      - "443:80"     # Para NPM externo con SSL (NPM→443→Nginx:80)
+    networks:
+      - gde_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # BACKEND API — Express (NO expuesto al exterior)
+  # ============================================
+  backend:
+    build: ./gde_backend
+    container_name: gde-backend
+    # NO exponemos puertos al host — solo accesible via red interna
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads        # PDFs encriptados + adjuntos
+      - backend_certs:/app/certs            # Certificado PKCS#12 para firma
+      - backend_logs:/app/logs              # Logs de Winston
+      - ./gde_backend/.env:/app/.env        # Variables de entorno (editable sin rebuild)
+    environment:
+      # Overrides de red: apuntan a servicios Docker en vez de localhost
+      # Estos toman precedencia sobre lo que diga el .env
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # SIGNATURE WORKER — Firma de PDFs (CPU-intensive)
+  # ============================================
+  signature-worker:
+    build: ./gde_backend
+    container_name: gde-signature-worker
+    command: ["node", "workers/signatureWorker.js"]
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads        # Lee adjuntos, escribe PDFs sellados
+      - backend_certs:/app/certs            # Necesita el certificado PKCS#12
+      - ./gde_backend/.env:/app/.env        # Editable sin rebuild
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    # Sin health check HTTP (no tiene servidor web)
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # EMAIL WORKER — Envío de correos en background
+  # ============================================
+  email-worker:
+    build: ./gde_backend
+    container_name: gde-email-worker
+    command: ["node", "workers/emailWorker.js"]
+    networks:
+      - gde_network
+    volumes:
+      - ./gde_backend/.env:/app/.env        # Config SMTP editable sin rebuild
+    environment:
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================
+  # REDIS — Cache, BullMQ, Blacklist JWT
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: gde-redis
+    # AOF para persistencia + noeviction obligatorio para BullMQ
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    networks:
+      - gde_network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ============================================
+  # MYSQL — Base de Datos
+  # ============================================
+  # IMPORTANTE: MYSQL_ROOT_PASSWORD debe coincidir con DB_PASSWORD en gde_backend/.env
+  # MySQL solo usa esta variable en la primera inicialización (cuando db_data está vacío).
+  # Si cambias la contraseña después, necesitas: docker compose down -v && docker compose up -d
+  db:
+    image: mysql:8.0
+    container_name: gde-db
+    networks:
+      - gde_network
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "R00tMySQL"
+      MYSQL_DATABASE: "gde_system"
+      TZ: "America/Argentina/Buenos_Aires"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pR00tMySQL"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+# ============================================
+# RED INTERNA — Solo el frontend es accesible desde fuera
+# ============================================
+networks:
+  gde_network:
+    driver: bridge
+
+# ============================================
+# VOLÚMENES PERSISTENTES
+# ============================================
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_certs:
+    driver: local
+  backend_logs:
+    driver: local

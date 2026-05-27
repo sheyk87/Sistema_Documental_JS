@@ -1,0 +1,185 @@
+# docker-compose.swarm.yml
+# Fase 5: Despliegue de GDE en Docker Swarm (3+ nodos)
+#
+# REQUISITOS:
+# 1. Construir imágenes localmente primero:
+#      docker compose build
+# 2. Si es multi-nodo: las imágenes deben estar disponibles en todos los nodos
+#    (usar registry privado o docker save/load)
+# 3. Tener NFS configurado para volúmenes compartidos entre nodos
+#
+# Uso:
+#   docker stack deploy -c docker-compose.swarm.yml gde
+
+services:
+  # ============================================
+  # FRONTEND — Nginx (ÚNICO punto de entrada)
+  # ============================================
+  frontend:
+    image: gde-frontend:latest
+    ports:
+      - "80:80"
+      - "443:80"
+    networks:
+      - gde_network
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  # ============================================
+  # BACKEND API — Express (NO expuesto al exterior)
+  # ============================================
+  backend:
+    image: gde-backend:latest
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_certs:/app/certs
+      - backend_logs:/app/logs
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    env_file:
+      - ./gde_backend/.env
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+
+  # ============================================
+  # SIGNATURE WORKER — Firma de PDFs (CPU-intensive)
+  # ============================================
+  signature-worker:
+    image: gde-backend:latest
+    command: ["node", "workers/signatureWorker.js"]
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_certs:/app/certs
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    env_file:
+      - ./gde_backend/.env
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+
+  # ============================================
+  # EMAIL WORKER — Envío de correos en background
+  # ============================================
+  email-worker:
+    image: gde-backend:latest
+    command: ["node", "workers/emailWorker.js"]
+    networks:
+      - gde_network
+    environment:
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    env_file:
+      - ./gde_backend/.env
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ============================================
+  # REDIS — Cache, BullMQ, Blacklist JWT
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - gde_network
+    volumes:
+      - redis_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  # ============================================
+  # MYSQL — Base de Datos
+  # ============================================
+  db:
+    image: mysql:8.0
+    networks:
+      - gde_network
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-R00tMySQL}
+      - MYSQL_DATABASE=${DB_NAME:-gde_system}
+      - TZ=America/Argentina/Buenos_Aires
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+# ============================================
+# RED OVERLAY — Comunicación entre nodos Swarm
+# ============================================
+networks:
+  gde_network:
+    driver: overlay
+
+# ============================================
+# VOLÚMENES — En Swarm usar NFS para compartir entre nodos
+# ============================================
+# NOTA: Reemplazar <IP_NFS> y rutas con los valores reales del servidor NFS
+volumes:
+  db_data:
+    driver: local
+
+  redis_data:
+    driver: local
+
+  # Volúmenes compartidos via NFS (necesarios para que todas las réplicas
+  # del backend y signature-worker accedan a los mismos archivos)
+  backend_uploads:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER_IP:-192.168.1.100},rw,nolock,soft
+      device: ":${NFS_UPLOADS_PATH:-/srv/nfs/gde/uploads}"
+
+  backend_certs:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER_IP:-192.168.1.100},rw,nolock,soft
+      device: ":${NFS_CERTS_PATH:-/srv/nfs/gde/certs}"
+
+  backend_logs:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER_IP:-192.168.1.100},rw,nolock,soft
+      device: ":${NFS_LOGS_PATH:-/srv/nfs/gde/logs}"

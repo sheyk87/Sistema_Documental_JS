@@ -1,0 +1,23 @@
+# gde_backend/.dockerignore
+# Excluir archivos que NO deben entrar en la imagen Docker
+# Los volúmenes se montan en runtime, no se copian al build
+
+node_modules
+npm-debug.log
+
+# Secretos — se montan como volúmenes
+.env
+.env.*
+certs/
+
+# Datos persistentes — se montan como volúmenes
+uploads/
+logs/
+
+# Desarrollo y documentación
+tests/
+docs/
+*.md
+.git
+.gitignore
+.vscode

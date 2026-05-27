@@ -6,6 +6,17 @@ const nodemailer = require('nodemailer');
 let transporter;
 
 exports.initTransporter = () => {
+    // Fase 5: Forzar recarga dinámica del archivo .env desde el disco
+    try {
+        const path = require('path');
+        const envPath = path.join(__dirname, '../.env');
+        if (require('fs').existsSync(envPath)) {
+            require('dotenv').config({ path: envPath, override: true });
+        }
+    } catch (err) {
+        console.error('Error al recargar dynamic .env en initTransporter:', err.message);
+    }
+
     const isEnabled = process.env.EMAIL_ENABLED === 'true';
 
     if (isEnabled) {
@@ -39,6 +50,17 @@ exports.initTransporter();
 // Todas las 8 llamadas existentes en el sistema se benefician automáticamente
 // sin cambiar ningún controller. La interfaz es idéntica: fire-and-forget.
 exports.sendMail = async (to, subject, text, html) => {
+    // Fase 5: Forzar recarga dinámica del .env antes de evaluar si está habilitado
+    try {
+        const path = require('path');
+        const envPath = path.join(__dirname, '../.env');
+        if (require('fs').existsSync(envPath)) {
+            require('dotenv').config({ path: envPath, override: true });
+        }
+    } catch (err) {
+        console.error('Error al recargar dynamic .env en sendMail:', err.message);
+    }
+
     const isEnabled = process.env.EMAIL_ENABLED === 'true';
     if (!isEnabled) return;
 

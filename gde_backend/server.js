@@ -73,17 +73,35 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
     const allowedOrigins = process.env.CORS_ORIGINS
         ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
         : ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+    // Producción: configurar CORS_ORIGINS=https://gde.sistema.com en .env
+
+    // Fase 5: Confiar en peticiones que llegan por el proxy Nginx interno
+    // Valor 1 = confiar solo en 1 nivel de proxy (nuestro Nginx).
+    // NO usar 'true' — permite spoofear X-Forwarded-For y evadir rate limiting.
+    // Ref: https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/
+    app.set('trust proxy', 1);
 
     app.use(cors({
         origin: function (origin, callback) {
-            // Permitir todo en desarrollo para facilitar testing en red local (celulares)
+            // Permitir todo en desarrollo para facilitar testing
             if (process.env.NODE_ENV !== 'production') return callback(null, true);
 
-            if (!origin || allowedOrigins.includes(origin)) {
-                callback(null, true);
-            } else {
-                callback(new Error('No permitido por CORS'));
+            // Sin Origin header = request interno (server-to-server, curl, etc.)
+            if (!origin) return callback(null, true);
+
+            // Permitir orígenes configurados explícitamente
+            if (allowedOrigins.includes(origin)) return callback(null, true);
+
+            // Fase 5: En Docker, Nginx proxea al backend en la misma red interna.
+            // El navegador envía Origin: http://localhost (o https://gde.sistema.com).
+            // Aceptar peticiones de localhost (cualquier puerto) ya que el backend
+            // NO es accesible desde fuera — solo Nginx puede alcanzarlo.
+            const url = new URL(origin);
+            if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+                return callback(null, true);
             }
+
+            callback(new Error('No permitido por CORS'));
         },
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -176,15 +194,16 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
             const mode = cluster.isWorker ? `Worker ${process.pid}` : 'Single-process';
             console.log(`${mode} — Servidor corriendo en el puerto ${PORT}`);
 
-            // Fase 4: Iniciar BullMQ workers
-            // En producción con cluster: solo el primer worker los arranca
-            // En desarrollo: se arrancan junto al servidor
-            if (!cluster.isWorker || cluster.worker.id === 1) {
-                try {
-                    require('./workers/emailWorker');
-                    require('./workers/signatureWorker');
-                } catch (err) {
-                    console.error('⚠️  Error iniciando workers BullMQ:', err.message);
+            // Fase 5: En producción, los workers corren en contenedores separados.
+            // En desarrollo, se arrancan junto al servidor para comodidad.
+            if (process.env.NODE_ENV !== 'production') {
+                if (!cluster.isWorker || cluster.worker.id === 1) {
+                    try {
+                        require('./workers/emailWorker');
+                        require('./workers/signatureWorker');
+                    } catch (err) {
+                        console.error('⚠️  Error iniciando workers BullMQ:', err.message);
+                    }
                 }
             }
         });

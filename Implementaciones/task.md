@@ -39,8 +39,16 @@
 - [x] Redis con persistencia AOF en docker-compose
 - [x] Workers arrancan en `server.js` (solo 1 instancia por cluster)
 
-## Fase 5 — Separación de Servicios
-- [ ] Dockerfiles para API Gateway y Workers
-- [ ] docker-compose actualizado con servicios separados
-- [ ] Health checks + graceful shutdown
-- [ ] WebSockets para dashboard real-time
+## Fase 5 — Dockerización y Separación de Servicios ✅
+- [x] `gde_frontend/Dockerfile` — Nginx proxy reverso + archivos estáticos
+- [x] `gde_frontend/nginx.conf` — Proxy `/api/*` al backend interno
+- [x] `gde_backend/Dockerfile` — Node.js 25 con usuario no-root (OWASP A05)
+- [x] `gde_backend/.dockerignore` — Excluir secretos y datos del build
+- [x] `docker-compose.yml` — 6 servicios, servidor único (solo frontend expuesto)
+- [x] `docker-compose.swarm.yml` — Cluster Swarm con NFS y réplicas
+- [x] Workers como contenedores independientes (email-worker, signature-worker)
+- [x] Workers con `dotenv` y timezone para ejecución standalone
+- [x] Backend: workers solo en desarrollo, contenedores separados en producción
+- [x] `.env.docker` template con valores de producción
+- [x] Health checks en todos los servicios
+- [x] WebSockets para dashboard real-time → pospuesto (no requerido para 2000 usuarios)

@@ -92,6 +92,18 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Faltan credenciales' });
 
+    // Fase 5: Forzar recarga dinámica del archivo .env desde el disco (volumen montado)
+    // Esto asegura que si el admin cambia LDAP o 2FA, todos los workers usen la config nueva inmediatamente.
+    try {
+        const path = require('path');
+        const envPath = path.join(__dirname, '../.env');
+        if (require('fs').existsSync(envPath)) {
+            require('dotenv').config({ path: envPath, override: true });
+        }
+    } catch (err) {
+        console.error('Error al recargar dynamic .env en authController login:', err.message);
+    }
+
     try {
         const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
         

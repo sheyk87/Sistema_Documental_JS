@@ -1,6 +1,9 @@
 // workers/signatureWorker.js
 // Worker de BullMQ para firma criptográfica de PDFs en background
 // Fase 4: Libera el thread principal de operaciones CPU-intensive (5 fases de sellado)
+// Fase 5: Corre como contenedor Docker independiente
+require('dotenv').config();
+process.env.TZ = 'America/Argentina/Buenos_Aires';
 const { Worker } = require('bullmq');
 const { connection } = require('../config/queues');
 const pool = require('../config/db');

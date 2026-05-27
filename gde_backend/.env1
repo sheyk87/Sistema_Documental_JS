@@ -1,24 +1,13 @@
 # ==========================================
-# .env.docker — Ejemplo de configuración para Docker
-# ==========================================
-# Copiar este archivo como .env y ajustar los valores antes de desplegar:
-#   cp .env.docker .env
-#
-# NOTA: DB_HOST y REDIS_HOST se sobreescriben automáticamente
-# por docker-compose.yml (environment: DB_HOST=db, REDIS_HOST=redis)
-# No es necesario cambiarlos aquí.
-
-# ==========================================
 # CONFIGURACIÓN DEL SERVIDOR
 # ==========================================
 PORT=3000
-NODE_ENV=production
+NODE_ENV=development
 
 # ==========================================
 # BASE DE DATOS MYSQL
 # ==========================================
-# NOTA: En Docker, DB_HOST se sobreescribe a "db" por el compose
-DB_HOST=db
+DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=R00tMySQL
 DB_NAME=gde_system
@@ -40,25 +29,27 @@ STORAGE_ENCRYPTION_KEY=91ddabf6cae1219d39c1fac8ee60a302f9d536ed3d0449ae08568140c
 # ==========================================
 # CORS - Orígenes permitidos (separados por coma)
 # ==========================================
-# Incluir el dominio final con HTTPS
-CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500,http://gde.sistema.com
+CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
 
 # ==========================================
 # CONFIGURACIÓN DE CORREO ELECTRÓNICO (SMTP)
 # ==========================================
 EMAIL_ENABLED=false
-EMAIL_HOST=10.120.16.3
-EMAIL_PORT=25
+EMAIL_HOST=<servidor>
+#<25 o 587 (Gmail)>
+EMAIL_PORT=
+# false para 587 (STARTTLS), false para 25, true solo para 465.
 EMAIL_SECURE=false
-EMAIL_USER=sgdea@mail.ejercito.mil.ar
-EMAIL_PASS=••••••••
-EMAIL_FROM=Sistema GDE <usuario@ejemplo.com>
+EMAIL_USER=usuario@correo.com
+EMAIL_PASS=<contraseña (De aplicación si es Gmail)>
+EMAIL_FROM=Sistema GDE <usuario@correo.com>
 
 # ==========================================
 # CONFIGURACIÓN DE LDAP / ACTIVE DIRECTORY
 # ==========================================
 LDAP_ENABLED=false
 LDAP_URL=ldap://192.168.1.200:389
+# Si usas Active Directory, el dominio suele ser necesario para el Bind
 LDAP_DOMAIN=midominio.local
 
 # ==========================================
@@ -70,8 +61,7 @@ TWO_FACTOR_MANDATORY=false
 # ==========================================
 # REDIS (Cache, Rate Limiting, Sesiones)
 # ==========================================
-# NOTA: En Docker, REDIS_HOST se sobreescribe a "redis" por el compose
-REDIS_HOST=redis
+REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
