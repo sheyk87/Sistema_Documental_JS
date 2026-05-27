@@ -20,6 +20,9 @@ COPY sw.js /usr/share/nginx/html/
 # Esto NO modifica el código fuente local — solo la imagen Docker
 RUN sed -i 's|http://localhost:3000||g' /usr/share/nginx/html/app.js
 
+# Elevar worker_connections a 4096 en la configuración maestra de Nginx para soportar stress masivo concurrentes
+RUN sed -i 's/worker_connections  1024;/worker_connections  4096;/g' /etc/nginx/nginx.conf
+
 # Health check para Docker Swarm y compose
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -q --spider http://localhost/ || exit 1

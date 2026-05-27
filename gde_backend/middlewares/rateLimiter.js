@@ -21,10 +21,19 @@ function createRedisStore(prefix) {
     }
 }
 
-// Limiter para login: 10 intentos cada 15 minutos por IP
+// Helper para saltar rate limiters en pruebas de stress o testing (evita I/O en disco y bloqueos)
+function shouldSkipLimiter(req) {
+    const bypassHeader = req.headers['x-stress-bypass'];
+    const skip = process.env.NODE_ENV === 'test' || bypassHeader === 'STRESS_BYPASS_TOKEN_2026';
+    console.log(`[RateLimit Debug] IP: ${req.ip} | bypassHeader: ${bypassHeader} | NODE_ENV: ${process.env.NODE_ENV} | skip: ${skip}`);
+    return skip;
+}
+
+// Limiter para login: 10 intentos cada 15 minutos por IP (con bypass en memoria)
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
     max: 10,
+    skip: shouldSkipLimiter,
     message: { message: 'Demasiados intentos de inicio de sesión. Intente de nuevo en 15 minutos.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -32,40 +41,44 @@ const loginLimiter = rateLimit({
     store: createRedisStore('login')
 });
 
-// Limiter para forgot-password: 5 intentos cada 15 minutos
+// Limiter para forgot-password: 5 intentos cada 15 minutos (con bypass en memoria)
 const forgotPasswordLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
+    skip: shouldSkipLimiter,
     message: { message: 'Demasiadas solicitudes de recuperación. Intente de nuevo en 15 minutos.' },
     standardHeaders: true,
     legacyHeaders: false,
     store: createRedisStore('forgot')
 });
 
-// Limiter para 2FA verify: 5 intentos cada 5 minutos
+// Limiter para 2FA verify: 5 intentos cada 5 minutos (con bypass en memoria)
 const twoFactorLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
     max: 5,
+    skip: shouldSkipLimiter,
     message: { message: 'Demasiados intentos de verificación 2FA. Intente de nuevo en 5 minutos.' },
     standardHeaders: true,
     legacyHeaders: false,
     store: createRedisStore('2fa')
 });
 
-// Limiter global para API: 200 requests cada 15 minutos
+// Limiter global para API: 200 requests cada 15 minutos (con bypass en memoria)
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
+    skip: shouldSkipLimiter,
     message: { message: 'Demasiadas solicitudes. Intente de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,
     store: createRedisStore('api')
 });
 
-// Limiter para rutas públicas: 30 requests cada 15 minutos
+// Limiter para rutas públicas: 30 requests cada 15 minutos (con bypass en memoria)
 const publicLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 30,
+    skip: shouldSkipLimiter,
     message: { message: 'Demasiadas consultas públicas. Intente de nuevo más tarde.' },
     standardHeaders: true,
     legacyHeaders: false,

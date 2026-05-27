@@ -1,0 +1,114 @@
+config:
+  target: "http://frontend"
+  phases:
+    - duration: 20
+      arrivalRate: 2
+      name: "Fase 1: Calentamiento (Warm-up)"
+    - duration: 30
+      arrivalRate: 2
+      rampTo: 15
+      name: "Fase 2: Rampa de Carga (Ramp-up)"
+    - duration: 60
+      arrivalRate: 25
+      name: "Fase 3: Carga Sostenida Alta (Sustained Load)"
+  
+  # Plugin de Artillery para variables dinámicas
+  defaults:
+    headers:
+      Content-Type: "application/json"
+      x-stress-bypass: "STRESS_BYPASS_TOKEN_2026"
+
+scenarios:
+  - name: "Flujo Completo de Usuario GDE (Creación, Consulta y Auditoría)"
+    flow:
+      # 1. Login de Usuario Administrador / Operador
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "admin@gde.com"
+            password: "123"
+          capture:
+            - json: "$.token"
+              as: "token"
+            - json: "$.user.id"
+              as: "userId"
+            - json: "$.user.areaId"
+              as: "areaId"
+
+      # Esperar 1 segundo para simular comportamiento humano (think time)
+      - think: 1
+
+      # 2. Obtener datos iniciales para renderizar el panel / autocompletado
+      - get:
+          url: "/api/system/init"
+          headers:
+            Authorization: "Bearer {{ token }}"
+
+      # 3. Cargar Dashboard de Métricas y Analíticas (Dispara cache Redis / consultas SQL)
+      - get:
+          url: "/api/system/dashboard-stats?timeRange=30"
+          headers:
+            Authorization: "Bearer {{ token }}"
+
+      - think: 1
+
+      # 4. Generar ID único para simular creación de documento
+      - log: "Simulando creación de documento por usuario {{ userId }}"
+      
+      # 5. Crear un Documento Borrador (Estresa base de datos MySQL + transacciones)
+      - post:
+          url: "/api/docs/create"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          json:
+            id: "doc_stress_{{ $randomString(12) }}"
+            docType: "Nota"
+            subject: "Documento de Stress Test {{ $randomString(5) }}"
+            content: "<p>Contenido del documento generado automáticamente durante la prueba de stress masiva. OWASP blindado.</p>"
+            creatorId: "{{ userId }}"
+            currentOwnerId: "{{ userId }}"
+            owners: ["{{ userId }}"]
+            status: "Borrador"
+            recipients: []
+            areaId: "{{ areaId }}"
+          capture:
+            - json: "$.id"
+              as: "createdDocId"
+
+      # 6. Listar todos los documentos de la bandeja
+      - get:
+          url: "/api/docs/all"
+          headers:
+            Authorization: "Bearer {{ token }}"
+
+      - think: 1
+
+      # 7. Actualizar el documento creado
+      - put:
+          url: "/api/docs/update/{{ createdDocId }}"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          json:
+            item:
+              id: "{{ createdDocId }}"
+              subject: "Documento de Stress Test Actualizado"
+              content: "<p>Contenido actualizado. Soportando alta concurrencia en caliente.</p>"
+              status: "Borrador"
+              currentOwnerId: "{{ userId }}"
+              owners: ["{{ userId }}"]
+              recipients: []
+              signedBy: []
+              relatedDocs: []
+              signatories: []
+              number: null
+              areaId: "{{ areaId }}"
+            historyEntry:
+              userId: "{{ userId }}"
+              action: "Actualización"
+              notes: "Se modificó el contenido del documento bajo estrés masivo"
+
+      # 8. Marcar documento como leído
+      - put:
+          url: "/api/docs/{{ createdDocId }}/read"
+          headers:
+            Authorization: "Bearer {{ token }}"

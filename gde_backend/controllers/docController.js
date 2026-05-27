@@ -43,7 +43,7 @@ exports.createDocument = async (req, res) => {
             `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador', ?)`,
             [id, creatorId, serverTime]
         );
-        res.status(201).json({ message: 'Documento creado exitosamente' });
+        res.status(201).json({ id, message: 'Documento creado exitosamente' });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al crear el documento' });

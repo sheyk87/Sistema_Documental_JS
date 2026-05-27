@@ -9,8 +9,8 @@ const pool = mysql.createPool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     waitForConnections: true,
-    connectionLimit: parseInt(process.env.DB_POOL_LIMIT) || 100,  // Escalable vía .env
-    queueLimit: 500,             // Máximo 500 en cola antes de rechazar (previene OOM)
+    connectionLimit: parseInt(process.env.DB_POOL_LIMIT) || 150,  // Escalado a 150 por defecto
+    queueLimit: 0,                // Ilimitado en cola en pico (previene rechazo prematuro de sockets)
     enableKeepAlive: true,       // Reutiliza conexiones TCP (reduce overhead)
     keepAliveInitialDelay: 30000 // Ping cada 30s para mantener conexiones vivas
 });

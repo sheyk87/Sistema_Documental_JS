@@ -29,6 +29,10 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # ============================================
   # BACKEND API — Express (NO expuesto al exterior)
@@ -44,6 +48,8 @@ services:
       - backend_certs:/app/certs            # Certificado PKCS#12 para firma
       - backend_logs:/app/logs              # Logs de Winston
       - ./gde_backend/.env:/app/.env        # Variables de entorno (editable sin rebuild)
+    tmpfs:
+      - /app/uploads/temp_sealing:size=256M # Disco en RAM ultrarrápido para firmas temporales
     environment:
       # Overrides de red: apuntan a servicios Docker en vez de localhost
       # Estos toman precedencia sobre lo que diga el .env
@@ -57,6 +63,10 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # ============================================
   # SIGNATURE WORKER — Firma de PDFs (CPU-intensive)
