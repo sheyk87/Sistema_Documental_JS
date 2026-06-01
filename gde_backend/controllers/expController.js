@@ -10,16 +10,20 @@ const getArgTime = () => {
 
 // 1. Guardar un nuevo expediente
 exports.createExpediente = async (req, res) => {
-    const { id, number, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers, areaId } = req.body;
+    const { id, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers, areaId } = req.body;
 
     try {
         const serverTime = getArgTime();
+
+        // Generamos el número atómico en el backend
+        const numberingService = require('../services/numberingService');
+        const generatedNumber = await numberingService.getNextNumber('EX', areaId);
 
         await pool.query(
             `INSERT INTO expedientes (id, number, subject, creator_id, current_owner_id, status, is_public, auth_areas, auth_users, linked_docs, sealed_docs, created_at, area_id) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', ?, ?)`,
             [
-                id, number, subject, creatorId, currentOwnerId, status, 
+                id, generatedNumber, subject, creatorId, currentOwnerId, status, 
                 isPublic ? 1 : 0, 
                 JSON.stringify(authAreas || []), 
                 JSON.stringify(authUsers || []),
@@ -33,9 +37,9 @@ exports.createExpediente = async (req, res) => {
             [id, creatorId, serverTime]
         );
 
-        res.status(201).json({ message: 'Expediente creado exitosamente' });
+        res.status(201).json({ message: 'Expediente creado exitosamente', number: generatedNumber });
     } catch (error) {
-        console.error(error);
+        console.error("Error al crear expediente:", error);
         res.status(500).json({ message: 'Error al crear el expediente' });
     }
 };

@@ -73,6 +73,7 @@ router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
 router.get('/:id/content', authMiddleware, checkDocumentAccess('read'), docController.getDocumentContent);
 router.put('/update/:id', authMiddleware, checkDocumentAccess('write'), docController.updateDocument);
+router.post('/assign-number/:id', authMiddleware, checkDocumentAccess('write'), docController.assignDocumentNumber);
 router.put('/:id/read', authMiddleware, checkDocumentAccess('read'), docController.markAsRead);
 
 // RUTAS PARA ADJUNTOS con validación de filename

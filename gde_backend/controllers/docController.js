@@ -526,6 +526,45 @@ exports.signFinalAndSeal = async (req, res) => {
     }
 };
 
+// NUEVO: Asignar número oficial de forma atómica en el backend
+exports.assignDocumentNumber = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const [rows] = await pool.query(
+            'SELECT number, doc_type, area_id, status FROM documents WHERE id = ?',
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Documento no encontrado' });
+        }
+
+        const doc = rows[0];
+
+        // Si ya tiene número asignado, lo retornamos inmediatamente
+        if (doc.number) {
+            return res.json({ number: doc.number });
+        }
+
+        // Generamos el número atómico usando el numberingService
+        const numberingService = require('../services/numberingService');
+        const nextNumber = await numberingService.getNextNumber(doc.doc_type, doc.area_id || req.user.areaId);
+
+        // Guardamos el número en la base de datos
+        await pool.query(
+            'UPDATE documents SET number = ? WHERE id = ?',
+            [nextNumber, id]
+        );
+
+        res.json({ number: nextNumber });
+
+    } catch (error) {
+        console.error("Error al asignar número al documento:", error);
+        res.status(500).json({ message: 'Error interno al asignar número al documento' });
+    }
+};
+
 // NUEVO: Descarga estática del PDF encriptado
 exports.downloadStaticPdf = async (req, res) => {
     const { id } = req.params;

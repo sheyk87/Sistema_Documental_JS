@@ -225,10 +225,7 @@ const getDocCode = (type) => {
     return map[type] || type.toUpperCase().substring(0, 4);
 };
 
-const generateNumber = (type, areaName) => {
-    const year = getCurrentYear(); const code = getDocCode(type); const key = `${year}-${code}`; state.db.counters[key] = (state.db.counters[key] || 0) + 1;
-    return `${year}-${code}-${String(state.db.counters[key]).padStart(6, '0')}-${areaName}`;
-};
+
 
 function setState(newState) { state = { ...state, ...newState }; renderApp(); }
 
@@ -329,6 +326,22 @@ async function ensureDocContent(item) {
         }
     } catch (e) { console.error('Error cargando contenido:', e); }
     return item;
+}
+
+async function requestDocumentNumber(docId) {
+    try {
+        const res = await fetch(`http://localhost:3000/api/docs/assign-number/${docId}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return data.number;
+        }
+    } catch (e) {
+        console.error("Error al solicitar número de documento:", e);
+    }
+    return null;
 }
 
 function getSender(item) {
@@ -915,11 +928,20 @@ async function processBatchSign() {
         }
 
         // Caso B: Firma Final
-        item.status = STATUS.FIRMADO;
-        // Genera el número usando el área activa (donde el usuario está parado ahora)
         if (!item.number) {
-            item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+            const assignedNum = await requestDocumentNumber(item.id);
+            if (!assignedNum) {
+                console.error(`Error al obtener número correlativo para documento ${item.id}`);
+                item.status = STATUS.FIRMANDOSE;
+                if (item.signedBy) {
+                    item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
+                }
+                continue; // Saltear si falla la obtención del número correlativo
+            }
+            item.number = assignedNum;
         }
+
+        item.status = STATUS.FIRMADO;
 
         // Relacionados
         if (item.relatedDocs && item.relatedDocs.length > 0) {
@@ -3014,10 +3036,9 @@ document.addEventListener('submit', async (e) => {
         const isPublic = document.getElementById('create-exp-public').checked;
         const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value);
         const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
-        const expNumber = generateNumber('EX', getAreaName(state.currentUser.areaId));
 
         const newExp = {
-            id: `exp_${Date.now()}`, number: expNumber, subject: document.getElementById('create-exp-subject').value,
+            id: `exp_${Date.now()}`, number: null, subject: document.getElementById('create-exp-subject').value,
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, status: 'En Tramite', isPublic: isPublic, authAreas: authAreas, authUsers: authUsers,
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
@@ -3026,8 +3047,9 @@ document.addEventListener('submit', async (e) => {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newExp)
         }).then(async res => {
             if (res.ok) {
+                const resData = await res.json();
                 state.db.expedientes.push({
-                    ...newExp, type: 'expediente', linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(),
+                    ...newExp, number: resData.number, type: 'expediente', linkedDocs: [], sealedDocs: [], createdAt: new Date().toISOString(),
                     history: [createHistoryEntry(state.currentUser.id, 'Apertura', 'Expediente inicializado')]
                 });
                 setState({ currentView: 'inbox' });
@@ -3799,11 +3821,25 @@ document.addEventListener('click', async (e) => {
                     }
                 }
 
-                item.status = STATUS.FIRMADO;
-                // Genera el número usando el área real a la que pertenece el documento (o la actual si es muy antiguo)
+                // === NUEVO: Mostramos Spinner y solicitamos el número ===
+                const btn = e.target;
+                const origHtml = btn.innerHTML;
+                btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Solicitando número...';
+                btn.disabled = true;
+
                 if (!item.number) {
-                    item.number = generateNumber(item.docType, getAreaName(state.currentUser.areaId));
+                    const assignedNum = await requestDocumentNumber(item.id);
+                    if (!assignedNum) {
+                        alert("Error al obtener el número correlativo oficial desde la base de datos. Intente nuevamente.");
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                        if (window.lucide) lucide.createIcons();
+                        return;
+                    }
+                    item.number = assignedNum;
                 }
+
+                item.status = STATUS.FIRMADO;
 
                 // ... (lógica de relacionados intacta) ...
                 if (item.relatedDocs && item.relatedDocs.length > 0) {
@@ -3823,11 +3859,7 @@ document.addEventListener('click', async (e) => {
                 const hEntry = createHistoryEntry(state.currentUser.id, m.signAction === 'doc-sign-direct' ? 'Firma Directa' : 'Firma Completa', 'Documento sellado digitalmente y encriptado (SHA-256)');
                 item.history.push(hEntry);
 
-                // === NUEVO: Mostramos Spinner y llamamos al sellado ===
-                const btn = e.target;
-                const origHtml = btn.innerHTML;
                 btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Sellando PDF...';
-                btn.disabled = true;
 
                 const success = await sealAndSaveDocument(item, hEntry);
 
