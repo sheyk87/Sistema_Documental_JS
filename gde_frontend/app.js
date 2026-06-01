@@ -373,6 +373,20 @@ function isHiddenFromInbox(item, user) {
 }
 function getDerivationsCount(item) { return item.history.filter(h => h.action.includes('Derivad')).length; }
 function getRejectionsCount(item) { return item.history.filter(h => h.action === 'Rechazado').length; }
+function getPreviousSenderId(item) {
+    if (!item.history || !item.history.length) return item.creatorId;
+    for (let i = item.history.length - 1; i >= 0; i--) {
+        const entry = item.history[i];
+        if (entry.action && (
+            entry.action.startsWith('Enviado a firmar') || 
+            entry.action.startsWith('Enviado a Revisar') ||
+            entry.action.startsWith('Derivado')
+        )) {
+            return entry.userId;
+        }
+    }
+    return item.creatorId;
+}
 const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e']; return p[idx % p.length]; };
 
 async function notifyUsers(userIds, action, message, itemId, itemType) {
@@ -844,12 +858,13 @@ async function processBatchReject(note) {
         const item = state.db.documents.find(d => d.id === docId);
         if (!item) continue;
 
+        const targetOwnerId = getPreviousSenderId(item);
         item.status = STATUS.RECHAZADO;
-        item.currentOwnerId = item.creatorId;
+        item.currentOwnerId = targetOwnerId;
         const hEntry = createHistoryEntry(state.currentUser.id, 'Rechazado (Firma Masiva)', note);
         item.history.push(hEntry);
         await syncData(item, 'documento', hEntry);
-        await notifyUsers([item.creatorId], 'Documento Rechazado', `Se rechazó tu documento en revisión masiva. Motivo: ${note}`, item.id, 'documento');
+        await notifyUsers([targetOwnerId], 'Documento Rechazado', `Se rechazó tu documento en revisión masiva. Motivo: ${note}`, item.id, 'documento');
     }
 
     state.batchProgress = null;
@@ -3184,7 +3199,6 @@ document.addEventListener('submit', async (e) => {
     }
 });
 
-// NUEVO: Función global para autoguardar borradores antes de salir de la vista
 async function autoSaveDraft() {
     if (state.selectedItem && state.selectedItem.type === 'documento' &&
         (state.selectedItem.status === STATUS.BORRADOR || state.selectedItem.status === STATUS.RECHAZADO || state.selectedItem.status === STATUS.FIRMANDOSE)) {
@@ -3196,13 +3210,26 @@ async function autoSaveDraft() {
         if (subjectInput && contentInput) {
             const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
             if (docIdx > -1) {
+                // Forzar sincronización de TinyMCE si está disponible
+                if (window.tinymce && tinymce.get('edit-doc-content')) {
+                    tinymce.get('edit-doc-content').save();
+                }
+
                 state.db.documents[docIdx].subject = subjectInput.value;
+                state.selectedItem.subject = subjectInput.value;
 
                 const htmlContent = window.tinymce && tinymce.get('edit-doc-content')
                     ? tinymce.get('edit-doc-content').getContent()
                     : contentInput.value;
 
-                state.db.documents[docIdx].content = htmlContent;
+                // Sólo actualizamos en memoria si el contenido no vino vacío por un error de carga/inicialización
+                if (htmlContent && htmlContent.trim() !== '') {
+                    state.db.documents[docIdx].content = htmlContent;
+                    state.selectedItem.content = htmlContent;
+                }
+
+                state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
+
                 // Guardamos silenciosamente en la base de datos
                 await syncData(state.db.documents[docIdx], 'documento');
             }
@@ -3725,7 +3752,7 @@ document.addEventListener('click', async (e) => {
                 let newStatus = ''; let actionName = '';
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
-                if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = item.creatorId; }
+                if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = getPreviousSenderId(item); }
 
                 item.status = newStatus;
                 if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
@@ -3736,7 +3763,7 @@ document.addEventListener('click', async (e) => {
 
                 // --- NUEVO: NOTIFICACIÓN SOLO PARA RECHAZOS ---
                 if (m.type === 'rechazar_doc') {
-                    await notifyUsers([item.creatorId], 'Documento Rechazado', `Se rechazó tu borrador. Motivo: ${m.note}`, item.id, 'documento');
+                    await notifyUsers([item.currentOwnerId], 'Documento Rechazado', `Se rechazó tu borrador. Motivo: ${m.note}`, item.id, 'documento');
                 }
 
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
@@ -3916,6 +3943,7 @@ document.addEventListener('click', async (e) => {
         if (item) {
             checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
             activeInputSelector = null;
+            if (type === 'documento') await ensureDocContent(item); // <--- LAZY LOAD AL HACER CLICK EN LA FILA
             setState({ selectedItem: { ...item, type } });
         }
         return;

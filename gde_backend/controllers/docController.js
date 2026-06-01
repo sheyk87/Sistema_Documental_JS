@@ -114,13 +114,28 @@ exports.updateDocument = async (req, res) => {
         // OWASP A03: Sanitizar contenido
         const safeSubject = sanitizeText(item.subject);
         const safeContent = sanitizeHtml(item.content);
+
+        // Protección contra sobreescrituras accidentales de contenido vacío por carga lazy (Fase 1)
+        const [currentRows] = await pool.query('SELECT subject, content FROM documents WHERE id = ?', [item.id]);
+        let finalSubject = safeSubject;
+        let finalContent = safeContent;
+        if (currentRows.length > 0) {
+            const currentDoc = currentRows[0];
+            if ((!safeSubject || safeSubject.trim() === '') && currentDoc.subject) {
+                finalSubject = currentDoc.subject;
+            }
+            if ((!safeContent || safeContent.trim() === '') && currentDoc.content) {
+                finalContent = currentDoc.content;
+            }
+        }
+
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
                 owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?, area_id = ?
              WHERE id = ?`,
             [
-                safeSubject, safeContent, item.status, item.currentOwnerId,
+                finalSubject, finalContent, item.status, item.currentOwnerId,
                 JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
                 JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
                 JSON.stringify(item.signatories || []), item.number, item.areaId, item.id
@@ -244,6 +259,37 @@ exports.downloadAttachment = async (req, res) => {
             return res.status(400).json({ message: 'Nombre de archivo inválido.' });
         }
 
+        // 1. VALIDACIÓN DE AUTORIZACIÓN (OWASP A01 / BOLA):
+        // Buscamos el documento al que pertenece este adjunto para evaluar la ACL
+        const [docRows] = await pool.query(
+            `SELECT id, creator_id, current_owner_id, owners, recipients, signatories, status FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
+            [filename]
+        );
+
+        if (docRows.length > 0) {
+            const doc = docRows[0];
+            const [userRows] = await pool.query('SELECT area_id, areas, role FROM users WHERE id = ?', [userId]);
+            if (userRows.length === 0) {
+                return res.status(404).json({ message: 'Usuario no encontrado.' });
+            }
+            const user = userRows[0];
+            const userAreas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
+
+            const owners = typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []);
+            const recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
+            const signatories = typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []);
+
+            const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
+            const isOwner = owners.includes(userId) || userAreas.some(area => owners.includes(area));
+            const isRecipient = recipients.includes(userId) || userAreas.some(area => recipients.includes(area));
+            const isPendingSignatory = signatories.includes(userId);
+            const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
+
+            if (!hasDirectAccess && !isOwner && !isRecipient && !isPendingSignatory && !isAuditorOrAdmin) {
+                return res.status(403).json({ message: 'Acceso denegado: No tiene permisos para descargar el anexo de este documento.' });
+            }
+        }
+
         const filePath = path.join(__dirname, '../uploads', filename);
         
         // Verificar que la ruta resultante está dentro de uploads
@@ -261,11 +307,6 @@ exports.downloadAttachment = async (req, res) => {
 
         // Registrar la descarga en el historial para métricas del dashboard
         try {
-            // Buscar el documento al que pertenece el adjunto
-            const [docRows] = await pool.query(
-                `SELECT id FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
-                [filename]
-            );
             if (docRows.length > 0) {
                 await pool.query(
                     `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Descarga Adjunto', ?, ?)`,
@@ -299,6 +340,22 @@ exports.downloadAttachment = async (req, res) => {
         res.status(500).json({ message: 'Error al descifrar y procesar la descarga' });
     }
 };
+
+// Función auxiliar interna del controlador para validar permisos
+async function checkUserHasPermission(userId, permissionName) {
+    try {
+        const [rows] = await pool.query(`
+            SELECT p.id 
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            JOIN user_roles ur ON rp.role_id = ur.role_id
+            WHERE ur.user_id = ? AND p.id = ?
+        `, [userId, permissionName]);
+        return rows.length > 0;
+    } catch (e) {
+        return false;
+    }
+}
 
 // NUEVO: Eliminar Borrador y limpiar sus archivos adjuntos
 exports.deleteDocument = async (req, res) => {

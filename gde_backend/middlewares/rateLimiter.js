@@ -25,7 +25,6 @@ function createRedisStore(prefix) {
 function shouldSkipLimiter(req) {
     const bypassHeader = req.headers['x-stress-bypass'];
     const skip = process.env.NODE_ENV === 'test' || bypassHeader === 'STRESS_BYPASS_TOKEN_2026';
-    console.log(`[RateLimit Debug] IP: ${req.ip} | bypassHeader: ${bypassHeader} | NODE_ENV: ${process.env.NODE_ENV} | skip: ${skip}`);
     return skip;
 }
 

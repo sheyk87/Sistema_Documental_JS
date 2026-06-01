@@ -86,6 +86,20 @@ exports.getAllExpedientes = async (req, res) => {
 exports.updateExpediente = async (req, res) => {
     const { item, historyEntry } = req.body;
     try {
+        // 1. REGLA DE NEGOCIO CRÍTICA (Inmutabilidad de Fojas Selladas):
+        // Obtenemos el estado actual del expediente para verificar fojas selladas
+        const [rows] = await pool.query('SELECT sealed_docs FROM expedientes WHERE id = ?', [item.id]);
+        if (rows.length > 0) {
+            const currentSealed = typeof rows[0].sealed_docs === 'string' ? JSON.parse(rows[0].sealed_docs) : (rows[0].sealed_docs || []);
+            const newLinked = item.linkedDocs || [];
+            
+            // Si algún documento que estaba sellado ya no figura en el nuevo listado de vinculados, se bloquea la acción
+            const wasSealedRemoved = currentSealed.some(docId => !newLinked.includes(docId));
+            if (wasSealedRemoved) {
+                return res.status(403).json({ message: 'Seguridad del Expediente: Las fojas selladas no pueden ser desvinculadas bajo ninguna circunstancia, ni siquiera por un administrador.' });
+            }
+        }
+
         await pool.query(
             `UPDATE expedientes SET 
                 current_owner_id = ?, status = ?, auth_areas = ?, auth_users = ?, 

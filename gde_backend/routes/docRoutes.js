@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const docController = require('../controllers/docController');
 const authMiddleware = require('../middlewares/authMiddleware');
+const { checkDocumentAccess } = require('../middlewares/roleMiddleware');
 const { validateFilename, validateParamId } = require('../middlewares/validationMiddleware');
 const { publicLimiter } = require('../middlewares/rateLimiter');
 const multer = require('multer');
@@ -55,9 +56,9 @@ const upload = multer({
 });
 
 // NUEVA: Ruta para inyectar adjuntos dentro del PDF
-router.post('/embed-attachments/:id', authMiddleware, uploadTemp.single('pdf'), docController.embedAttachments);
+router.post('/embed-attachments/:id', authMiddleware, checkDocumentAccess('sign'), uploadTemp.single('pdf'), docController.embedAttachments);
 
-router.post('/sign-final/:id', authMiddleware, uploadTemp.single('pdf'), docController.signFinalAndSeal);
+router.post('/sign-final/:id', authMiddleware, checkDocumentAccess('sign'), uploadTemp.single('pdf'), docController.signFinalAndSeal);
 
 // Configuración para mantener el archivo en memoria sin guardarlo en disco
 const uploadMemory = multer({ storage: multer.memoryStorage() });
@@ -66,22 +67,23 @@ const uploadMemory = multer({ storage: multer.memoryStorage() });
 router.get('/public/verify/:id', publicLimiter, docController.verifyPublicDoc);
 
 // Descarga el PDF estático desencriptándolo al vuelo
-router.get('/download-static/:id', authMiddleware, docController.downloadStaticPdf);
+router.get('/download-static/:id', authMiddleware, checkDocumentAccess('read'), docController.downloadStaticPdf);
 
 router.post('/create', authMiddleware, docController.createDocument);
 router.get('/all', authMiddleware, docController.getAllDocuments);
-router.get('/:id/content', authMiddleware, docController.getDocumentContent);
-router.put('/update/:id', authMiddleware, docController.updateDocument);
-router.put('/:id/read', authMiddleware, docController.markAsRead);
+router.get('/:id/content', authMiddleware, checkDocumentAccess('read'), docController.getDocumentContent);
+router.put('/update/:id', authMiddleware, checkDocumentAccess('write'), docController.updateDocument);
+router.put('/:id/read', authMiddleware, checkDocumentAccess('read'), docController.markAsRead);
 
 // RUTAS PARA ADJUNTOS con validación de filename
-router.post('/:id/attach', authMiddleware, upload.single('file'), docController.uploadAttachment);
-router.delete('/:id/attach/:filename', authMiddleware, validateFilename, docController.deleteAttachment);
+router.post('/:id/attach', authMiddleware, checkDocumentAccess('write'), upload.single('file'), docController.uploadAttachment);
+router.delete('/:id/attach/:filename', authMiddleware, checkDocumentAccess('write'), validateFilename, docController.deleteAttachment);
 
 // RUTA PARA ELIMINAR EL DOCUMENTO COMPLETO
-router.delete('/delete/:id', authMiddleware, docController.deleteDocument);
+router.delete('/delete/:id', authMiddleware, checkDocumentAccess('delete'), docController.deleteDocument);
 
 // RUTA PARA DESCARGA PROTEGIDA con validación de filename
+// Nota: La descarga directa usa el filename encriptado. Por seguridad el controlador docController.downloadAttachment validará la pertenencia del archivo.
 router.get('/download/:filename', authMiddleware, validateFilename, docController.downloadAttachment);
 
 // RUTA PARA FIRMA:
