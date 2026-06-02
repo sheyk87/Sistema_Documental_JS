@@ -1,6 +1,9 @@
 Features:
 - Documentación con clasificación de seguridad
 - 2fa para firma de documentación con clasificación de seguridad
-- Stress Test
+- Gestión de Primer Ingreso: Incorporar una bandera en users para forzar el cambio de contraseña al ingresar por primera vez.
+- Bloqueo por Intentos Fallidos: Guardar el contador de intentos de acceso fallidos en la base de datos para suspender temporalmente cuentas tras una secuencia consecutiva de fallos de credenciales.
+- Control de Inactividad del Usuario: Agregar un timer en el frontend de la SPA (app.js) que capture la falta de interacción del cursor/teclado y limpie automáticamente el token de sesión JWT del almacenamiento local tras un lapso determinado (ej. 15 minutos).
 - Aplicación mobile (con uso de biometría)
+- Certificados de Firma Individuales: El sistema firma con el certificado oficial del organismo configurado a nivel de servidor. Si se requiere que cada agente firme con su propio certificado digital individual, se debe implementar una pasarela para la carga y descifrado de llaves PKCS#12 individuales por usuario.
 - IA para que pueda hacer un resumen de entre todos los documentos de que se tratan

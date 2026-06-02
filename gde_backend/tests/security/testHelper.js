@@ -1,11 +1,20 @@
 // tests/security/testHelper.js
 // Helper compartido para tests de seguridad OWASP
 
+// Interceptar dotenv.config para evitar que la carga dinámica en caliente de .env sobreescriba NODE_ENV
+const dotenv = require('dotenv');
+const originalConfig = dotenv.config;
+dotenv.config = function(options) {
+    const res = originalConfig.apply(this, arguments);
+    process.env.NODE_ENV = 'test';
+    return res;
+};
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 
 // Cargar variables de entorno para tests
-require('dotenv').config();
+dotenv.config();
 
 // Importar app sin iniciar el servidor
 const app = require('../../server');
@@ -24,14 +33,14 @@ function generateTestToken(payload = { id: 'u_test', role: 'user' }, expiresIn =
  * Genera un token admin para tests
  */
 function generateAdminToken() {
-    return generateTestToken({ id: 'u_admin_test', role: 'admin' });
+    return generateTestToken({ id: 'u1', role: 'admin' });
 }
 
 /**
  * Genera un token normal (no admin) para tests
  */
 function generateUserToken() {
-    return generateTestToken({ id: 'u_user_test', role: 'user' });
+    return generateTestToken({ id: 'u2', role: 'user' });
 }
 
 /**
