@@ -26,12 +26,32 @@ async function resolveDelegatedOwner(targetOwnerId) {
         }
 
         const user = rows[0];
-        if (user.delegated_to && user.licence_start && user.licence_end) {
+        if (user.delegated_to) {
             const now = new Date();
-            const start = new Date(user.licence_start);
-            const end = new Date(user.licence_end);
+            
+            const start = user.licence_start ? new Date(user.licence_start) : null;
+            const end = user.licence_end ? new Date(user.licence_end) : null;
 
-            if (now >= start && now <= end) {
+            const isStartValid = start && !isNaN(start.getTime());
+            const isEndValid = end && !isNaN(end.getTime());
+
+            let isActive = false;
+
+            if (!isStartValid && !isEndValid) {
+                // Permanente
+                isActive = true;
+            } else if (isStartValid && !isEndValid) {
+                // Desde una fecha de inicio en adelante
+                isActive = (now >= start);
+            } else if (!isStartValid && isEndValid) {
+                // Desde ya mismo hasta una fecha de fin
+                isActive = (now <= end);
+            } else {
+                // Período acotado
+                isActive = (now >= start && now <= end);
+            }
+
+            if (isActive) {
                 // Licencia activa! Obtener el nombre del delegado
                 const [delegatedRows] = await pool.query('SELECT name FROM users WHERE id = ?', [user.delegated_to]);
                 const delegatedName = delegatedRows.length > 0 ? delegatedRows[0].name : user.delegated_to;

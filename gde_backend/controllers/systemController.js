@@ -71,12 +71,15 @@ exports.getInitialData = async (req, res) => {
 
         // --- CACHE MISS: Consultar MySQL y cachear ---
         const [areas] = await pool.query('SELECT id, name FROM areas');
-        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status FROM users');
+        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status, licence_start, licence_end, delegated_to FROM users');
         
         const users = usersRows.map(u => ({
             ...u,
             twoFactorEnabled: u.two_factor_enabled === 1,
-            areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId])
+            areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId]),
+            licence_start: u.licence_start,
+            licence_end: u.licence_end,
+            delegated_to: u.delegated_to
         }));
         
         const responseData = { areas, users };

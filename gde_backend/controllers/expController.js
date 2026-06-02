@@ -128,12 +128,23 @@ exports.updateExpediente = async (req, res) => {
         if (delegation.delegated) {
             item.currentOwnerId = delegation.finalOwnerId;
             
-            // Notificar al delegado con campanita
+            // Obtener el área del delegado para actualizar el area_id del expediente
+            const [delUserRows] = await pool.query('SELECT area_id FROM users WHERE id = ?', [delegation.finalOwnerId]);
+            if (delUserRows.length > 0) {
+                item.areaId = delUserRows[0].area_id;
+            }
+            
+            // Notificar al delegado con campanita y correo
             const notifMsg = `Recibiste el expediente por desvío automático debido a la licencia de ${delegation.originalOwnerName}.`;
-            await pool.query(`
-                INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
-                VALUES (?, ?, ?, 'expediente', 'delegado_licencia', ?)
-            `, [delegation.finalOwnerId, req.user?.id || 'system', item.id, notifMsg]);
+            const { sendNotificationInternal } = require('./notificationController');
+            await sendNotificationInternal({
+                userIds: [delegation.finalOwnerId],
+                senderId: req.user?.id || 'system',
+                action: 'delegado_licencia',
+                message: notifMsg,
+                itemId: item.id,
+                itemType: 'expediente'
+            });
             
             // Modificar la nota de historia
             if (historyEntry) {
@@ -266,13 +277,18 @@ exports.makePase = async (req, res) => {
             [id, senderUserId, hAction, notes, getArgTime()]
         );
 
-        // 7. Notificar al delegado con campanita si hubo desvío
+        // 7. Notificar al delegado con campanita y correo si hubo desvío
         if (delegation.delegated) {
             const notifMsg = `Recibiste el expediente por desvío automático debido a la licencia de ${delegation.originalOwnerName}.`;
-            await connection.query(`
-                INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
-                VALUES (?, ?, ?, 'expediente', 'delegado_licencia', ?)
-            `, [delegation.finalOwnerId, senderUserId, id, notifMsg]);
+            const { sendNotificationInternal } = require('./notificationController');
+            await sendNotificationInternal({
+                userIds: [delegation.finalOwnerId],
+                senderId: senderUserId,
+                action: 'delegado_licencia',
+                message: notifMsg,
+                itemId: id,
+                itemType: 'expediente'
+            });
         }
 
         await connection.commit();

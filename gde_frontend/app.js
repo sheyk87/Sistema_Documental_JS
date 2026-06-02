@@ -355,6 +355,103 @@ function canViewExpediente(exp, user) {
     if (exp.isPublic || exp.creatorId === user.id || exp.currentOwnerId === user.id || exp.currentOwnerId === user.areaId) return true;
     if (exp.authUsers?.includes(user.id) || exp.authAreas?.includes(user.areaId)) return true; return false;
 }
+function checkActiveLicence(userId) {
+    if (!userId || !userId.startsWith('u')) return null;
+    const user = state.db.users.find(u => u.id === userId);
+    if (!user || !user.delegated_to) return null;
+
+    const now = new Date();
+    const start = user.licence_start ? new Date(user.licence_start) : null;
+    const end = user.licence_end ? new Date(user.licence_end) : null;
+
+    const isStartValid = start && !isNaN(start.getTime());
+    const isEndValid = end && !isNaN(end.getTime());
+
+    let isActive = false;
+
+    if (!isStartValid && !isEndValid) {
+        isActive = true;
+    } else if (isStartValid && !isEndValid) {
+        isActive = (now >= start);
+    } else if (!isStartValid && isEndValid) {
+        isActive = (now <= end);
+    } else {
+        isActive = (now >= start && now <= end);
+    }
+
+    if (isActive) {
+        const delegate = state.db.users.find(u => u.id === user.delegated_to);
+        const delegateName = delegate ? delegate.name : user.delegated_to;
+        return {
+            originalName: user.name,
+            delegateName: delegateName,
+            start: user.licence_start,
+            end: user.licence_end
+        };
+    }
+    return null;
+}
+
+function formatLicencePeriodText(startStr, endStr) {
+    const formatDateDMY = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return '';
+        const pad = (n) => n.toString().padStart(2, '0');
+        return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())} hs`;
+    };
+
+    const startText = formatDateDMY(startStr);
+    const endText = formatDateDMY(endStr);
+
+    if (!startText && !endText) {
+        return "en forma permanente";
+    } else if (startText && !endText) {
+        return `desde el ${startText} (sin límite)`;
+    } else if (!startText && endText) {
+        return `desde este mismo momento hasta el ${endText}`;
+    } else {
+        return `desde el ${startText} hasta el ${endText}`;
+    }
+}
+
+function checkAndInterceptLicence(targetIds, originalType, executeCallback) {
+    const ids = Array.isArray(targetIds) ? targetIds : [targetIds];
+    const userIds = ids.filter(id => id && id.startsWith('u'));
+
+    const activeLicences = [];
+    for (const uId of userIds) {
+        const licenceInfo = checkActiveLicence(uId);
+        if (licenceInfo) {
+            activeLicences.push(licenceInfo);
+        }
+    }
+
+    if (activeLicences.length > 0) {
+        const messages = activeLicences.map(info => {
+            const periodStr = formatLicencePeriodText(info.start, info.end);
+            return `El destinatario <strong>${info.originalName}</strong> está de licencia/ausencia ${periodStr}. Su delegado asignado es <strong>${info.delegateName}</strong>.`;
+        });
+
+        const fullMessage = messages.join('<br/><br/>');
+
+        state.pendingLicenceAction = {
+            type: originalType,
+            callback: executeCallback
+        };
+
+        setState({
+            modal: {
+                type: 'advertencia_licencia',
+                message: fullMessage
+            }
+        });
+        return true; // Interceptado
+    }
+
+    return false; // No interceptado
+}
+
 function isPersonalDoc(d, user) {
     if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(d.status)) return false;
     if (isHiddenFromInbox(d, user)) return false;
@@ -3218,6 +3315,16 @@ function renderModalOverlay() {
             <textarea data-modal-input="note" placeholder="Motivo del rechazo devuelto a los creadores..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note || ''}</textarea>
         `;
     }
+    else if (m.type === 'advertencia_licencia') {
+        title = 'Advertencia de Licencia / Ausencia Activa';
+        content = `
+            <div class="mb-4 text-sm text-amber-800 bg-amber-50 p-4 rounded-lg border border-amber-200">
+                <div class="flex items-center gap-2 mb-2 font-bold"><i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600"></i> Licencia/Ausencia detectada</div>
+                <p class="mb-3">${m.message}</p>
+                <p class="text-xs text-amber-700">Si confirma el envío, la tramitación y tenencia legal será redirigida automáticamente al delegado.</p>
+            </div>
+        `;
+    }
 
     const confirmBtnHtml = m.type === 'ver_usuarios_area' ? '' : `<button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>`;
 
@@ -3802,6 +3909,12 @@ document.addEventListener('submit', async (e) => {
         e.preventDefault();
         const licenceStart = document.getElementById('licence-start').value;
         const licenceEnd = document.getElementById('licence-end').value;
+        
+        if (licenceStart && licenceEnd) {
+            if (new Date(licenceEnd) < new Date(licenceStart)) {
+                return alert("La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.");
+            }
+        }
         
         const selectedRadio = document.querySelector('input[name="licence_delegate_sel"]:checked');
         const delegatedTo = selectedRadio ? selectedRadio.value : null;
@@ -4470,6 +4583,17 @@ document.addEventListener('click', async (e) => {
         if (action === 'confirm-modal') {
             const m = state.modal;
 
+            if (m.type === 'advertencia_licencia') {
+                const pending = state.pendingLicenceAction;
+                if (pending && typeof pending.callback === 'function') {
+                    const cb = pending.callback;
+                    state.pendingLicenceAction = null;
+                    setState({ modal: null });
+                    await cb();
+                }
+                return;
+            }
+
             if (m.type === 'batch_reject') {
                 if (!m.note || !m.note.trim()) return alert("Debe ingresar un motivo para el rechazo masivo.");
                 return processBatchReject(m.note);
@@ -4480,6 +4604,11 @@ document.addEventListener('click', async (e) => {
             }
 
             if (m.type === 'editar_usuario') {
+                if (m.editULicenceStart && m.editULicenceEnd) {
+                    if (new Date(m.editULicenceEnd) < new Date(m.editULicenceStart)) {
+                        return alert("La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.");
+                    }
+                }
                 if (!confirm("¿Está seguro de aplicar estos cambios al usuario? Se enviará una notificación por correo al interesado si está configurado.")) {
                     return;
                 }
@@ -4563,54 +4692,10 @@ document.addEventListener('click', async (e) => {
 
             if (m.type === 'revisar') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                item.currentOwnerId = m.selectedId; item.status = STATUS.BORRADOR;
+                
+                const executeRevisar = async () => {
+                    item.currentOwnerId = m.selectedId; item.status = STATUS.BORRADOR;
 
-                if (m.selectedId.startsWith('u')) {
-                    const targetUser = state.db.users.find(u => u.id === m.selectedId);
-                    if (targetUser) item.areaId = targetUser.areaId;
-                } else {
-                    item.areaId = null;
-                }
-
-                const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
-                const hAction = `Enviado a Revisar a ${destName}`;
-
-                const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
-                item.history.push(hEntry);
-                await syncData(item, 'documento', hEntry);
-
-                await notifyUsers([m.selectedId], 'Revisión', 'Te envió un documento para revisar', item.id, 'documento');
-                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
-            }
-
-            if (m.type === 'derivar_exp') {
-                if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-
-                const btn = e.target;
-                const origHtml = btn.innerHTML;
-                btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Procesando Pase...';
-                btn.disabled = true;
-
-                try {
-                    const res = await fetch(`${API_BASE}/api/exps/${item.id}/pase`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
-                        },
-                        body: JSON.stringify({ receiverId: m.selectedId, notes: m.note })
-                    });
-
-                    if (!res.ok) {
-                        const err = await res.json();
-                        throw new Error(err.message || 'Error al realizar el pase en el servidor.');
-                    }
-
-                    const resData = await res.json();
-
-                    // Actualizar estado local
-                    item.currentOwnerId = m.selectedId;
-                    item.status = 'En Tramite';
                     if (m.selectedId.startsWith('u')) {
                         const targetUser = state.db.users.find(u => u.id === m.selectedId);
                         if (targetUser) item.areaId = targetUser.areaId;
@@ -4618,76 +4703,150 @@ document.addEventListener('click', async (e) => {
                         item.areaId = null;
                     }
 
-                    item.sealedDocs = resData.nextSealed;
-
                     const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
-                    const hAction = `Derivado a ${destName}`;
+                    const hAction = `Enviado a Revisar a ${destName}`;
+
                     const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
                     item.history.push(hEntry);
+                    await syncData(item, 'documento', hEntry);
 
-                    // Registrar movimiento local
-                    const movDate = new Date().toISOString();
-                    let receiverUserId = m.selectedId.startsWith('u') ? m.selectedId : null;
-                    let receiverAreaId = m.selectedId.startsWith('a') ? m.selectedId : (state.db.users.find(u => u.id === m.selectedId)?.areaId || null);
-
-                    if (!item.movements) item.movements = [];
-                    item.movements.push({
-                        id: `mov_${Date.now()}`,
-                        senderId: state.currentUser.id,
-                        senderAreaId: state.currentUser.areaId,
-                        receiverId: receiverUserId,
-                        receiverAreaId: receiverAreaId,
-                        notes: m.note,
-                        linkedDocsSnapshot: [...(item.linkedDocs || [])],
-                        date: movDate
-                    });
-
-                    await notifyUsers([m.selectedId], 'Derivación', 'Te derivó un expediente', item.id, 'expediente');
-
+                    await notifyUsers([m.selectedId], 'Revisión', 'Te envió un documento para revisar', item.id, 'documento');
                     setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                };
 
-                } catch (err) {
-                    alert(`Error: ${err.message}`);
-                    btn.disabled = false;
-                    btn.innerHTML = origHtml;
-                    if (window.lucide) lucide.createIcons();
+                if (!checkAndInterceptLicence(m.selectedId, m.type, executeRevisar)) {
+                    await executeRevisar();
+                }
+                return;
+            }
+
+            if (m.type === 'derivar_exp') {
+                if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+
+                const executeDerivarExp = async () => {
+                    const btn = e.target;
+                    const origHtml = btn.innerHTML;
+                    btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Procesando Pase...';
+                    btn.disabled = true;
+
+                    try {
+                        const res = await fetch(`${API_BASE}/api/exps/${item.id}/pase`, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+                            },
+                            body: JSON.stringify({ receiverId: m.selectedId, notes: m.note })
+                        });
+
+                        if (!res.ok) {
+                            const err = await res.json();
+                            throw new Error(err.message || 'Error al realizar el pase en el servidor.');
+                        }
+
+                        const resData = await res.json();
+
+                        // Actualizar estado local
+                        item.currentOwnerId = m.selectedId;
+                        item.status = 'En Tramite';
+                        if (m.selectedId.startsWith('u')) {
+                            const targetUser = state.db.users.find(u => u.id === m.selectedId);
+                            if (targetUser) item.areaId = targetUser.areaId;
+                        } else {
+                            item.areaId = null;
+                        }
+
+                        item.sealedDocs = resData.nextSealed;
+
+                        const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
+                        const hAction = `Derivado a ${destName}`;
+                        const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
+                        item.history.push(hEntry);
+
+                        // Registrar movimiento local
+                        const movDate = new Date().toISOString();
+                        let receiverUserId = m.selectedId.startsWith('u') ? m.selectedId : null;
+                        let receiverAreaId = m.selectedId.startsWith('a') ? m.selectedId : (state.db.users.find(u => u.id === m.selectedId)?.areaId || null);
+
+                        if (!item.movements) item.movements = [];
+                        item.movements.push({
+                            id: `mov_${Date.now()}`,
+                            senderId: state.currentUser.id,
+                            senderAreaId: state.currentUser.areaId,
+                            receiverId: receiverUserId,
+                            receiverAreaId: receiverAreaId,
+                            notes: m.note,
+                            linkedDocsSnapshot: [...(item.linkedDocs || [])],
+                            date: movDate
+                        });
+
+                        await notifyUsers([m.selectedId], 'Derivación', 'Te derivó un expediente', item.id, 'expediente');
+
+                        setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+
+                    } catch (err) {
+                        alert(`Error: ${err.message}`);
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                        if (window.lucide) lucide.createIcons();
+                    }
+                };
+
+                if (!checkAndInterceptLicence(m.selectedId, m.type, executeDerivarExp)) {
+                    await executeDerivarExp();
                 }
                 return;
             }
 
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
+                
+                const executeEnviarFirmar = async () => {
+                    item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
 
-                // Ajustamos el área al primer firmante
-                const targetUser = state.db.users.find(u => u.id === item.currentOwnerId);
-                if (targetUser) item.areaId = targetUser.areaId;
+                    // Ajustamos el área al primer firmante
+                    const targetUser = state.db.users.find(u => u.id === item.currentOwnerId);
+                    if (targetUser) item.areaId = targetUser.areaId;
 
-                const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
+                    const destNames = m.selectionArr.map(id => getUserName(id)).join(', ');
 
-                const hEntry = createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note);
-                item.history.push(hEntry);
-                await syncData(item, 'documento', hEntry);
+                    const hEntry = createHistoryEntry(state.currentUser.id, `Enviado a firmar a ${destNames}`, m.note);
+                    item.history.push(hEntry);
+                    await syncData(item, 'documento', hEntry);
 
-                // --- NUEVO: NOTIFICACIÓN ---
-                await notifyUsers(m.selectionArr, 'Firma Pendiente', `Requiere tu firma en el documento`, item.id, 'documento');
+                    // --- NUEVO: NOTIFICACIÓN ---
+                    await notifyUsers(m.selectionArr, 'Firma Pendiente', `Requiere tu firma en el documento`, item.id, 'documento');
 
-                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                    setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                };
+
+                if (!checkAndInterceptLicence(m.selectionArr, m.type, executeEnviarFirmar)) {
+                    await executeEnviarFirmar();
+                }
+                return;
             }
 
             if (m.type === 'derivar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
-                const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ');
+                
+                const executeDerivarDoc = async () => {
+                    item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
+                    const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ');
 
-                const hEntry = createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note);
-                item.history.push(hEntry);
-                await syncData(item, 'documento', hEntry);
+                    const hEntry = createHistoryEntry(state.currentUser.id, `Derivado a ${destNames}`, m.note);
+                    item.history.push(hEntry);
+                    await syncData(item, 'documento', hEntry);
 
-                // --- NUEVO: NOTIFICACIÓN ---
-                await notifyUsers(m.selectionArr, 'Derivación', `Te derivó el documento ${item.number || ''}`, item.id, 'documento');
+                    // --- NUEVO: NOTIFICACIÓN ---
+                    await notifyUsers(m.selectionArr, 'Derivación', `Te derivó el documento ${item.number || ''}`, item.id, 'documento');
 
-                return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                    setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+                };
+
+                if (!checkAndInterceptLicence(m.selectionArr, m.type, executeDerivarDoc)) {
+                    await executeDerivarDoc();
+                }
+                return;
             }
 
             if (m.type === 'vincular_doc') {

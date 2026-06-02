@@ -93,6 +93,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   # ============================================
   # EMAIL WORKER — Envío de correos en background
@@ -113,6 +115,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   # ============================================
   # REDIS — Cache, BullMQ, Blacklist JWT

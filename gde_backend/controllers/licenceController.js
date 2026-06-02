@@ -5,6 +5,20 @@
 const pool = require('../config/db');
 const emailService = require('../services/emailService');
 const { logAdminAction, logSecurityError } = require('../utils/logger');
+const systemController = require('./systemController');
+
+function formatDateDMY(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    const pad = (n) => n.toString().padStart(2, '0');
+    const day = pad(date.getDate());
+    const month = pad(date.getMonth() + 1);
+    const year = date.getFullYear();
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    return `${day}/${month}/${year} ${hours}:${minutes} hs`;
+}
 
 // Configurar o limpiar licencia/ausencia
 exports.updateLicence = async (req, res) => {
@@ -16,6 +30,12 @@ exports.updateLicence = async (req, res) => {
 
     if (!isSelfService && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Acceso denegado. Se requieren privilegios de administrador.' });
+    }
+
+    if (licenceStart && licenceEnd) {
+        if (new Date(licenceEnd) < new Date(licenceStart)) {
+            return res.status(400).json({ message: 'La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.' });
+        }
     }
 
     const connection = await pool.getConnection();
@@ -70,10 +90,39 @@ exports.updateLicence = async (req, res) => {
             const webNotifAction = 'licence_assigned';
             const itemType = 'documento'; // Enlazar a tabla de notificaciones existente
 
+            const startText = formatDateDMY(licenceStart);
+            const endText = formatDateDMY(licenceEnd);
+
+            let periodTextMsg = '';
+            let periodHtmlList = '';
+
+            if (!startText && !endText) {
+                periodTextMsg = 'de forma permanente';
+                periodHtmlList = '<li><strong>Período de Delegación:</strong> Permanente (sin límite de fecha)</li>';
+            } else if (startText && !endText) {
+                periodTextMsg = `desde el ${startText} y sin límite`;
+                periodHtmlList = `
+                    <li><strong>Inicio de Delegación:</strong> ${startText}</li>
+                    <li><strong>Fin de Delegación:</strong> Sin límite (indefinido)</li>
+                `;
+            } else if (!startText && endText) {
+                periodTextMsg = `desde este mismo momento hasta el ${endText}`;
+                periodHtmlList = `
+                    <li><strong>Inicio de Delegación:</strong> Inmediato (desde este momento)</li>
+                    <li><strong>Fin de Delegación:</strong> ${endText}</li>
+                `;
+            } else {
+                periodTextMsg = `desde el ${startText} hasta el ${endText}`;
+                periodHtmlList = `
+                    <li><strong>Inicio de Licencia:</strong> ${startText}</li>
+                    <li><strong>Fin de Licencia:</strong> ${endText}</li>
+                `;
+            }
+
             if (isSelfService) {
                 // Caso A: Autogestión (Usuario A delegando en B)
                 // Notificar campanita a B (el delegado)
-                const notifMsgB = `El usuario ${userA.name} te ha designado como su delegado administrativo debido a licencia/ausencia.${notes ? ` Nota: "${notes}"` : ''}`;
+                const notifMsgB = `El usuario ${userA.name} te ha designado como su delegado administrativo ${periodTextMsg}.${notes ? ` Nota: "${notes}"` : ''}`;
                 await connection.query(`
                     INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
                     VALUES (?, ?, 'licence', ?, ?, ?)
@@ -86,10 +135,9 @@ exports.updateLicence = async (req, res) => {
                         <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;">
                             <h2 style="color: #3b82f6; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Designación de Delegado</h2>
                             <p style="color: #334155;">Hola <strong>${userB.name}</strong>,</p>
-                            <p style="color: #334155;">El usuario <strong>${userA.name}</strong> te ha designado como su **delegado administrativo** para gestionar su bandeja de tareas durante su período de licencia/ausencia:</p>
+                            <p style="color: #334155;">El usuario <strong>${userA.name}</strong> te ha designado como su **delegado administrativo** para gestionar su bandeja de tareas con el siguiente período:</p>
                             <ul style="color: #334155; line-height: 1.6;">
-                                <li><strong>Inicio de Licencia:</strong> ${new Date(licenceStart).toLocaleString()}</li>
-                                <li><strong>Fin de Licencia:</strong> ${new Date(licenceEnd).toLocaleString()}</li>
+                                ${periodHtmlList}
                             </ul>
                             ${notes ? `<p style="color: #475569; background-color: #f8fafc; padding: 12px; border-left: 4px solid #cbd5e1; font-style: italic; margin-top: 15px;">Nota del usuario: "${notes}"</p>` : ''}
                             <p style="color: #64748b; font-size: 12px; margin-top: 20px;">Todos los documentos y expedientes derivados a ${userA.name} ingresarán automáticamente a tu bandeja de entrada.</p>
@@ -99,14 +147,14 @@ exports.updateLicence = async (req, res) => {
             } else {
                 // Caso B: Asignación por Administrador
                 // Campanita al titular A
-                const notifMsgA = `Un administrador del sistema ha configurado tu licencia/ausencia, delegando tu bandeja a ${userB.name}.`;
+                const notifMsgA = `Un administrador del sistema ha configurado tu licencia/ausencia, delegando tu bandeja a ${userB.name} ${periodTextMsg}.`;
                 await connection.query(`
                     INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
                     VALUES (?, ?, 'licence', ?, ?, ?)
                 `, [userId, req.user.id, itemType, webNotifAction, notifMsgA]);
 
                 // Campanita al delegado B
-                const notifMsgB = `Un administrador te ha designado como delegado administrativo de ${userA.name} durante su ausencia.${notes ? ` Nota: "${notes}"` : ''}`;
+                const notifMsgB = `Un administrador te ha designado como delegado administrativo de ${userA.name} ${periodTextMsg}.${notes ? ` Nota: "${notes}"` : ''}`;
                 await connection.query(`
                     INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
                     VALUES (?, ?, 'licence', ?, ?, ?)
@@ -120,10 +168,9 @@ exports.updateLicence = async (req, res) => {
                         <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #10b981; border-radius: 8px;">
                             <h2 style="color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 10px;">Licencia Registrada por Administrador</h2>
                             <p style="color: #334155;">Hola <strong>${userA.name}</strong>,</p>
-                            <p style="color: #334155;">Un administrador de sistemas ha configurado tu **licencia/ausencia** en la plataforma, designando como delegado a <strong>${userB.name}</strong>:</p>
+                            <p style="color: #334155;">Un administrador de sistemas ha configurado tu **licencia/ausencia** en la plataforma, designando como delegado a <strong>${userB.name}</strong> con el siguiente período:</p>
                             <ul style="color: #334155; line-height: 1.6;">
-                                <li><strong>Desde:</strong> ${new Date(licenceStart).toLocaleString()}</li>
-                                <li><strong>Hasta:</strong> ${new Date(licenceEnd).toLocaleString()}</li>
+                                ${periodHtmlList}
                                 <li><strong>Delegado:</strong> ${userB.name}</li>
                             </ul>
                             ${notes ? `<p style="color: #475569; background-color: #f8fafc; padding: 12px; border-left: 4px solid #cbd5e1; font-style: italic; margin-top: 15px;">Nota de administración: "${notes}"</p>` : ''}
@@ -137,10 +184,9 @@ exports.updateLicence = async (req, res) => {
                         <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #3b82f6; border-radius: 8px;">
                             <h2 style="color: #3b82f6; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">Designación de Delegación por Administrador</h2>
                             <p style="color: #334155;">Hola <strong>${userB.name}</strong>,</p>
-                            <p style="color: #334155;">El administrador de sistemas te ha designado como **delegado administrativo** de <strong>${userA.name}</strong> para el período comprendido entre:</p>
+                            <p style="color: #334155;">El administrador de sistemas te ha designado como **delegado administrativo** de <strong>${userA.name}</strong> para el período:</p>
                             <ul style="color: #334155; line-height: 1.6;">
-                                <li><strong>Inicio:</strong> ${new Date(licenceStart).toLocaleString()}</li>
-                                <li><strong>Fin:</strong> ${new Date(licenceEnd).toLocaleString()}</li>
+                                ${periodHtmlList}
                             </ul>
                             ${notes ? `<p style="color: #475569; background-color: #f8fafc; padding: 12px; border-left: 4px solid #cbd5e1; font-style: italic; margin-top: 15px;">Nota de administración: "${notes}"</p>` : ''}
                         </div>`;
@@ -228,6 +274,7 @@ exports.updateLicence = async (req, res) => {
         }
 
         await connection.commit();
+        await systemController.invalidateInitialDataCache();
         res.json({ message: 'Licencia y delegación configuradas correctamente.' });
     } catch (error) {
         await connection.rollback();

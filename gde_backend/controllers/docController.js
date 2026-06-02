@@ -136,12 +136,17 @@ exports.updateDocument = async (req, res) => {
         if (delegation.delegated) {
             item.currentOwnerId = delegation.finalOwnerId;
             
-            // Notificar al delegado con campanita
+            // Notificar al delegado con campanita y correo
             const notifMsg = `Recibiste el documento "${finalSubject}" por desvío automático debido a la licencia de ${delegation.originalOwnerName}.`;
-            await pool.query(`
-                INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
-                VALUES (?, ?, ?, 'documento', 'delegado_licencia', ?)
-            `, [delegation.finalOwnerId, req.user?.id || 'system', item.id, notifMsg]);
+            const { sendNotificationInternal } = require('./notificationController');
+            await sendNotificationInternal({
+                userIds: [delegation.finalOwnerId],
+                senderId: req.user?.id || 'system',
+                action: 'delegado_licencia',
+                message: notifMsg,
+                itemId: item.id,
+                itemType: 'documento'
+            });
             
             // Modificar la nota de historia
             if (historyEntry) {

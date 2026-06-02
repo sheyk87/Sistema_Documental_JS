@@ -25,7 +25,7 @@ RUN sed -i 's/worker_connections  1024;/worker_connections  4096;/g' /etc/nginx/
 
 # Health check para Docker Swarm y compose
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider http://localhost/ || exit 1
+    CMD wget -q --spider http://127.0.0.1/ || exit 1
 
 EXPOSE 80
 
