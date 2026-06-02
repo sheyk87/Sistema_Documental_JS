@@ -8,5 +8,6 @@ const { checkExpedienteAccess } = require('../middlewares/roleMiddleware');
 router.post('/create', authMiddleware, expController.createExpediente);
 router.get('/all', authMiddleware, expController.getAllExpedientes);
 router.put('/update/:id', authMiddleware, checkExpedienteAccess('write'), expController.updateExpediente);
+router.post('/:id/pase', authMiddleware, checkExpedienteAccess('write'), expController.makePase);
 
 module.exports = router;

@@ -29,14 +29,38 @@ exports.bulkCreateAreas = async (req, res) => {
     const { areas } = req.body;
     if (!areas || !areas.length) return res.status(400).json({ message: 'No hay datos válidos' });
     
+    const connection = await pool.getConnection();
     try {
+        await connection.beginTransaction();
         for (let a of areas) {
-            await pool.query(`INSERT IGNORE INTO areas (id, name) VALUES (?, ?)`, [a.id, a.name]);
+            let aid = a.id || null;
+            let isNew = false;
+            
+            if (aid) {
+                // Verificar si existe el área
+                const [exists] = await connection.query('SELECT id FROM areas WHERE id = ?', [aid]);
+                if (exists.length === 0) {
+                    isNew = true;
+                }
+            } else {
+                aid = `a${Date.now()}${Math.floor(Math.random() * 1000)}`;
+                isNew = true;
+            }
+
+            if (isNew) {
+                await connection.query(`INSERT INTO areas (id, name) VALUES (?, ?)`, [aid, a.name]);
+            } else {
+                await connection.query(`UPDATE areas SET name = ? WHERE id = ?`, [a.name, aid]);
+            }
         }
+        await connection.commit();
         await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Áreas importadas exitosamente' });
     } catch (error) {
-        console.error(error);
+        await connection.rollback();
+        console.error('Error en bulkCreateAreas:', error);
         res.status(500).json({ message: 'Error en la importación masiva de áreas' });
+    } finally {
+        connection.release();
     }
 };

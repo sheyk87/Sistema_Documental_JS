@@ -129,6 +129,26 @@ exports.updateDocument = async (req, res) => {
             }
         }
 
+        // === NUEVO: Comprobar licencia/ausencia del destinatario (Fase 3) ===
+        const { resolveDelegatedOwner } = require('../utils/licenceHelper');
+        const delegation = await resolveDelegatedOwner(item.currentOwnerId);
+        
+        if (delegation.delegated) {
+            item.currentOwnerId = delegation.finalOwnerId;
+            
+            // Notificar al delegado con campanita
+            const notifMsg = `Recibiste el documento "${finalSubject}" por desvío automático debido a la licencia de ${delegation.originalOwnerName}.`;
+            await pool.query(`
+                INSERT INTO notifications (user_id, sender_id, item_id, item_type, action, message)
+                VALUES (?, ?, ?, 'documento', 'delegado_licencia', ?)
+            `, [delegation.finalOwnerId, req.user?.id || 'system', item.id, notifMsg]);
+            
+            // Modificar la nota de historia
+            if (historyEntry) {
+                historyEntry.notes = (historyEntry.notes || '') + ` (Desviado automáticamente a ${delegation.delegatedOwnerName} por licencia de ${delegation.originalOwnerName})`;
+            }
+        }
+
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 

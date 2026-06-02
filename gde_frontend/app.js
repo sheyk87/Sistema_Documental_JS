@@ -300,7 +300,7 @@ function checkAndMarkRead(item, type) {
             // Si no lo ha leído, lo marcamos en memoria y avisamos al servidor
             if (!item.readBy.includes(state.currentUser.id)) {
                 item.readBy.push(state.currentUser.id);
-                fetch(`http://localhost:3000/api/docs/${item.id}/read`, {
+                fetch(`${API_BASE}/api/docs/${item.id}/read`, {
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).catch(e => console.error("Error registrando lectura", e));
@@ -314,7 +314,7 @@ function checkAndMarkRead(item, type) {
 async function ensureDocContent(item) {
     if (item.type !== 'documento' || (item.content && item.content.length > 0)) return item;
     try {
-        const res = await fetch(`http://localhost:3000/api/docs/${item.id}/content`, {
+        const res = await fetch(`${API_BASE}/api/docs/${item.id}/content`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
         if (res.ok) {
@@ -330,7 +330,7 @@ async function ensureDocContent(item) {
 
 async function requestDocumentNumber(docId) {
     try {
-        const res = await fetch(`http://localhost:3000/api/docs/assign-number/${docId}`, {
+        const res = await fetch(`${API_BASE}/api/docs/assign-number/${docId}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
@@ -405,7 +405,7 @@ const getColorPalette = (idx) => { const p = ['#ef4444', '#f97316', '#f59e0b', '
 async function notifyUsers(userIds, action, message, itemId, itemType) {
     if (!userIds || userIds.length === 0) return;
     try {
-        await fetch('http://localhost:3000/api/notifications/create', {
+        await fetch(`${API_BASE}/api/notifications/create`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify({ userIds, action, message, itemId, itemType })
         });
@@ -416,7 +416,7 @@ async function notifyUsers(userIds, action, message, itemId, itemType) {
 async function fetchNotifications() {
     if (!state.currentUser) return;
     try {
-        const res = await fetch('http://localhost:3000/api/notifications/mine', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+        const res = await fetch(`${API_BASE}/api/notifications/mine`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
         if (res.ok) {
             state.notifications = await res.json();
             renderNotificationUI(); // <-- Solo actualiza la campana
@@ -453,7 +453,7 @@ function renderNotificationUI() {
                 <div class="max-h-96 overflow-y-auto">
                     ${state.notifications.length === 0 ? '<p class="text-xs text-gray-500 text-center py-6">No tienes notificaciones.</p>' : state.notifications.map(n => `
                         <div data-action="read-notification" data-notif-id="${n.id}" data-item-id="${n.item_id}" data-item-type="${n.item_type}" class="p-3 border-b hover:bg-blue-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-blue-50/30' : ''}">
-                            <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
+                            <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${{ 'licence_assigned': 'Licencia Asignada', 'LICENCE_ASSIGNED': 'Licencia Asignada', 'licence_cleared': 'Licencia Finalizada', 'LICENCE_CLEARED': 'Licencia Finalizada', 'delegado_licencia': 'Desvío por Licencia', 'DELEGADO_LICENCIA': 'Desvío por Licencia', 'derivacion': 'Derivación', 'DERIVACION': 'Derivación', 'firma': 'Firma', 'FIRMA': 'Firma', 'rechazo': 'Rechazo', 'RECHAZO': 'Rechazo' }[n.action] || n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
                             <p class="text-sm text-gray-800 mb-1">${n.message}</p>
                             <div class="flex justify-between items-center text-[10px] text-gray-500"><span class="font-medium"><i data-lucide="user" class="w-3 h-3 inline"></i> ${n.sender_name}</span><span>${new Date(n.created_at).toLocaleString()}</span></div>
                         </div>
@@ -471,7 +471,7 @@ async function clearSession() {
     const token = localStorage.getItem('gde_token');
     if (token) {
         try {
-            await fetch('http://localhost:3000/api/auth/logout', {
+            await fetch(`${API_BASE}/api/auth/logout`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -492,7 +492,7 @@ async function pollJobStatus(queueName, jobId, maxWaitMs = 120000) {
 
     while (Date.now() - startTime < maxWaitMs) {
         try {
-            const res = await fetch(`http://localhost:3000/api/jobs/${queueName}/${jobId}`, {
+            const res = await fetch(`${API_BASE}/api/jobs/${queueName}/${jobId}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
 
@@ -518,7 +518,7 @@ async function pollJobStatus(queueName, jobId, maxWaitMs = 120000) {
 
 // Función auxiliar para cargar todos los datos del sistema
 async function loadFullState(token) {
-    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+    const sysResponse = await fetch(`${API_BASE}/api/system/init`, {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
@@ -527,12 +527,12 @@ async function loadFullState(token) {
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
 
-    const docsResponse = await fetch('http://localhost:3000/api/docs/all', {
+    const docsResponse = await fetch(`${API_BASE}/api/docs/all`, {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     state.db.documents = await docsResponse.json();
 
-    const expsResponse = await fetch('http://localhost:3000/api/exps/all', {
+    const expsResponse = await fetch(`${API_BASE}/api/exps/all`, {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     state.db.expedientes = await expsResponse.json();
@@ -568,7 +568,7 @@ async function initSession() {
     }
 
     try {
-        const res = await fetch('http://localhost:3000/api/users/me', {
+        const res = await fetch(`${API_BASE}/api/users/me`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -605,8 +605,28 @@ function exportToCSV(filename, rows) {
 
 function handleExport(model) {
     let items = [], headers = [], rows = [];
-    if (model === 'admin_users') { headers = ['ID', 'Nombre', 'Email', 'Área', 'Rol']; rows = [headers, ...state.db.users.map(u => [u.id, u.name, u.email, getAreaName(u.areaId), u.role])]; }
-    else if (model === 'admin_areas') { headers = ['ID', 'Nombre', 'Usuarios']; rows = [headers, ...state.db.areas.map(a => [a.id, a.name, state.db.users.filter(u => u.areaId === a.id).length])]; }
+    if (model === 'admin_users') { 
+        headers = ['id', 'name', 'email', 'password', 'areaId', 'role', 'areas', 'status', 'twoFactorEnabled', 'roles', 'licenceStart', 'licenceEnd', 'delegatedTo']; 
+        rows = [headers, ...state.db.users.map(u => [
+            u.id,
+            u.name, 
+            u.email, 
+            '********', 
+            u.areaId, 
+            u.role || 'user', 
+            (u.areas || [u.areaId]).join('-'), 
+            u.status || 'active', 
+            u.twoFactorEnabled ? 'true' : 'false', 
+            (u.roles || [u.role]).join(';'), 
+            u.licence_start ? new Date(u.licence_start).toISOString() : '', 
+            u.licence_end ? new Date(u.licence_end).toISOString() : '', 
+            u.delegated_to || ''
+        ])]; 
+    }
+    else if (model === 'admin_areas') { 
+        headers = ['id', 'name']; 
+        rows = [headers, ...state.db.areas.map(a => [a.id, a.name])]; 
+    }
     else if (model === 'stats') {
         let r = [['--- ESTADISTICAS EXPORTADAS ---']];
         if (currentStatsData.totals) { r.push(['', ''], ['TOTALES GENERALES']); Object.entries(currentStatsData.totals).forEach(([k, v]) => r.push([k, v])); }
@@ -753,7 +773,7 @@ async function sealAndSaveDocument(doc, hEntry) {
         finalFormData.append('documentData', JSON.stringify(doc));
         finalFormData.append('historyEntry', JSON.stringify(hEntry));
 
-        const res = await fetch(`http://localhost:3000/api/docs/sign-final/${doc.id}`, {
+        const res = await fetch(`${API_BASE}/api/docs/sign-final/${doc.id}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: finalFormData
@@ -805,7 +825,7 @@ async function downloadDocumentArchive(docId) {
     if (btn) btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
 
     try {
-        const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
+        const pdfRes = await fetch(`${API_BASE}/api/docs/download-static/${doc.id}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         });
 
@@ -841,7 +861,7 @@ async function downloadFullExpediente(expId) {
             const doc = state.db.documents.find(d => d.id === docId);
             if (doc) {
                 try {
-                    const pdfRes = await fetch(`http://localhost:3000/api/docs/download-static/${doc.id}`, {
+                    const pdfRes = await fetch(`${API_BASE}/api/docs/download-static/${doc.id}`, {
                         headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                     });
                     const pdfBlob = await pdfRes.blob();
@@ -1730,7 +1750,7 @@ function renderMainLayout() {
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
-                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services')) : ''}
+                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
@@ -1754,7 +1774,7 @@ function renderMainLayout() {
                                     <div class="max-h-96 overflow-y-auto">
                                         ${state.notifications.length === 0 ? '<p class="text-xs text-gray-500 text-center py-6">No tienes notificaciones.</p>' : state.notifications.map(n => `
                                             <div data-action="read-notification" data-notif-id="${n.id}" data-item-id="${n.item_id}" data-item-type="${n.item_type}" class="p-3 border-b hover:bg-blue-50 cursor-pointer transition-colors ${!n.is_read ? 'bg-blue-50/30' : ''}">
-                                                <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
+                                                <div class="flex justify-between items-start mb-1"><span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${{ 'licence_assigned': 'Licencia Asignada', 'LICENCE_ASSIGNED': 'Licencia Asignada', 'licence_cleared': 'Licencia Finalizada', 'LICENCE_CLEARED': 'Licencia Finalizada', 'delegado_licencia': 'Desvío por Licencia', 'DELEGADO_LICENCIA': 'Desvío por Licencia', 'derivacion': 'Derivación', 'DERIVACION': 'Derivación', 'firma': 'Firma', 'FIRMA': 'Firma', 'rechazo': 'Rechazo', 'RECHAZO': 'Rechazo' }[n.action] || n.action}</span>${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-blue-600"></span>' : ''}</div>
                                                 <p class="text-sm text-gray-800 mb-1">${n.message}</p>
                                                 <div class="flex justify-between items-center text-[10px] text-gray-500"><span class="font-medium"><i data-lucide="user" class="w-3 h-3 inline"></i> ${n.sender_name}</span><span>${new Date(n.created_at).toLocaleString()}</span></div>
                                             </div>
@@ -1813,7 +1833,7 @@ function renderMobileLayout() {
             ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
             ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
             ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
-            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services')) : ''}
+            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
         </nav>
         <div class="p-4 border-t border-slate-800">
             <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -1878,7 +1898,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
 function renderLogin() {
@@ -1948,7 +1968,281 @@ function renderLogin() {
 }
 
 function renderAdminUsers() {
-    return `<div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}"><input type="file" id="csv-upload-users" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: name,email,password,areaId,role,areas"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3><form id="form-admin-user" class="flex ${isMobile() ? 'flex-col' : 'flex-wrap'} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 min-w-[150px] px-3 py-2 border rounded outline-none" /><input required type="text" id="admin-u-pass" placeholder="Contraseña" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none" /><select id="admin-u-area" multiple class="${isMobile() ? 'w-full' : 'w-48'} h-20 px-3 py-2 border rounded outline-none text-sm" required title="Use Ctrl+Click para seleccionar varias áreas">${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}</select><select id="admin-u-role" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none"><option value="user">Usuario</option><option value="admin">Admin</option></select><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Crear</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2 whitespace-nowrap">ID</th><th class="p-2 whitespace-nowrap">Nombre</th><th class="p-2 whitespace-nowrap">Email</th><th class="p-2 whitespace-nowrap">Área</th><th class="p-2 whitespace-nowrap">Rol / 2FA</th><th class="p-2 whitespace-nowrap">Acciones</th></tr></thead><tbody class="divide-y">${state.db.users.map(u => `<tr><td class="p-2 text-xs text-gray-500 whitespace-nowrap">${u.id}</td><td class="p-2 font-medium whitespace-nowrap">${u.name}</td><td class="p-2 whitespace-nowrap">${u.email}</td><td class="p-2 whitespace-nowrap">${getAreaName(u.areaId)}</td><td class="p-2 whitespace-nowrap"><span class="uppercase text-xs font-bold block">${u.role}</span><span class="text-[10px] ${u.twoFactorEnabled ? 'text-emerald-600' : 'text-gray-400'}">${u.twoFactorEnabled ? '2FA Activo' : '2FA Inactivo'}</span></td><td class="p-2 whitespace-nowrap"><button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button><button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    const rolesList = [
+        { id: 'admin', name: 'Administrador Técnico', desc: 'Control total de usuarios, áreas, servidores y logs de auditoría.' },
+        { id: 'user', name: 'Usuario Estándar', desc: 'Permiso básico para redactar, revisar, firmar y realizar pases de expedientes.' },
+        { id: 'redactor', name: 'Redactor de Documentos', desc: 'Especialista enfocado en la confección e inicio de borradores.' },
+        { id: 'revisor', name: 'Revisor de Trámites', desc: 'Encargado de controlar la foliatura y contenido antes del sellado digital.' },
+        { id: 'firmante', name: 'Firmante Oficial', desc: 'Agente con potestad legal y token de firma para autorizar documentos públicos.' },
+        { id: 'auditor', name: 'Auditor Gubernamental', desc: 'Acceso exclusivo de sólo lectura a expedientes reservados y logs de auditoría.' }
+    ];
+
+    return `
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}">
+                <input type="file" id="csv-upload-users" accept=".csv" class="hidden" />
+                <button onclick="document.getElementById('csv-upload-users').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: name,email,password,areaId,role,areas,status,twoFactorEnabled,roles,licenceStart,licenceEnd,delegatedTo"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button>
+                <button data-action="export-csv" data-model="admin_users" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button>
+            </div>
+            
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3>
+            
+            <form id="form-admin-user" class="flex flex-col gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
+                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                    <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
+                    <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
+                    <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none text-sm" />
+                    <select id="admin-u-status" class="px-3 py-2 border rounded outline-none text-sm font-semibold bg-white" title="Estado de la Cuenta">
+                        <option value="active">Activo</option>
+                        <option value="inactive">Inactivo</option>
+                        <option value="suspended">Suspendido</option>
+                    </select>
+                </div>
+                
+                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Ctrl+Click para seleccionar varias)</span></label>
+                        <select id="admin-u-area" multiple class="w-full h-24 px-3 py-2 border rounded outline-none text-sm bg-white" required>
+                            ${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    
+                    <div class="flex-[2] bg-white p-3 rounded border">
+                        <label class="block text-xs font-bold text-slate-700 mb-2 uppercase flex items-center gap-1"><i data-lucide="shield" class="w-4 h-4"></i> Roles y Permisos Granulares</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                            ${rolesList.map(r => `
+                                <label class="flex items-center gap-2 p-1.5 bg-slate-50 border rounded hover:border-blue-300 cursor-pointer shadow-sm relative">
+                                    <input type="checkbox" name="create_u_roles" value="${r.id}" ${r.id === 'user' ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600" />
+                                    <span class="text-xs text-slate-700 font-semibold truncate" style="max-width: 120px;" title="${r.name}">${r.name}</span>
+                                    <div class="relative group ml-auto flex items-center shrink-0">
+                                        <i data-lucide="info" class="w-3.5 h-3.5 text-blue-500 cursor-pointer"></i>
+                                        <div class="absolute bottom-full right-0 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
+                                            ${r.desc}
+                                            <div class="absolute top-full right-2 border-4 border-transparent border-t-slate-900"></div>
+                                        </div>
+                                    </div>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end pt-2 border-t">
+                    <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center gap-1 shadow"><i data-lucide="plus" class="w-4 h-4"></i> Crear Usuario</button>
+                </div>
+            </form>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50">
+                        <tr class="border-b">
+                            <th class="p-2 whitespace-nowrap">ID</th>
+                            <th class="p-2 whitespace-nowrap">Nombre</th>
+                            <th class="p-2 whitespace-nowrap">Email</th>
+                            <th class="p-2 whitespace-nowrap">Área</th>
+                            <th class="p-2 whitespace-nowrap">Rol / Estado</th>
+                            <th class="p-2 whitespace-nowrap">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${state.db.users.map(u => {
+                            const activeRoles = u.roles ? u.roles.join(', ') : u.role;
+                            return `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-2 text-xs text-gray-500 whitespace-nowrap">${u.id}</td>
+                                    <td class="p-2 font-medium whitespace-nowrap">${u.name}</td>
+                                    <td class="p-2 whitespace-nowrap">${u.email}</td>
+                                    <td class="p-2 whitespace-nowrap">${getAreaName(u.areaId)}</td>
+                                    <td class="p-2 whitespace-nowrap">
+                                        <span class="uppercase text-xs font-bold block" title="${activeRoles}">${u.role}</span>
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${u.status === 'suspended' ? 'bg-red-50 text-red-700 border-red-200' : u.status === 'inactive' ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-green-50 text-green-700 border-green-200'}">
+                                                ${u.status === 'suspended' ? 'Suspendido' : u.status === 'inactive' ? 'Inactivo' : 'Activo'}
+                                            </span>
+                                            ${u.twoFactorEnabled ? `
+                                                <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                    <i data-lucide="shield-check" class="w-2.5 h-2.5"></i> 2FA
+                                                </span>
+                                            ` : `
+                                                <span class="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-bold border bg-slate-50 text-slate-400 border-slate-200">
+                                                    Sin 2FA
+                                                </span>
+                                            `}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 whitespace-nowrap">
+                                        <button data-action="open-modal" data-modal-type="editar_usuario" data-id="${u.id}" class="text-blue-500 hover:text-blue-700 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
+                                        <button data-action="admin-del-user" data-id="${u.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function initTemplatesEditor() {
+    if (state.currentView !== 'admin_templates') return;
+    if (window.tinymce) {
+        if (tinymce.get('admin-t-content')) {
+            // Si ya está inicializado, no hacer nada
+            return;
+        }
+        const isDark = state.ui.darkMode;
+        tinymce.init({
+            selector: '#admin-t-content',
+            plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
+            toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | table link code | removeformat | fullscreen preview',
+            menubar: 'file edit view insert format tools table help',
+            height: 350,
+            promotion: false,
+            skin: isDark ? 'oxide-dark' : 'oxide',
+            content_css: isDark ? 'dark' : 'default',
+            content_style: `
+                body { 
+                    font-family: Times New Roman, serif; 
+                    font-size: 16px; 
+                    color: ${isDark ? '#e2e8f0' : '#1e293b'}; 
+                    background-color: ${isDark ? '#1e293b' : '#ffffff'};
+                    line-height: 1.6; 
+                } 
+                table { border-collapse: collapse; width: 100%; } 
+                td, th { border: 1px solid ${isDark ? '#334155' : '#cbd5e1'}; padding: 8px; }
+            `,
+            setup: function (editor) {
+                editor.on('change', function () {
+                    editor.save();
+                });
+            }
+        });
+    }
+}
+
+function renderAdminTemplates() {
+    // Autocarga de plantillas desde el servidor
+    if (state.db.templates === undefined) {
+        state.db.templates = [];
+        fetch(`${API_BASE}/api/templates`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        })
+        .then(res => res.json())
+        .then(data => {
+            state.db.templates = data.templates || data || [];
+            renderApp();
+        })
+        .catch(err => console.error("Error al cargar las plantillas:", err));
+    }
+
+    const templates = state.db.templates || [];
+    const docTypesList = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST];
+    const isEditing = !!state.editingTemplate;
+    const tpl = state.editingTemplate || { id: '', name: '', content: '', is_global: false, doc_types: [] };
+
+    setTimeout(initTemplatesEditor, 100);
+
+    return `
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i> 
+                Gestión de Plantillas (Templates)
+            </h3>
+            
+            <form id="form-admin-template" class="space-y-4 mb-8 p-6 bg-slate-50 rounded-xl border border-slate-200">
+                <h4 class="font-bold text-sm text-slate-700 border-b pb-2 flex items-center gap-1">
+                    <i data-lucide="${isEditing ? 'edit-3' : 'plus-circle'}" class="w-4 h-4 text-blue-500"></i>
+                    ${isEditing ? `Editar Plantilla: "${tpl.name}"` : 'Crear Nueva Plantilla'}
+                </h4>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Nombre de la Plantilla</label>
+                        <input required type="text" id="admin-t-name" value="${tpl.name}" placeholder="Ej: Nota de Agradecimiento" class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white" />
+                    </div>
+                    <div class="flex items-center gap-3 pt-6">
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="admin-t-global" class="sr-only peer" ${tpl.is_global ? 'checked' : ''}>
+                            <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                        <span class="text-sm font-bold text-slate-700 flex items-center gap-1">
+                            Definir como Plantilla Global 
+                            <span class="text-[10px] text-gray-500 font-normal">(Se usa como fallback si el documento no tiene plantilla específica)</span>
+                        </span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documentales Asignados (Un tipo documental no admite más de 1 plantilla)</label>
+                    <div class="max-h-40 overflow-y-auto border rounded-lg bg-white p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${docTypesList.map(type => {
+                            const code = getDocCode(type);
+                            const isChecked = (tpl.doc_types || []).includes(code);
+                            // Buscar si este tipo ya está asignado a otra plantilla para avisar al usuario
+                            const otherTpl = templates.find(t => t.id !== tpl.id && t.doc_types.includes(code));
+                            const labelSuffix = otherTpl ? `<span class="text-[10px] text-amber-600 font-bold block">(Reasignará de: ${otherTpl.name})</span>` : '';
+                            return `
+                                <label class="flex items-start gap-2 p-1.5 hover:bg-slate-50 cursor-pointer rounded border border-transparent hover:border-slate-200">
+                                    <input type="checkbox" name="admin_t_doctype" value="${code}" ${isChecked ? 'checked' : ''} class="mt-1 w-4 h-4 rounded text-blue-600" />
+                                    <span class="text-xs text-slate-700 leading-tight">
+                                        <strong>${type}</strong> <span class="text-gray-400">(${code})</span>
+                                        ${labelSuffix}
+                                    </span>
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Cuerpo / Estructura de la Plantilla</label>
+                    <textarea id="admin-t-content" class="w-full min-h-[150px] p-2 border rounded-lg outline-none font-mono text-xs">${tpl.content}</textarea>
+                </div>
+                
+                <div class="flex justify-end gap-2 pt-2 border-t">
+                    ${isEditing ? `<button type="button" data-action="cancel-edit-template" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-xs">Cancelar</button>` : ''}
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1">
+                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                        ${isEditing ? 'Guardar Cambios' : 'Crear Plantilla'}
+                    </button>
+                </div>
+            </form>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50 border-b">
+                        <tr>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Nombre</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Tipos Asignados</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Alcance</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y text-slate-600">
+                        ${templates.length === 0 ? `<tr><td colspan="4" class="p-4 text-center text-gray-400 italic">No hay plantillas registradas. Cree una arriba.</td></tr>` : ''}
+                        ${templates.map(t => {
+                            const badges = t.doc_types.map(code => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">${code}</span>`).join(' ') || '<span class="text-xs text-gray-400 italic">Ninguno</span>';
+                            const alcanceBadge = t.is_global 
+                                ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Global</span>` 
+                                : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">Específico</span>`;
+                            return `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-3 font-semibold text-slate-800">${t.name}</td>
+                                    <td class="p-3">${badges}</td>
+                                    <td class="p-3">${alcanceBadge}</td>
+                                    <td class="p-3 text-right whitespace-nowrap">
+                                        <button type="button" data-action="edit-template-btn" data-id="${t.id}" class="text-blue-600 hover:text-blue-800 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
+                                        <button type="button" data-action="delete-template-btn" data-id="${t.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
 }
 
 function renderAdminAreas() {
@@ -2033,6 +2327,20 @@ function renderUserSettings() {
     const webNotif = u.web_notifications !== 0;
     const emailNotif = u.email_notifications !== 0;
 
+    // Autocarga de delegados elegibles para el perfil del usuario (Fase 3)
+    if (state.eligibleDelegates === undefined) {
+        state.eligibleDelegates = [];
+        fetch(`${API_BASE}/api/licences/eligible-delegates`, { 
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+        })
+        .then(res => res.json())
+        .then(data => {
+            state.eligibleDelegates = data.delegates || [];
+            renderApp();
+        })
+        .catch(err => console.error("Error loading delegates:", err));
+    }
+
     const renderToggle = (id, label, checked) => `
         <div class="flex items-center justify-between p-4 bg-slate-50 border rounded-lg">
             <span class="text-sm font-bold text-gray-700">${label}</span>
@@ -2070,6 +2378,75 @@ function renderUserSettings() {
                     </div>
                 </form>
             </div>
+
+            <!-- Licencia / Ausencia Autogestión -->
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-indigo-100">
+                <h3 class="text-lg font-bold text-indigo-800 mb-4 border-b pb-2 flex items-center gap-2">
+                    <i data-lucide="plane" class="w-5 h-5 text-indigo-600"></i> Licencia / Ausencia Administrativa
+                </h3>
+                <form id="form-user-licence" class="space-y-4">
+                    <p class="text-xs text-gray-500">Configure su ausencia temporal. El sistema derivará automáticamente todo documento o expediente destinado a su bandeja hacia su delegado durante este rango.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Inicio</label>
+                            <input type="datetime-local" id="licence-start" 
+                                   value="${u.licence_start ? new Date(new Date(u.licence_start).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" 
+                                   class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Fin</label>
+                            <input type="datetime-local" id="licence-end" 
+                                   value="${u.licence_end ? new Date(new Date(u.licence_end).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" 
+                                   class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Usuario Delegado</label>
+                        <!-- Buscador dinámico (utiliza data-local-search que filtra .dest-item reactivamente en el DOM) -->
+                        <input type="text" 
+                               id="licence-delegate-search" 
+                               data-local-search="licence-delegate"
+                               placeholder="Buscar delegado por nombre o área..." 
+                               class="w-full px-3 py-2 border rounded-lg outline-none text-sm mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+                        
+                        <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="licence-delegate-container">
+                            <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
+                                <input type="radio" name="licence_delegate_sel" value="" ${!u.delegated_to ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                <span>-- Sin delegación (Limpiar Licencia) --</span>
+                            </label>
+                            ${(state.eligibleDelegates || []).map(x => `
+                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item licence-delegate-item" data-name="${x.name} ${getAreaName(x.area_id || x.areaId)}">
+                                    <input type="radio" name="licence_delegate_sel" value="${x.id}" ${u.delegated_to === x.id ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.area_id || x.areaId)})</span></span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Nota para el delegado (opcional) -->
+                    <div class="mt-3">
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Nota para el Delegado <span class="text-gray-400 font-normal">(Opcional - Llegará en la notificación y el correo)</span></label>
+                        <textarea id="licence-note" 
+                                  placeholder="Ej: Estimado, le delego mi bandeja para la gestión de expedientes durante mi ausencia..." 
+                                  class="w-full p-2.5 border rounded-lg text-xs outline-none bg-white border-gray-200" 
+                                  rows="2"></textarea>
+                    </div>
+                    
+                    <div class="flex justify-end gap-2 pt-2">
+                        ${u.delegated_to ? `
+                            <button type="button" data-action="clear-my-licence" class="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-1 shadow-sm">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Licencia
+                            </button>
+                        ` : ''}
+                        <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-md">
+                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Licencia
+                        </button>
+                    </div>
+                </form>
+            </div>
+
 
             ${u.twoFactorEnabled ? `
             <div class="bg-white p-8 rounded-xl shadow-sm border border-emerald-100">
@@ -2117,7 +2494,7 @@ async function renderPublicVerificationScreen(docId) {
     if (window.lucide) lucide.createIcons();
 
     try {
-        const res = await fetch(`http://localhost:3000/api/docs/public/verify/${docId}`);
+        const res = await fetch(`${API_BASE}/api/docs/public/verify/${docId}`);
         const data = await res.json();
 
         if (!res.ok) {
@@ -2382,7 +2759,53 @@ function renderCreateDocument() {
 }
 
 function renderCreateExpediente() {
-    return `<div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2"><i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i><h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3></div><form id="form-create-exp" class="p-6 space-y-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label><input required type="text" id="create-exp-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div><div class="p-4 bg-purple-50 rounded-lg border border-purple-100"><label class="flex items-center gap-3 cursor-pointer mb-2"><input type="checkbox" id="create-exp-public" checked class="w-5 h-5 text-purple-600 rounded" onchange="document.getElementById('private-auth-box').classList.toggle('hidden', this.checked)" /><div><p class="font-medium text-purple-900">Expediente Público</p><p class="text-xs text-purple-700">Si se desmarca, deberá elegir quién puede verlo.</p></div></label><div id="private-auth-box" class="hidden mt-4 pt-4 border-t border-purple-200"><p class="text-sm font-medium mb-2">Autorizados (además de usted y su área):</p><div class="max-h-40 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1">${state.db.areas.map(a => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_areas" value="${a.id}"> Área: ${a.name}</label>`).join('')}${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" name="auth_users" value="${u.id}"> Usuario: ${u.name}</label>`).join('')}</div></div></div><div class="flex justify-end pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i> Generar Expediente</button></div></form></div>`;
+    return `<div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
+            <i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i>
+            <h3 class="font-semibold text-gray-800 text-lg">Apertura de Expediente</h3>
+        </div>
+        <form id="form-create-exp" class="p-6 space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label>
+                <input required type="text" id="create-exp-subject" class="w-full px-3 py-2 border rounded-lg outline-none" />
+            </div>
+            <div class="p-4 bg-purple-50 rounded-lg border border-purple-100">
+                <label class="flex items-center gap-3 cursor-pointer mb-2">
+                    <input type="checkbox" id="create-exp-public" checked class="w-5 h-5 text-purple-600 rounded" onchange="document.getElementById('private-auth-box').classList.toggle('hidden', this.checked)" />
+                    <div>
+                        <p class="font-medium text-purple-900">Expediente Público</p>
+                        <p class="text-xs text-purple-700">Si se desmarca, deberá elegir quién puede verlo.</p>
+                    </div>
+                </label>
+                <div id="private-auth-box" class="hidden mt-4 pt-4 border-t border-purple-200">
+                    <p class="text-sm font-medium mb-2">Autorizados (además de usted y su área):</p>
+                    <input type="text" 
+                           data-local-search="create-exp-auth" 
+                           placeholder="Buscar áreas o usuarios..." 
+                           class="w-full px-3 py-1.5 border rounded-lg outline-none mb-2 text-xs bg-slate-50 border-purple-100 focus:border-purple-300 focus:bg-white transition-colors" />
+                    <div class="max-h-40 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1" id="create-exp-auth-list">
+                        ${state.db.areas.map(a => `
+                            <label class="flex items-center gap-2 p-1 hover:bg-slate-50 cursor-pointer rounded dest-item">
+                                <input type="checkbox" name="auth_areas" value="${a.id}"> 
+                                <span class="dest-text">Área: ${a.name}</span>
+                            </label>
+                        `).join('')}
+                        ${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `
+                            <label class="flex items-center gap-2 p-1 hover:bg-slate-50 cursor-pointer rounded dest-item">
+                                <input type="checkbox" name="auth_users" value="${u.id}"> 
+                                <span class="dest-text">Usuario: ${u.name}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end pt-4 border-t">
+                <button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2">
+                    <i data-lucide="check" class="w-4 h-4"></i> Generar Expediente
+                </button>
+            </div>
+        </form>
+    </div>`;
 }
 
 function renderDocumentDetail() {
@@ -2533,8 +2956,37 @@ function renderExpedienteDetail() {
                             ${isArchived ? `<button data-action="exp-desarchivar" class="w-full py-1.5 bg-amber-500 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="package-open" class="w-4 h-4"></i> Desarchivar Expediente</button>` : ''}
                         </div>
                     ` : ''}
-                    <h4 class="font-semibold mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Movimientos</h4>
-                    <div class="flex-1 overflow-auto space-y-4">${[...exp.history].reverse().map(h => `<div class="text-sm border-l-2 border-purple-200 pl-3"><p class="font-medium">${h.action}</p><p class="text-[10px] text-gray-500"><strong>${getUserName(h.userId)}</strong> • ${new Date(h.date).toLocaleString()}</p>${h.notes ? `<p class="text-xs text-gray-600 mt-0.5 italic">"${h.notes}"</p>` : ''}</div>`).join('')}</div>
+                    <h4 class="font-semibold mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Línea de Tiempo de Pases</h4>
+                    <div class="flex-1 overflow-auto space-y-4 pr-1">
+                        ${(!exp.movements || exp.movements.length === 0) ? `
+                            <p class="text-xs text-gray-400 italic text-center py-4">No se han realizado pases formales aún.</p>
+                        ` : [...exp.movements].reverse().map((mov, idx) => {
+                            const senderName = getUserName(mov.senderId);
+                            const receiverName = mov.receiverId ? getUserName(mov.receiverId) : `Área: ${getAreaName(mov.receiverAreaId)}`;
+                            return `
+                                <div class="relative pl-6 pb-4 border-l border-indigo-200 last:border-0 last:pb-0">
+                                    <div class="absolute -left-1.5 top-1.5 w-3 h-3 rounded-full bg-indigo-500 border border-white"></div>
+                                    <div class="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 shadow-sm text-xs space-y-1">
+                                        <div class="flex justify-between items-center text-[10px] text-indigo-600 font-bold mb-1">
+                                            <span>PASE #${exp.movements.length - idx}</span>
+                                            <span>${new Date(mov.date).toLocaleString()}</span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-800">
+                                            <strong>De:</strong> ${senderName} (${getAreaName(mov.senderAreaId)})
+                                        </p>
+                                        <p class="text-[11px] text-slate-800">
+                                            <strong>Para:</strong> ${receiverName}
+                                        </p>
+                                        ${mov.notes ? `
+                                            <div class="mt-2 bg-white p-2 rounded border border-indigo-50 text-slate-600 italic">
+                                                "${mov.notes}"
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
                 </div>
             </div>
         </div>
@@ -2550,29 +3002,114 @@ function renderModalOverlay() {
 
     if (m.type === 'editar_usuario') {
         title = 'Editar Usuario';
+        
+        const rolesList = [
+            { id: 'admin', name: 'Admin Técnico', desc: 'Control total de usuarios, áreas, servidores y logs de auditoría.' },
+            { id: 'user', name: 'Usuario Estándar', desc: 'Permiso básico para redactar, revisar, firmar y realizar pases de expedientes.' },
+            { id: 'redactor', name: 'Redactor', desc: 'Especialista enfocado en la confección e inicio de borradores.' },
+            { id: 'revisor', name: 'Revisor', desc: 'Encargado de controlar la foliatura y contenido antes del sellado digital.' },
+            { id: 'firmante', name: 'Firmante Oficial', desc: 'Agente con potestad legal y token de firma para autorizar documentos públicos.' },
+            { id: 'auditor', name: 'Auditor', desc: 'Acceso exclusivo de sólo lectura a expedientes reservados y logs.' }
+        ];
+
         content = `
-            <div class="space-y-3 mb-4">
+            <div class="space-y-3 mb-4 max-h-[70vh] overflow-y-auto pr-1">
                 <div><label class="text-xs font-bold text-gray-600">Nombre</label><input type="text" data-modal-input="editUName" value="${m.editUName}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Email</label><input type="email" data-modal-input="editUEmail" value="${m.editUEmail}" class="w-full p-2 border rounded text-sm outline-none" /></div>
                 <div><label class="text-xs font-bold text-gray-600">Contraseña (Dejar en blanco para no cambiarla)</label><input type="text" data-modal-input="editUPass" value="${m.editUPass}" placeholder="***" class="w-full p-2 border rounded text-sm outline-none" /></div>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-bold text-gray-600 block mb-1">Estado de la Cuenta</label>
+                        <select data-modal-input="editUStatus" class="w-full p-2 border rounded text-sm outline-none font-semibold bg-white">
+                            <option value="active" ${m.editUStatus === 'active' ? 'selected' : ''}>Activo</option>
+                            <option value="inactive" ${m.editUStatus === 'inactive' ? 'selected' : ''}>Inactivo</option>
+                            <option value="suspended" ${m.editUStatus === 'suspended' ? 'selected' : ''}>Suspendido</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-end justify-between p-2 bg-gray-50 border rounded">
+                        <label class="text-xs font-bold text-gray-600">Habilitar 2FA</label>
+                        <input type="checkbox" data-modal-input="editU2FA" ${m.editU2FA ? 'checked' : ''} class="w-4 h-4 cursor-pointer" />
+                    </div>
+                </div>
+
+                ${m.editU2FA ? `
+                <div class="text-right">
+                    <button type="button" data-action="admin-regenerate-user-2fa-codes" data-user-id="${m.editUId}" class="text-[10px] font-bold text-blue-600 hover:underline">Reestablecer códigos de respaldo</button>
+                </div>
+                ` : ''}
+
                 <div><label class="text-xs font-bold text-gray-600">Áreas Asignadas</label>
-                    <select data-modal-input="editUAreas" multiple class="w-full p-2 border rounded text-sm outline-none h-24">
+                    <select data-modal-input="editUAreas" multiple class="w-full p-2 border rounded text-sm outline-none h-20">
                         ${state.db.areas.map(a => `<option value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'selected' : ''}>${a.name}</option>`).join('')}
                     </select>
                 </div>
 
-                <div class="flex items-center justify-between p-2 bg-gray-50 border rounded mb-3">
-                    <label class="text-xs font-bold text-gray-600">Habilitar 2FA</label>
-                    <input type="checkbox" data-modal-input="editU2FA" ${m.editU2FA ? 'checked' : ''} class="w-4 h-4 cursor-pointer" />
+                <div>
+                    <label class="text-xs font-bold text-gray-600 block mb-1">Roles y Permisos Granulares</label>
+                    <div class="grid grid-cols-2 gap-2 bg-gray-50 border rounded p-2 max-h-36 overflow-y-auto">
+                        ${rolesList.map(r => `
+                            <label class="flex items-center gap-1.5 p-1 bg-white border rounded hover:border-blue-300 cursor-pointer shadow-sm relative text-[11px]">
+                                <input type="checkbox" value="${r.id}" ${m.editURoles.includes(r.id) ? 'checked' : ''} data-modal-toggle="editURoles" class="w-3.5 h-3.5 rounded text-blue-600" />
+                                <span class="font-semibold text-slate-700 truncate w-3/4">${r.name}</span>
+                                <div class="relative group ml-auto flex items-center shrink-0">
+                                    <i data-lucide="info" class="w-3 h-3 text-blue-500 cursor-pointer"></i>
+                                    <div class="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
+                                        ${r.desc}
+                                        <div class="absolute top-full right-1 border-4 border-transparent border-t-slate-900"></div>
+                                    </div>
+                                </div>
+                            </label>
+                        `).join('')}
+                    </div>
                 </div>
 
-                ${m.editU2FA ? `
-                <div class="mt-2 text-right">
-                    <button type="button" data-action="admin-regenerate-user-2fa-codes" data-user-id="${m.editUId}" class="text-[10px] font-bold text-blue-600 hover:underline">Reestablecer códigos de respaldo del usuario</button>
-                </div>
-                ` : ''}
+                <div class="border-t pt-3 mt-3">
+                    <label class="block text-xs font-bold text-indigo-800 mb-2 uppercase flex items-center gap-1">
+                        <i data-lucide="plane" class="w-4 h-4"></i> Configuración de Licencia
+                    </label>
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500">Inicio de Licencia</label>
+                            <input type="datetime-local" data-modal-input="editULicenceStart" value="${m.editULicenceStart ? new Date(new Date(m.editULicenceStart).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500">Fin de Licencia</label>
+                            <input type="datetime-local" data-modal-input="editULicenceEnd" value="${m.editULicenceEnd ? new Date(new Date(m.editULicenceEnd).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-500 block mb-1">Usuario Delegado</label>
+                        <!-- Buscador dinámico que filtra .dest-item en el DOM automáticamente -->
+                        <input type="text" 
+                               data-local-search="admin-licence-delegate"
+                               placeholder="Buscar delegado..." 
+                               class="w-full px-2 py-1 border rounded text-[11px] outline-none mb-1 bg-slate-50 border-gray-200" />
+                        
+                        <div class="border rounded max-h-24 overflow-y-auto bg-gray-50 p-1.5 space-y-1">
+                            <label class="flex items-center gap-1.5 p-1 hover:bg-white cursor-pointer rounded text-[10px] font-bold text-slate-500">
+                                <input type="radio" name="admin_licence_delegate_sel" value="" ${!m.editUDelegatedTo ? 'checked' : ''} data-modal-input="editUDelegatedTo" class="w-3.5 h-3.5 text-indigo-600" />
+                                <span>-- Sin Delegado --</span>
+                            </label>
+                            ${state.db.users.filter(x => x.id !== m.editUId && x.status === 'active').map(x => `
+                                <label class="flex items-center gap-1.5 p-1 hover:bg-white cursor-pointer rounded text-[10px] border border-transparent dest-item licence-delegate-item" data-name="${x.name} ${getAreaName(x.areaId)}">
+                                    <input type="radio" name="admin_licence_delegate_sel" value="${x.id}" ${m.editUDelegatedTo === x.id ? 'checked' : ''} data-modal-input="editUDelegatedTo" class="w-3.5 h-3.5 text-indigo-600" />
+                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[9px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
 
-                <div><label class="text-xs font-bold text-gray-600">Rol</label><select data-modal-input="editURole" class="w-full p-2 border rounded text-sm outline-none"><option value="user" ${m.editURole === 'user' ? 'selected' : ''}>Usuario</option><option value="admin" ${m.editURole === 'admin' ? 'selected' : ''}>Admin</option></select></div>
+                    <div class="mt-2">
+                        <label class="text-[10px] font-bold text-gray-500 block mb-1">Nota Administrativa para el Delegado <span class="text-gray-400 font-normal">(Opcional)</span></label>
+                        <textarea data-modal-input="editULicenceNote" 
+                                  placeholder="Nota de delegación..." 
+                                  class="w-full p-1.5 border rounded text-xs outline-none bg-white border-gray-200" 
+                                  rows="1.5">${m.editULicenceNote || ''}</textarea>
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -2596,11 +3133,24 @@ function renderModalOverlay() {
     }
     else if (m.type === 'editar_permisos_exp') {
         title = 'Editar Permisos del Expediente';
+        const filteredAreas = state.db.areas.filter(a => a.name.toLowerCase().includes(term));
+        const filteredUsers = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
         content = `
-            <p class="text-sm font-medium mb-2">Autorizados:</p>
-            <div class="max-h-60 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1 mb-4">
-                ${state.db.areas.map(a => `<label class="flex items-center gap-2"><input type="checkbox" value="${a.id}" ${m.selectionArr.includes(a.id) ? 'checked' : ''} data-modal-toggle="selectionArr"> Área: ${a.name}</label>`).join('')}
-                ${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `<label class="flex items-center gap-2"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr"> Usuario: ${u.name}</label>`).join('')}
+            <input type="text" data-modal-input="search" placeholder="Buscar áreas o usuarios..." value="${m.search || ''}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
+            <div class="border rounded mb-4 max-h-60 overflow-y-auto bg-gray-50 p-1 space-y-1">
+                ${filteredAreas.length === 0 && filteredUsers.length === 0 ? '<p class="text-xs text-gray-500 p-2 text-center">No se encontraron resultados</p>' : ''}
+                ${filteredAreas.map(a => `
+                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0">
+                        <input type="checkbox" value="${a.id}" ${m.selectionArr.includes(a.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> 
+                        <span>Área: ${a.name}</span>
+                    </label>
+                `).join('')}
+                ${filteredUsers.map(u => `
+                    <label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0">
+                        <input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> 
+                        <span>Usuario: ${u.name}</span>
+                    </label>
+                `).join('')}
             </div>
         `;
     }
@@ -2767,7 +3317,7 @@ function showNewRecoveryCodes(codes) {
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
 async function syncData(item, type, historyEntry = null) {
-    const url = type === 'expediente' ? `http://localhost:3000/api/exps/update/${item.id}` : `http://localhost:3000/api/docs/update/${item.id}`;
+    const url = type === 'expediente' ? `${API_BASE}/api/exps/update/${item.id}` : `${API_BASE}/api/docs/update/${item.id}`;
     try {
         await fetch(url, {
             method: 'PUT',
@@ -2792,7 +3342,32 @@ document.addEventListener('input', (e) => {
         renderApp();
     }
     if (e.target.hasAttribute('data-modal-input')) { const key = e.target.getAttribute('data-modal-input'); state.modal[key] = e.target.value; if (key === 'search') { activeInputSelector = `[data-modal-input="search"]`; renderApp(); } }
-    if (e.target.hasAttribute('data-local-search')) { const term = e.target.value.toLowerCase(); document.querySelectorAll('.dest-item').forEach(lbl => { const text = lbl.querySelector('.dest-text').textContent.toLowerCase(); lbl.style.display = text.includes(term) ? 'flex' : 'none'; }); }
+    if (e.target.hasAttribute('data-local-search')) {
+        const term = e.target.value.toLowerCase();
+        const searchType = e.target.getAttribute('data-local-search');
+        let items = [];
+        if (searchType === 'licence-delegate') {
+            items = document.querySelectorAll('#licence-delegate-container .dest-item');
+        } else if (searchType === 'admin-licence-delegate') {
+            const parentSection = e.target.closest('div');
+            if (parentSection) {
+                items = parentSection.querySelectorAll('.dest-item');
+            }
+        } else if (searchType === 'create-dest') {
+            items = document.querySelectorAll('#create-dest-list .dest-item');
+        } else if (searchType === 'create-exp-auth') {
+            items = document.querySelectorAll('#create-exp-auth-list .dest-item');
+        } else {
+            items = document.querySelectorAll('.dest-item');
+        }
+        items.forEach(lbl => {
+            const destTextEl = lbl.querySelector('.dest-text');
+            if (destTextEl) {
+                const text = destTextEl.textContent.toLowerCase();
+                lbl.style.display = text.includes(term) ? 'flex' : 'none';
+            }
+        });
+    }
 });
 
 document.addEventListener('change', (e) => {
@@ -2810,7 +3385,36 @@ document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-stats-filter-multi')) { const key = e.target.getAttribute('data-stats-filter-multi'); const values = Array.from(e.target.selectedOptions).map(o => o.value); state.statsOpts[key] = values.includes('all') && e.target.value === 'all' ? ['all'] : values.filter(v => v !== 'all'); if (state.statsOpts[key].length === 0) state.statsOpts[key] = ['all']; renderApp(); }
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
     if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'set-timeline-range') { state.statsOpts.timelineRange = parseInt(e.target.value); fetchDashboardData(); return; }
-    if (e.target.id === 'create-doc-type') { const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value); const destC = document.getElementById('dest-container'); if (destC) destC.style.display = isConDest ? 'block' : 'none'; }
+    if (e.target.id === 'create-doc-type') {
+        const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value);
+        const destC = document.getElementById('dest-container');
+        if (destC) destC.style.display = isConDest ? 'block' : 'none';
+
+        // NUEVO: Precarga dinámica de plantilla
+        const docCode = getDocCode(e.target.value);
+        fetch(`${API_BASE}/api/templates/for-type/${docCode}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.template && data.template.content) {
+                if (window.tinymce && tinymce.get('create-doc-content')) {
+                    tinymce.get('create-doc-content').setContent(data.template.content);
+                } else {
+                    const txt = document.getElementById('create-doc-content');
+                    if (txt) txt.value = data.template.content;
+                }
+            } else {
+                if (window.tinymce && tinymce.get('create-doc-content')) {
+                    tinymce.get('create-doc-content').setContent('');
+                } else {
+                    const txt = document.getElementById('create-doc-content');
+                    if (txt) txt.value = '';
+                }
+            }
+        })
+        .catch(err => console.error("Error al cargar la plantilla:", err));
+    }
     if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'change-limit') {
         const model = e.target.getAttribute('data-model');
         state.pagination[model].limit = parseInt(e.target.value);
@@ -2832,19 +3436,26 @@ document.addEventListener('change', (e) => {
         reader.onload = async (event) => {
             const lines = event.target.result.split('\n').filter(l => l.trim() !== '');
             const areas = lines.slice(1).map(l => {
-                const [id, name] = l.split(',');
-                return { id: id?.trim(), name: name?.trim() };
-            }).filter(a => a.id && a.name);
+                const parts = l.split(',').map(x => {
+                    let val = x.trim();
+                    if (val.startsWith('"') && val.endsWith('"')) {
+                        val = val.substring(1, val.length - 1).replace(/""/g, '"');
+                    }
+                    return val;
+                });
+                const [id, name] = parts;
+                return { id: id || null, name: name || null };
+            }).filter(a => a.name);
 
             if (areas.length === 0) return alert("Formato inválido. La primera fila debe ser la cabecera: id,name");
 
-            const res = await fetch('http://localhost:3000/api/areas/bulk', {
+            const res = await fetch(`${API_BASE}/api/areas/bulk`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ areas })
             });
             if (res.ok) {
                 alert(`${areas.length} áreas importadas.`);
-                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch(`${API_BASE}/api/system/init`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.areas = sysData.areas; renderApp();
             } else { alert("Error al importar áreas."); }
@@ -2860,22 +3471,39 @@ document.addEventListener('change', (e) => {
         reader.onload = async (event) => {
             const lines = event.target.result.split('\n').filter(l => l.trim() !== '');
             const users = lines.slice(1).map(l => {
-                const [name, email, password, areaId, role, areas] = l.split(',');
+                const parts = l.split(',').map(x => {
+                    let val = x.trim();
+                    if (val.startsWith('"') && val.endsWith('"')) {
+                        val = val.substring(1, val.length - 1).replace(/""/g, '"');
+                    }
+                    return val;
+                });
+                const [name, email, password, areaId, role, areas, status, twoFactorEnabled, roles, licenceStart, licenceEnd, delegatedTo] = parts;
                 return {
-                    name: name?.trim(), email: email?.trim(), password: password?.trim(),
-                    areaId: areaId?.trim(), role: role?.trim(), areas: areas?.trim()
+                    name, 
+                    email, 
+                    password: password === '********' ? '' : password, 
+                    areaId, 
+                    role, 
+                    areas,
+                    status: status || 'active',
+                    twoFactorEnabled: twoFactorEnabled === 'true',
+                    roles: roles || '',
+                    licenceStart: licenceStart || null,
+                    licenceEnd: licenceEnd || null,
+                    delegatedTo: delegatedTo || null
                 };
             }).filter(u => u.name && u.email && u.areaId);
 
-            if (users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas");
+            if (users.length === 0) return alert("Formato inválido. Cabecera requerida: name,email,password,areaId,role,areas,status,twoFactorEnabled,roles,licenceStart,licenceEnd,delegatedTo");
 
-            const res = await fetch('http://localhost:3000/api/users/bulk', {
+            const res = await fetch(`${API_BASE}/api/users/bulk`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ users })
             });
             if (res.ok) {
                 alert(`${users.length} usuarios importados.`);
-                const sysRes = await fetch('http://localhost:3000/api/system/init', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                const sysRes = await fetch(`${API_BASE}/api/system/init`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
                 const sysData = await sysRes.json();
                 state.db.users = sysData.users; renderApp();
             } else { alert("Error al importar usuarios."); }
@@ -2887,16 +3515,16 @@ document.addEventListener('change', (e) => {
 
 async function initializeAppWithToken(token, user) {
     localStorage.setItem('gde_token', token);
-    const sysResponse = await fetch('http://localhost:3000/api/system/init', {
+    const sysResponse = await fetch(`${API_BASE}/api/system/init`, {
         method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
     });
     if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
     const sysData = await sysResponse.json();
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
-    const docsResponse = await fetch('http://localhost:3000/api/docs/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const docsResponse = await fetch(`${API_BASE}/api/docs/all`, { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.documents = await docsResponse.json();
-    const expsResponse = await fetch('http://localhost:3000/api/exps/all', { headers: { 'Authorization': `Bearer ${token}` } });
+    const expsResponse = await fetch(`${API_BASE}/api/exps/all`, { headers: { 'Authorization': `Bearer ${token}` } });
     state.db.expedientes = await expsResponse.json();
 
     state.db.counters = {};
@@ -2933,7 +3561,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Validando...';
 
         try {
-            const response = await fetch('http://localhost:3000/api/auth/login', {
+            const response = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password })
             });
 
@@ -2946,7 +3574,7 @@ document.addEventListener('submit', async (e) => {
 
                 if (!data.isConfigured) {
                     // Si no esta configurado, solicitamos el QR al backend usando el tempToken
-                    const setupRes = await fetch('http://localhost:3000/api/auth/2fa/setup', {
+                    const setupRes = await fetch(`${API_BASE}/api/auth/2fa/setup`, {
                         method: 'POST', headers: { 'Authorization': `Bearer ${data.tempToken}` }
                     });
                     const setupData = await setupRes.json();
@@ -2980,7 +3608,7 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Verificando...';
 
         try {
-            const response = await fetch('http://localhost:3000/api/auth/2fa/verify', {
+            const response = await fetch(`${API_BASE}/api/auth/2fa/verify`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.loginFlow.tempToken}` }, body: JSON.stringify({ code })
             });
 
@@ -3019,7 +3647,7 @@ document.addEventListener('submit', async (e) => {
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://localhost:3000/api/docs/create', {
+        fetch(`${API_BASE}/api/docs/create`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newDoc)
         }).then(async res => {
             if (res.ok) {
@@ -3043,7 +3671,7 @@ document.addEventListener('submit', async (e) => {
             areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
         };
 
-        fetch('http://localhost:3000/api/exps/create', {
+        fetch(`${API_BASE}/api/exps/create`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newExp)
         }).then(async res => {
             if (res.ok) {
@@ -3070,7 +3698,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://localhost:3000/api/users/profile', {
+        fetch(`${API_BASE}/api/users/profile`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -3096,7 +3724,7 @@ document.addEventListener('submit', async (e) => {
     else if (e.target.id === 'form-admin-area') {
         e.preventDefault();
         const id = `a${Date.now()}`; const name = document.getElementById('admin-a-name').value;
-        fetch('http://localhost:3000/api/areas/create', {
+        fetch(`${API_BASE}/api/areas/create`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify({ id, name })
         }).then(res => { if (res.ok) { state.db.areas.push({ id, name }); setState({}); } });
     }
@@ -3122,7 +3750,7 @@ document.addEventListener('submit', async (e) => {
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
 
-        fetch('http://localhost:3000/api/system/settings', {
+        fetch(`${API_BASE}/api/system/settings`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(payload)
@@ -3141,17 +3769,135 @@ document.addEventListener('submit', async (e) => {
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault();
         const selectedAreas = Array.from(document.getElementById('admin-u-area').selectedOptions).map(o => o.value);
+        const selectedRoles = Array.from(document.querySelectorAll('input[name="create_u_roles"]:checked')).map(el => el.value);
+        const status = document.getElementById('admin-u-status').value;
         const newUser = {
-            id: `u${Date.now()}`, name: document.getElementById('admin-u-name').value,
+            id: `u${Date.now()}`, 
+            name: document.getElementById('admin-u-name').value,
             email: document.getElementById('admin-u-email').value,
             areaId: selectedAreas[0], // La primera que seleccione será su área principal
             areas: selectedAreas,     // Array con todas sus áreas
-            role: document.getElementById('admin-u-role').value,
+            role: selectedRoles[0] || 'user', // Rol primario para compatibilidad
+            roles: selectedRoles,
+            status: status,
             password: document.getElementById('admin-u-pass').value
         };
-        fetch('http://localhost:3000/api/users/create', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(newUser)
-        }).then(res => { if (res.ok) { state.db.users.push(newUser); setState({}); } });
+        fetch(`${API_BASE}/api/users/create`, {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
+            body: JSON.stringify(newUser)
+        }).then(async res => { 
+            if (res.ok) { 
+                newUser.twoFactorEnabled = false;
+                state.db.users.push(newUser); 
+                alert("Usuario creado correctamente.");
+                setState({}); 
+            } else {
+                const errData = await res.json();
+                alert(`Error: ${errData.message}`);
+            }
+        });
+    }
+    else if (e.target.id === 'form-user-licence') {
+        e.preventDefault();
+        const licenceStart = document.getElementById('licence-start').value;
+        const licenceEnd = document.getElementById('licence-end').value;
+        
+        const selectedRadio = document.querySelector('input[name="licence_delegate_sel"]:checked');
+        const delegatedTo = selectedRadio ? selectedRadio.value : null;
+        const notes = document.getElementById('licence-note') ? document.getElementById('licence-note').value : '';
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
+
+        fetch(`${API_BASE}/api/licences/configure`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({
+                licenceStart: licenceStart ? new Date(licenceStart).toISOString() : null,
+                licenceEnd: licenceEnd ? new Date(licenceEnd).toISOString() : null,
+                delegatedTo: delegatedTo || null,
+                notes: notes || null
+            })
+        }).then(async res => {
+            const data = await res.json();
+            if (res.ok) {
+                alert("Licencia guardada correctamente.");
+                state.currentUser.licence_start = licenceStart ? new Date(licenceStart).toISOString() : null;
+                state.currentUser.licence_end = licenceEnd ? new Date(licenceEnd).toISOString() : null;
+                state.currentUser.delegated_to = delegatedTo || null;
+                
+                // Sincronizar en el listado local de usuarios
+                const localUser = state.db.users.find(u => u.id === state.currentUser.id);
+                if (localUser) {
+                    localUser.licence_start = state.currentUser.licence_start;
+                    localUser.licence_end = state.currentUser.licence_end;
+                    localUser.delegated_to = state.currentUser.delegated_to;
+                }
+                setState({});
+            } else {
+                alert(`Error: ${data.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        });
+    }
+    else if (e.target.id === 'form-admin-template') {
+        e.preventDefault();
+        const name = document.getElementById('admin-t-name').value;
+        const isGlobal = document.getElementById('admin-t-global').checked;
+        const selectedDocTypes = Array.from(document.querySelectorAll('input[name="admin_t_doctype"]:checked')).map(el => el.value);
+        const content = window.tinymce && tinymce.get('admin-t-content') ? tinymce.get('admin-t-content').getContent() : document.getElementById('admin-t-content').value;
+
+        // Validar que el cuerpo de la plantilla no esté vacío
+        const textContent = content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, '').trim();
+        if (!content || !content.trim() || textContent === '') {
+            alert("El cuerpo/estructura de la plantilla no puede estar vacío.");
+            return;
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Guardando...';
+
+        const isEditing = !!state.editingTemplate;
+        const url = isEditing 
+            ? `${API_BASE}/api/templates/update/${state.editingTemplate.id}` 
+            : `${API_BASE}/api/templates/create`;
+        const method = isEditing ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({
+                name,
+                content,
+                isGlobal,
+                docTypes: selectedDocTypes
+            })
+        }).then(async res => {
+            const data = await res.json();
+            if (res.ok) {
+                alert(isEditing ? "Plantilla actualizada correctamente." : "Plantilla creada correctamente.");
+                
+                // Recargar plantillas llamando a la API de listado
+                fetch(`${API_BASE}/api/templates`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async r => {
+                    if (r.ok) {
+                        const listData = await r.json();
+                        state.db.templates = listData.templates || listData;
+                        state.editingTemplate = null;
+                        setState({ currentView: 'admin_templates' });
+                    }
+                });
+            } else {
+                alert(`Error: ${data.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        });
     }
     else if (e.target.id === 'form-forgot-step1') {
         e.preventDefault();
@@ -3159,7 +3905,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/forgot-password', {
+        fetch(`${API_BASE}/api/auth/forgot-password`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
         }).then(async res => {
             if (res.ok) {
@@ -3181,7 +3927,7 @@ document.addEventListener('submit', async (e) => {
         const btn = e.target.querySelector('button');
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/validate-reset-code', {
+        fetch(`${API_BASE}/api/auth/validate-reset-code`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code })
         }).then(async res => {
             if (res.ok) {
@@ -3206,7 +3952,7 @@ document.addEventListener('submit', async (e) => {
         const origHtml = btn.innerHTML;
         btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto"></i>';
 
-        fetch('http://localhost:3000/api/auth/reset-password', {
+        fetch(`${API_BASE}/api/auth/reset-password`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: state.forgotPass.email, code: state.forgotPass.code, newPassword: pass1 })
         }).then(async res => {
             if (res.ok) {
@@ -3272,7 +4018,7 @@ document.addEventListener('click', async (e) => {
 
         // Si entramos a servicios, hacemos un fetch previo a la API
         if (view === 'admin_services') {
-            fetch('http://localhost:3000/api/system/settings', { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
+            fetch(`${API_BASE}/api/system/settings`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } })
                 .then(res => res.json())
                 .then(data => {
                     state.servicesConfig = data;
@@ -3376,7 +4122,7 @@ document.addEventListener('click', async (e) => {
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
 
-            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach`, {
+            fetch(`${API_BASE}/api/docs/${state.selectedItem.id}/attach`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: formData
@@ -3403,7 +4149,7 @@ document.addEventListener('click', async (e) => {
             e.preventDefault();
             if (!confirm('¿Seguro que desea eliminar este archivo adjunto?')) return;
             const filename = actionBtn.getAttribute('data-filename');
-            fetch(`http://localhost:3000/api/docs/${state.selectedItem.id}/attach/${filename}`, {
+            fetch(`${API_BASE}/api/docs/${state.selectedItem.id}/attach/${filename}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(res => {
@@ -3433,7 +4179,7 @@ document.addEventListener('click', async (e) => {
             const originalHtml = actionBtn.innerHTML;
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando...';
 
-            fetch(`http://localhost:3000/api/docs/download/${filename}`, {
+            fetch(`${API_BASE}/api/docs/download/${filename}`, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             }).then(async res => {
                 actionBtn.innerHTML = originalHtml; // Restauramos el botón
@@ -3481,10 +4227,14 @@ document.addEventListener('click', async (e) => {
             const n = state.notifications.find(x => x.id == notifId);
             if (n && !n.is_read) {
                 n.is_read = 1;
-                fetch(`http://localhost:3000/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
+                fetch(`${API_BASE}/api/notifications/${notifId}/read`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } });
             }
 
             state.ui.notificationsOpen = false; // Cerramos el panel
+            
+            if (itemId === 'licence') {
+                return renderApp(); // Se marca como leída y listo, sin navegación.
+            }
 
             // Navegar al item
             const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
@@ -3496,7 +4246,7 @@ document.addEventListener('click', async (e) => {
         }
 
         if (action === 'clear-notifications') {
-            fetch('http://localhost:3000/api/notifications/read-all', {
+            fetch(`${API_BASE}/api/notifications/read-all`, {
                 method: 'PUT',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
@@ -3507,7 +4257,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'delete-all-notifications') {
             if (!confirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?')) return;
 
-            fetch('http://localhost:3000/api/notifications/delete-all', {
+            fetch(`${API_BASE}/api/notifications/delete-all`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
             });
@@ -3523,10 +4273,88 @@ document.addEventListener('click', async (e) => {
             return renderApp();
         }
 
+        if (action === 'edit-template-btn') {
+            const tplId = actionBtn.getAttribute('data-id');
+            const template = state.db.templates.find(t => t.id === tplId);
+            if (template) {
+                state.editingTemplate = { ...template };
+                setState({});
+            }
+            return;
+        }
+
+        if (action === 'cancel-edit-template') {
+            state.editingTemplate = null;
+            return setState({});
+        }
+
+        if (action === 'delete-template-btn') {
+            const tplId = actionBtn.getAttribute('data-id');
+            if (confirm('¿Está seguro de eliminar definitivamente esta plantilla?')) {
+                fetch(`${API_BASE}/api/templates/delete/${tplId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async res => {
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert("Plantilla eliminada correctamente.");
+                        // Recargar plantillas llamando a la API de listado
+                        fetch(`${API_BASE}/api/templates`, {
+                            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                        }).then(async r => {
+                            if (r.ok) {
+                                const listData = await r.json();
+                                state.db.templates = listData.templates || listData;
+                                state.editingTemplate = null;
+                                setState({ currentView: 'admin_templates' });
+                            }
+                        });
+                    } else {
+                        alert(`Error: ${data.message}`);
+                    }
+                });
+            }
+            return;
+        }
+
+        if (action === 'clear-my-licence') {
+            if (confirm('¿Está seguro de eliminar su configuración de licencia activa?')) {
+                fetch(`${API_BASE}/api/licences/configure`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                    body: JSON.stringify({
+                        licenceStart: null,
+                        licenceEnd: null,
+                        delegatedTo: null
+                    })
+                }).then(async res => {
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert("Licencia eliminada correctamente.");
+                        state.currentUser.licence_start = null;
+                        state.currentUser.licence_end = null;
+                        state.currentUser.delegated_to = null;
+                        
+                        // Sincronizar localmente
+                        const localUser = state.db.users.find(u => u.id === state.currentUser.id);
+                        if (localUser) {
+                            localUser.licence_start = null;
+                            localUser.licence_end = null;
+                            localUser.delegated_to = null;
+                        }
+                        setState({});
+                    } else {
+                        alert(`Error: ${data.message}`);
+                    }
+                });
+            }
+            return;
+        }
+
         if (action === 'admin-del-user') {
             if (confirm('¿Eliminar usuario?')) {
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://localhost:3000/api/users/delete/${id}`, {
+                fetch(`${API_BASE}/api/users/delete/${id}`, {
                     method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(res => { if (res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
             }
@@ -3535,7 +4363,7 @@ document.addEventListener('click', async (e) => {
         if (action === 'admin-del-area') {
             if (confirm('¿Eliminar area?')) {
                 const id = actionBtn.getAttribute('data-id');
-                fetch(`http://localhost:3000/api/areas/delete/${id}`, {
+                fetch(`${API_BASE}/api/areas/delete/${id}`, {
                     method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(res => {
                     if (res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); }
@@ -3550,7 +4378,7 @@ document.addEventListener('click', async (e) => {
             const pass = prompt("Para regenerar sus códigos de seguridad, ingrese su contraseña actual:");
             if (!pass) return;
 
-            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+            fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ password: pass })
@@ -3566,7 +4394,7 @@ document.addEventListener('click', async (e) => {
             const targetUserId = actionBtn.getAttribute('data-user-id');
             if (!confirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?")) return;
 
-            fetch('http://localhost:3000/api/auth/2fa/regenerate-codes', {
+            fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                 body: JSON.stringify({ targetUserId })
@@ -3587,7 +4415,22 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); mState.editUId = u.id; mState.editUName = u.name; mState.editUEmail = u.email; mState.editUPass = ''; mState.editURole = u.role; mState.editUAreas = u.areas || [u.areaId]; mState.editU2FA = !!u.twoFactorEnabled; }
+            if (type === 'editar_usuario') { 
+                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); 
+                mState.editUId = u.id; 
+                mState.editUName = u.name; 
+                mState.editUEmail = u.email; 
+                mState.editUPass = ''; 
+                mState.editURole = u.role; 
+                mState.editURoles = u.roles || [u.role];
+                mState.editUAreas = u.areas || [u.areaId]; 
+                mState.editU2FA = !!u.twoFactorEnabled; 
+                mState.editUStatus = u.status || 'active';
+                mState.editULicenceStart = u.licence_start || '';
+                mState.editULicenceEnd = u.licence_end || '';
+                mState.editUDelegatedTo = u.delegated_to || '';
+                mState.editULicenceNote = '';
+            }
             if (type === 'ver_usuarios_area') { mState.selectedId = actionBtn.getAttribute('data-id'); }
             return setState({ modal: mState });
         }
@@ -3637,27 +4480,69 @@ document.addEventListener('click', async (e) => {
             }
 
             if (m.type === 'editar_usuario') {
-                if (!confirm("¿Esta seguro de aplicar estos cambios al usuario? Se enviara una notificacion por correo al interesado.")) {
+                if (!confirm("¿Está seguro de aplicar estos cambios al usuario? Se enviará una notificación por correo al interesado si está configurado.")) {
                     return;
                 }
-                // Ya no exigimos !m.editUPass
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
+                
                 const updatedUser = {
-                    name: m.editUName, email: m.editUEmail, password: m.editUPass, // Si está vacío, el backend lo ignorará
+                    name: m.editUName, 
+                    email: m.editUEmail, 
+                    password: m.editUPass, // Si está vacío, el backend lo ignorará
                     areaId: m.editUAreas[0],
                     areas: m.editUAreas,
-                    role: m.editURole,
+                    role: m.editURoles[0] || 'user', // Mantenemos compatibilidad de rol primario
+                    roles: m.editURoles,
+                    status: m.editUStatus || 'active',
                     twoFactorEnabled: m.editU2FA
                 };
 
-                fetch(`http://localhost:3000/api/users/update/${m.editUId}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify(updatedUser)
-                }).then(res => {
+                fetch(`${API_BASE}/api/users/update/${m.editUId}`, {
+                    method: 'PUT', 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
+                    body: JSON.stringify(updatedUser)
+                }).then(async res => {
                     if (res.ok) {
                         const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
-                        if (uIdx > -1) { state.db.users[uIdx] = { ...state.db.users[uIdx], ...updatedUser }; }
+                        if (uIdx > -1) { 
+                            state.db.users[uIdx] = { 
+                                ...state.db.users[uIdx], 
+                                ...updatedUser
+                            }; 
+                        }
+
+                        // Configurar/actualizar la licencia administrativamente en el backend
+                        const licencePayload = {
+                            licenceStart: m.editULicenceStart ? new Date(m.editULicenceStart).toISOString() : null,
+                            licenceEnd: m.editULicenceEnd ? new Date(m.editULicenceEnd).toISOString() : null,
+                            delegatedTo: m.editUDelegatedTo || null,
+                            notes: m.editULicenceNote || null,
+                            targetUserId: m.editUId
+                        };
+
+                        const licenceRes = await fetch(`${API_BASE}/api/licences/admin-configure`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                            body: JSON.stringify(licencePayload)
+                        });
+
+                        if (!licenceRes.ok) {
+                            const licenceData = await licenceRes.json();
+                            alert(`Usuario guardado pero hubo un error con la Licencia: ${licenceData.message}`);
+                        } else {
+                            if (uIdx > -1) {
+                                state.db.users[uIdx].licence_start = licencePayload.licenceStart;
+                                state.db.users[uIdx].licence_end = licencePayload.licenceEnd;
+                                state.db.users[uIdx].delegated_to = licencePayload.delegatedTo;
+                            }
+                            alert("Usuario y Licencia actualizados correctamente.");
+                        }
+
                         setState({ modal: null });
-                    } else { alert("Error al actualizar el usuario en la BD"); }
+                    } else { 
+                        const data = await res.json();
+                        alert(`Error al actualizar el usuario: ${data.message}`); 
+                    }
                 });
                 return;
             }
@@ -3676,11 +4561,10 @@ document.addEventListener('click', async (e) => {
                 await syncData(item, 'expediente'); return setState({ modal: null });
             }
 
-            if (m.type === 'revisar' || m.type === 'derivar_exp') {
+            if (m.type === 'revisar') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                item.currentOwnerId = m.selectedId; if (m.type === 'revisar') item.status = STATUS.BORRADOR;
+                item.currentOwnerId = m.selectedId; item.status = STATUS.BORRADOR;
 
-                // Si lo mandamos a un Usuario, toma el área principal de ese usuario. Si va a un Área, borramos el id para que quede suelto en esa bandeja grupal.
                 if (m.selectedId.startsWith('u')) {
                     const targetUser = state.db.users.find(u => u.id === m.selectedId);
                     if (targetUser) item.areaId = targetUser.areaId;
@@ -3688,18 +4572,87 @@ document.addEventListener('click', async (e) => {
                     item.areaId = null;
                 }
 
-                if (m.type === 'derivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
                 const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
-                const hAction = m.type === 'revisar' ? `Enviado a Revisar a ${destName}` : `Derivado a ${destName}`;
+                const hAction = `Enviado a Revisar a ${destName}`;
 
                 const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
                 item.history.push(hEntry);
-                await syncData(item, isExp ? 'expediente' : 'documento', hEntry);
+                await syncData(item, 'documento', hEntry);
 
-                // --- NUEVO: NOTIFICACIÓN ---
-                await notifyUsers([m.selectedId], m.type === 'revisar' ? 'Revisión' : 'Derivación', m.type === 'revisar' ? 'Te envió un documento para revisar' : 'Te derivó un expediente', item.id, isExp ? 'expediente' : 'documento');
-
+                await notifyUsers([m.selectedId], 'Revisión', 'Te envió un documento para revisar', item.id, 'documento');
                 return setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+            }
+
+            if (m.type === 'derivar_exp') {
+                if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
+
+                const btn = e.target;
+                const origHtml = btn.innerHTML;
+                btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Procesando Pase...';
+                btn.disabled = true;
+
+                try {
+                    const res = await fetch(`${API_BASE}/api/exps/${item.id}/pase`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+                        },
+                        body: JSON.stringify({ receiverId: m.selectedId, notes: m.note })
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.message || 'Error al realizar el pase en el servidor.');
+                    }
+
+                    const resData = await res.json();
+
+                    // Actualizar estado local
+                    item.currentOwnerId = m.selectedId;
+                    item.status = 'En Tramite';
+                    if (m.selectedId.startsWith('u')) {
+                        const targetUser = state.db.users.find(u => u.id === m.selectedId);
+                        if (targetUser) item.areaId = targetUser.areaId;
+                    } else {
+                        item.areaId = null;
+                    }
+
+                    item.sealedDocs = resData.nextSealed;
+
+                    const destName = m.selectedId.startsWith('a') ? `Area: ${getAreaName(m.selectedId)}` : getUserName(m.selectedId);
+                    const hAction = `Derivado a ${destName}`;
+                    const hEntry = createHistoryEntry(state.currentUser.id, hAction, m.note);
+                    item.history.push(hEntry);
+
+                    // Registrar movimiento local
+                    const movDate = new Date().toISOString();
+                    let receiverUserId = m.selectedId.startsWith('u') ? m.selectedId : null;
+                    let receiverAreaId = m.selectedId.startsWith('a') ? m.selectedId : (state.db.users.find(u => u.id === m.selectedId)?.areaId || null);
+
+                    if (!item.movements) item.movements = [];
+                    item.movements.push({
+                        id: `mov_${Date.now()}`,
+                        senderId: state.currentUser.id,
+                        senderAreaId: state.currentUser.areaId,
+                        receiverId: receiverUserId,
+                        receiverAreaId: receiverAreaId,
+                        notes: m.note,
+                        linkedDocsSnapshot: [...(item.linkedDocs || [])],
+                        date: movDate
+                    });
+
+                    await notifyUsers([m.selectedId], 'Derivación', 'Te derivó un expediente', item.id, 'expediente');
+
+                    setState({ modal: null, selectedItem: null, currentView: 'inbox' });
+
+                } catch (err) {
+                    alert(`Error: ${err.message}`);
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    if (window.lucide) lucide.createIcons();
+                }
+                return;
             }
 
             if (m.type === 'enviar_firmar') {
@@ -3902,7 +4855,7 @@ document.addEventListener('click', async (e) => {
                 const originalHtml = actionBtn.innerHTML;
                 actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
 
-                fetch(`http://localhost:3000/api/docs/delete/${state.selectedItem.id}`, {
+                fetch(`${API_BASE}/api/docs/delete/${state.selectedItem.id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(async res => {

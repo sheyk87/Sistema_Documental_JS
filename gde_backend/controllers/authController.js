@@ -114,6 +114,13 @@ exports.login = async (req, res) => {
         }
         
         let user = rows[0];
+        
+        // === NUEVO: Comprobar estado de cuenta (Fase 3) ===
+        if (user.status !== 'active') {
+            logAuthEvent('LOGIN_FAILED', { email, reason: `account_${user.status}`, ip: req.ip });
+            return res.status(403).json({ message: `Su cuenta está ${user.status === 'suspended' ? 'suspendida' : 'inactiva'}. Por favor, contacte al administrador.` });
+        }
+
         let isAuthenticated = false;
 
         if (process.env.LDAP_ENABLED === 'true') {

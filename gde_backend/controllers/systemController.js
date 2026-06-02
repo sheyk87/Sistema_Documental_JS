@@ -71,7 +71,7 @@ exports.getInitialData = async (req, res) => {
 
         // --- CACHE MISS: Consultar MySQL y cachear ---
         const [areas] = await pool.query('SELECT id, name FROM areas');
-        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled FROM users');
+        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status FROM users');
         
         const users = usersRows.map(u => ({
             ...u,

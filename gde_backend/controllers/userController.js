@@ -6,49 +6,87 @@ const { escapeHtml, sanitizeText } = require('../utils/sanitizer');
 const { invalidateInitialDataCache } = require('./systemController');
 
 exports.createUser = async (req, res) => {
-    const { id, name, email, password, areaId, role, areas } = req.body;
+    const { id, name, email, password, areaId, role, areas, status, roles } = req.body;
+    const connection = await pool.getConnection();
     try {
+        await connection.beginTransaction();
+
         const hash = await bcrypt.hash(password, 12);
-        await pool.query(
-            `INSERT INTO users (id, name, email, password, area_id, role, areas) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, name, email, hash, areaId, role, JSON.stringify(areas || [areaId])] // <-- Guardar JSON
+        const finalStatus = status || 'active';
+        await connection.query(
+            `INSERT INTO users (id, name, email, password, area_id, role, areas, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, name, email, hash, areaId, role || 'user', JSON.stringify(areas || [areaId]), finalStatus]
         );
+
+        // Asignar roles en la tabla asociativa user_roles
+        const targetRoles = Array.isArray(roles) ? roles : [role || 'user'];
+        for (const rId of targetRoles) {
+            await connection.query(
+                'INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+                [id, rId]
+            );
+        }
+
+        await connection.commit();
         logAdminAction('USER_CREATED', { userId: id, by: req.user?.id });
         await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Usuario creado exitosamente' });
     } catch (error) {
+        await connection.rollback();
         console.error(error);
         res.status(500).json({ message: 'Error al crear usuario' });
+    } finally {
+        connection.release();
     }
 };
 
 exports.updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, email, password, areaId, role, areas, twoFactorEnabled } = req.body;
+    const { name, email, password, areaId, role, areas, twoFactorEnabled, status, roles } = req.body;
     
+    const connection = await pool.getConnection();
     try {
+        await connection.beginTransaction();
+
         const is2FAEnabled = twoFactorEnabled ? 1 : 0;
         
         // 1. Obtenemos datos actuales para comparar los cambios
-        const [oldRows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+        const [oldRows] = await connection.query('SELECT * FROM users WHERE id = ?', [id]);
         const old = oldRows[0];
-        if (!old) return res.status(404).json({ message: 'Usuario no encontrado' });
+        if (!old) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
 
         const secretQuery = is2FAEnabled === 0 ? ", two_factor_secret = NULL, two_factor_recovery_codes = NULL" : "";
+        const finalStatus = status || old.status;
 
         // 2. Ejecutar la actualización en BD
         if (password && password.trim() !== '') {
-        const hash = await bcrypt.hash(password, 12);
-            await pool.query(
-                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?${secretQuery} WHERE id = ?`,
-                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, id]
+            const hash = await bcrypt.hash(password, 12);
+            await connection.query(
+                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?${secretQuery} WHERE id = ?`,
+                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, id]
             );
         } else {
-            await pool.query(
-                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?${secretQuery} WHERE id = ?`,
-                [name, email, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, id]
+            await connection.query(
+                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?${secretQuery} WHERE id = ?`,
+                [name, email, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, id]
             );
         }
+
+        // Actualizar roles en la tabla asociativa
+        if (Array.isArray(roles)) {
+            await connection.query('DELETE FROM user_roles WHERE user_id = ?', [id]);
+            for (const rId of roles) {
+                await connection.query(
+                    'INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+                    [id, rId]
+                );
+            }
+        }
+
+        await connection.commit();
 
         // 3. Notificaciones Dinámicas por Correo
         if (process.env.EMAIL_ENABLED === 'true') {
@@ -56,6 +94,7 @@ exports.updateUser = async (req, res) => {
             if (old.name !== name) changes.push(`<li>Nombre actualizado a: <strong>${name}</strong></li>`);
             if (old.email !== email) changes.push(`<li>Correo actualizado a: <strong>${email}</strong></li>`);
             if (old.role !== role) changes.push(`<li>Nivel de acceso (Rol) modificado a: <strong>${role.toUpperCase()}</strong></li>`);
+            if (old.status !== finalStatus) changes.push(`<li>Estado de la cuenta modificado a: <strong>${finalStatus.toUpperCase()}</strong></li>`);
             if (password && password.trim() !== '') changes.push(`<li>Se ha establecido una <strong>nueva contraseña</strong> para su cuenta.</li>`);
             
             // Enviamos el resumen de cambios si hubo alguno
@@ -88,8 +127,11 @@ exports.updateUser = async (req, res) => {
         await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.json({ message: 'Usuario actualizado exitosamente' });
     } catch (error) {
+        await connection.rollback();
         console.error(error);
         res.status(500).json({ message: 'Error al actualizar usuario' });
+    } finally {
+        connection.release();
     }
 };
 
@@ -110,26 +152,90 @@ exports.bulkCreateUsers = async (req, res) => {
     const { users } = req.body;
     if (!users || !users.length) return res.status(400).json({ message: 'No hay datos válidos' });
     
+    const connection = await pool.getConnection();
     try {
+        await connection.beginTransaction();
         for (let u of users) {
-            const hash = await bcrypt.hash(u.password || '', 12);
-            if (!u.password || u.password.length < 8) {
-                continue; // Saltar usuarios con password débil
+            let uid = u.id || null;
+            let isNew = false;
+            
+            if (uid) {
+                // Verificar si el usuario con ese ID ya existe
+                const [exists] = await connection.query('SELECT id FROM users WHERE id = ?', [uid]);
+                if (exists.length === 0) {
+                    isNew = true;
+                }
+            } else {
+                uid = `u${Date.now()}${Math.floor(Math.random() * 1000)}`;
+                isNew = true;
             }
-            const uid = `u${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
             const role = u.role || 'user';
             const areasArray = u.areas ? u.areas.split('-').map(x => x.trim()) : [u.areaId];
+            const status = u.status || 'active';
+            const twoFactorEnabled = u.twoFactorEnabled === 'true' || u.twoFactorEnabled === true || u.twoFactorEnabled === '1' || u.twoFactorEnabled === 1 ? 1 : 0;
             
-            await pool.query(
-                `INSERT IGNORE INTO users (id, name, email, password, area_id, role, areas) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [uid, u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray)]
-            );
+            const formattedStart = u.licenceStart ? u.licenceStart.replace('T', ' ').substring(0, 19) : null;
+            const formattedEnd = u.licenceEnd ? u.licenceEnd.replace('T', ' ').substring(0, 19) : null;
+            const delegatedTo = u.delegatedTo || null;
+
+            if (isNew) {
+                // Nuevo usuario: Requiere contraseña
+                const isPasswordPlaceholder = u.password === '********' || !u.password || u.password.trim() === '';
+                if (isPasswordPlaceholder || u.password.length < 8) {
+                    continue; // Saltar nuevos usuarios sin clave o débiles
+                }
+                const hash = await bcrypt.hash(u.password, 12);
+                await connection.query(
+                    `INSERT INTO users (id, name, email, password, area_id, role, areas, status, two_factor_enabled, licence_start, licence_end, delegated_to) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        uid, u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray),
+                        status, twoFactorEnabled, formattedStart, formattedEnd, delegatedTo
+                    ]
+                );
+            } else {
+                // Actualizar usuario existente: Actualiza contraseña solo si viene un valor real
+                const isPasswordPlaceholder = u.password === '********' || !u.password || u.password.trim() === '';
+                if (!isPasswordPlaceholder && u.password.length >= 8) {
+                    const hash = await bcrypt.hash(u.password, 12);
+                    await connection.query(
+                        `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, status = ?, two_factor_enabled = ?, licence_start = ?, licence_end = ?, delegated_to = ? WHERE id = ?`,
+                        [
+                            u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray),
+                            status, twoFactorEnabled, formattedStart, formattedEnd, delegatedTo, uid
+                        ]
+                    );
+                } else {
+                    await connection.query(
+                        `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, status = ?, two_factor_enabled = ?, licence_start = ?, licence_end = ?, delegated_to = ? WHERE id = ?`,
+                        [
+                            u.name, u.email, u.areaId, role, JSON.stringify(areasArray),
+                            status, twoFactorEnabled, formattedStart, formattedEnd, delegatedTo, uid
+                        ]
+                    );
+                }
+            }
+
+            // Asignar roles granulares en user_roles para la fila recién insertada/actualizada
+            const rolesToAssign = u.roles ? u.roles.split(';').map(r => r.trim()).filter(Boolean) : [role];
+            await connection.query('DELETE FROM user_roles WHERE user_id = ?', [uid]);
+            for (const rId of rolesToAssign) {
+                await connection.query(
+                    'INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+                    [uid, rId]
+                );
+            }
         }
-        await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
+        await connection.commit();
+        await invalidateInitialDataCache(); // Limpiar caché Redis
         res.status(201).json({ message: 'Usuarios importados exitosamente' });
     } catch (error) {
-        console.error(error);
+        await connection.rollback();
+        console.error('Error en bulkCreateUsers:', error);
         res.status(500).json({ message: 'Error en la importación masiva de usuarios' });
+    } finally {
+        connection.release();
     }
 };
 

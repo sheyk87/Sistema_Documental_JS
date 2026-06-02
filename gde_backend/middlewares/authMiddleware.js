@@ -31,6 +31,17 @@ module.exports = async (req, res, next) => {
             issuer: 'gde-system',
             audience: 'gde-api'
         });
+
+        // === NUEVO: Comprobar estado de cuenta y sincronizar rol en caliente (Fase 3) ===
+        const pool = require('../config/db');
+        const [statusRows] = await pool.query('SELECT status, role FROM users WHERE id = ?', [decoded.id]);
+        if (statusRows.length === 0 || statusRows[0].status !== 'active') {
+            logAccessDenied({ reason: 'inactive_or_suspended_account', ip: req.ip, path: req.path });
+            return res.status(401).json({ message: 'Acceso denegado: Tu cuenta está inactiva o suspendida.' });
+        }
+
+        // Mantener sincronizado el rol real de la BD en req.user
+        decoded.role = statusRows[0].role;
         req.user = decoded; // Guardamos los datos del usuario en la request
         next(); // Le decimos al servidor: "Todo en orden, déjalo pasar a la ruta"
     } catch (error) {

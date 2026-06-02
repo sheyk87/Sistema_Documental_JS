@@ -101,7 +101,7 @@ A continuación se detallan las modificaciones y adiciones de archivos en el bac
   * `POST /api/templates`, `PUT /api/templates/:id`, `DELETE /api/templates/:id` (Restringido para `admin`)
 
 #### [MODIFY] [gde_backend/controllers/userController.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_backend/controllers/userController.js)
-* Modificar `createUser` and `updateUser`:
+* Modificar `createUser` y `updateUser`:
   * Soportar la asignación del estado de cuenta (`status` = 'active', 'inactive', 'suspended').
   * Recibir un arreglo de roles (`roles` array) y actualizar la tabla de mapeo asociativa `user_roles` dentro de una transacción.
   * Validar parámetros usando prepared queries para mitigar ataques de inyección SQL (OWASP A03).
