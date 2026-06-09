@@ -93,7 +93,30 @@ const checkDocumentAccess = (action) => {
 
             // 3. Evaluar reglas según la acción solicitada
             if (action === 'read') {
-                // El usuario puede leer si:
+                const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
+
+                // Si es un documento reservado, solo acceden:
+                // - Creador original o dueño actual directo
+                // - Dueño actual por área
+                // - Si el usuario está explícitamente en la lista de autorizados (auth_users)
+                // - Si alguna de las áreas lícitas del usuario está en la lista de áreas autorizadas (auth_areas)
+                // - Administradores y Auditores
+                if (doc.is_public === 0) {
+                    const authAreas = typeof doc.auth_areas === 'string' ? JSON.parse(doc.auth_areas) : (doc.auth_areas || []);
+                    const authUsers = typeof doc.auth_users === 'string' ? JSON.parse(doc.auth_users) : (doc.auth_users || []);
+
+                    const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
+                    const isAreaOwner = userAreas.includes(doc.current_owner_id);
+                    const isUserAuth = authUsers.includes(userId);
+                    const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+
+                    if (hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth || isAuditorOrAdmin) {
+                        return next();
+                    }
+                    return res.status(403).json({ message: 'Acceso denegado. Este documento es reservado.' });
+                }
+
+                // Si es público, el usuario puede leer si:
                 // - Es el creador original
                 // - Es el dueño actual
                 // - Su ID de usuario está en la lista de dueños (owners)
@@ -104,7 +127,6 @@ const checkDocumentAccess = (action) => {
                 const isOwner = owners.includes(userId) || userAreas.some(area => owners.includes(area));
                 const isRecipient = recipients.includes(userId) || userAreas.some(area => recipients.includes(area));
                 const isPendingSignatory = signatories.includes(userId);
-                const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
 
                 if (hasDirectAccess || isOwner || isRecipient || isPendingSignatory || isAuditorOrAdmin) {
                     return next();
@@ -160,6 +182,14 @@ const checkDocumentAccess = (action) => {
             }
 
             if (action === 'sign') {
+                // Si el documento es reservado, el usuario debe poseer el permiso doc_sign_reserved
+                if (doc.is_public === 0) {
+                    const hasSignReserved = await checkUserHasPermission(userId, 'doc_sign_reserved');
+                    if (!hasSignReserved) {
+                        return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso de firma de documentos reservados.' });
+                    }
+                }
+
                 // Caso A: Circuito de firmas múltiples en cascada
                 if (doc.status === 'Firmandose' && signatories.includes(userId)) {
                     return next();
@@ -278,9 +308,26 @@ async function checkUserHasPermission(userId, permissionName) {
     }
 }
 
+async function getUserPermissions(userId) {
+    try {
+        const [rows] = await pool.query(`
+            SELECT DISTINCT p.id 
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            JOIN user_roles ur ON rp.role_id = ur.role_id
+            WHERE ur.user_id = ?
+        `, [userId]);
+        return rows.map(r => r.id);
+    } catch (e) {
+        return [];
+    }
+}
+
 module.exports = {
     requirePermission,
     requireAdmin,
     checkDocumentAccess,
-    checkExpedienteAccess
+    checkExpedienteAccess,
+    checkUserHasPermission,
+    getUserPermissions
 };

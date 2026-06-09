@@ -160,9 +160,11 @@ exports.login = async (req, res) => {
             return res.json({ requires2FA: true, isConfigured, tempToken, message: 'Validacion 2FA requerida' });
         }
 
+        const { getUserPermissions } = require('../middlewares/roleMiddleware');
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
         user.twoFactorEnabled = user.two_factor_enabled === 1;
+        user.permissions = await getUserPermissions(user.id);
         delete user.password;
         delete user.two_factor_secret;
 
@@ -301,9 +303,11 @@ exports.verify2FA = async (req, res) => {
         logAuthEvent('2FA_SUCCESS', { userId, ip: req.ip });
 
         // PREPARACIÓN DE RESPUESTA
+        const { getUserPermissions } = require('../middlewares/roleMiddleware');
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
         user.twoFactorEnabled = 1;
+        user.permissions = await getUserPermissions(user.id);
         delete user.password;
         delete user.two_factor_secret;
         delete user.two_factor_recovery_codes;
@@ -500,3 +504,5 @@ exports.logout = async (req, res) => {
         res.json({ message: 'Sesión cerrada' });
     }
 };
+
+exports.verifyTOTP = verifyTOTP;

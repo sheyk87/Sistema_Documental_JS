@@ -160,6 +160,9 @@ async function setupFull() {
                 attachments JSON,
                 related_docs JSON,
                 pdf_hash VARCHAR(64) DEFAULT NULL,
+                is_public BOOLEAN DEFAULT TRUE,
+                auth_areas JSON,
+                auth_users JSON,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (creator_id) REFERENCES users(id),
                 FOREIGN KEY (area_id) REFERENCES areas(id)
@@ -306,7 +309,9 @@ async function setupFull() {
             ['admin_users', 'Gestionar Usuarios', 'Gestionar Usuarios: Permite crear, modificar, suspender y eliminar usuarios.'],
             ['admin_areas', 'Gestionar Reparticiones / Áreas', 'Gestionar Reparticiones / Áreas: Permite configurar el organigrama de la institución.'],
             ['admin_services', 'Configurar Conectividad de Servidores', 'Configurar Conectividad de Servidores: Permite configurar SMTP, LDAP y 2FA.'],
-            ['audit_logs', 'Acceso a Logs de Auditoría', 'Acceso a Logs de Auditoría: Permite ver la trazabilidad de acciones críticas en el sistema.']
+            ['audit_logs', 'Acceso a Logs de Auditoría', 'Acceso a Logs de Auditoría: Permite ver la trazabilidad de acciones críticas en el sistema.'],
+            ['doc_create_reserved', 'Crear Documentación Reservada', 'Crear Documentación Reservada: Permite iniciar documentación y expedientes en carácter de reservado.'],
+            ['doc_sign_reserved', 'Firmar Documentación Reservada', 'Firmar Documentación Reservada: Permite firmar documentos de carácter reservado, requiriendo validación 2FA.']
         ];
 
         for (const [id, name, desc] of permsData) {
@@ -319,10 +324,13 @@ async function setupFull() {
         }
 
         // Vincular permisos estándar al usuario básico
-        const userPerms = ['doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 'exp_create', 'exp_read', 'exp_write', 'exp_pase'];
+        const userPerms = ['doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 'exp_create', 'exp_read', 'exp_write', 'exp_pase', 'doc_create_reserved', 'doc_sign_reserved'];
         for (const permId of userPerms) {
             await pool.query('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', ['user', permId]);
         }
+
+        // Vincular permiso de firma reservada al rol firmante
+        await pool.query('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', ['firmante', 'doc_sign_reserved']);
 
         // Mapear usuarios existentes a sus nuevos roles
         await pool.query("INSERT INTO user_roles (user_id, role_id) VALUES ('u1', 'admin')");

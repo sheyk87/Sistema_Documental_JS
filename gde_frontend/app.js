@@ -344,6 +344,14 @@ async function requestDocumentNumber(docId) {
     return null;
 }
 
+function renderAccessBadge(item) {
+    if (item.isPublic) {
+        return `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-100 text-emerald-800 uppercase tracking-wider">Público</span>`;
+    } else {
+        return `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-yellow-100 text-yellow-800 inline-flex items-center gap-1 uppercase tracking-wider"><i data-lucide="shield" class="w-3 h-3"></i> Reservado</span>`;
+    }
+}
+
 function getSender(item) {
     if (!item.history || item.history.length === 0) return 'Sistema';
     const transferActions = ['Derivad', 'Enviado a Revisar', 'Rechazado', 'Enviado a firmar'];
@@ -354,6 +362,15 @@ function getSender(item) {
 function canViewExpediente(exp, user) {
     if (exp.isPublic || exp.creatorId === user.id || exp.currentOwnerId === user.id || exp.currentOwnerId === user.areaId) return true;
     if (exp.authUsers?.includes(user.id) || exp.authAreas?.includes(user.areaId)) return true; return false;
+}
+
+function canViewDocumento(doc, user) {
+    if (doc.isPublic || doc.creatorId === user.id || doc.currentOwnerId === user.id || doc.currentOwnerId === user.areaId) return true;
+    if (doc.authUsers?.includes(user.id) || doc.authAreas?.includes(user.areaId)) return true;
+    const userRole = user.role || '';
+    if (userRole === 'admin' || userRole === 'auditor') return true;
+    if (user.roles && (user.roles.includes('admin') || user.roles.includes('auditor'))) return true;
+    return false;
 }
 function checkActiveLicence(userId) {
     if (!userId || !userId.startsWith('u')) return null;
@@ -737,7 +754,7 @@ function handleExport(model) {
 }
 
 // Genera el PDF al momento de firmar y lo envía al backend para su sellado inmutable con adjuntos embebidos
-async function sealAndSaveDocument(doc, hEntry) {
+async function sealAndSaveDocument(doc, hEntry, twoFactorCode = '') {
     // 1. Contenedor en memoria (NUNCA lo agregamos a la pantalla real)
     const tempDiv = document.createElement('div');
     tempDiv.style.width = '750px';
@@ -869,6 +886,9 @@ async function sealAndSaveDocument(doc, hEntry) {
         finalFormData.append('pdf', rawBlob, 'documento_crudo.pdf');
         finalFormData.append('documentData', JSON.stringify(doc));
         finalFormData.append('historyEntry', JSON.stringify(hEntry));
+        if (twoFactorCode) {
+            finalFormData.append('twoFactorCode', twoFactorCode);
+        }
 
         const res = await fetch(`${API_BASE}/api/docs/sign-final/${doc.id}`, {
             method: 'POST',
@@ -991,6 +1011,8 @@ async function processBatchReject(note) {
         const targetOwnerId = getPreviousSenderId(item);
         item.status = STATUS.RECHAZADO;
         item.currentOwnerId = targetOwnerId;
+        const prevOwner = state.db.users.find(u => u.id === targetOwnerId);
+        if (prevOwner) item.areaId = prevOwner.areaId;
         const hEntry = createHistoryEntry(state.currentUser.id, 'Rechazado (Firma Masiva)', note);
         item.history.push(hEntry);
         await syncData(item, 'documento', hEntry);
@@ -1103,18 +1125,18 @@ async function processBatchSign() {
 function getFilteredItemsForModel(model) {
     const term = state.searchTerms[model.replace(/(Doc|Exp)$/, '')] || '';
     switch (model) {
-        case 'inboxDoc': return state.db.documents.filter(d => isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'inboxDoc': return state.db.documents.filter(d => isPersonalDoc(d, state.currentUser) && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'inboxExp': return state.db.expedientes.filter(e => isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'areaDoc': return state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'areaDoc': return state.db.documents.filter(d => isAreaDoc(d, state.currentUser) && !isPersonalDoc(d, state.currentUser) && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'areaExp': return state.db.expedientes.filter(e => isAreaExp(e, state.currentUser) && !isPersonalExp(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id && (!d.areaId || d.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
-        case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
+        case 'drafts': return state.db.documents.filter(d => d.creatorId === state.currentUser.id && (d.status === STATUS.BORRADOR || d.status === STATUS.RECHAZADO) && d.currentOwnerId === state.currentUser.id && (!d.areaId || d.areaId === state.currentUser.areaId) && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'archiveDoc': return state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId) && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
+        case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'anuladosExp': return state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'batchSign': return state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id).filter(d => filterItem(d, term));
+        case 'batchSign': return state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id && d.isPublic && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'search':
-            const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)));
+            const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)) && canViewDocumento(d, state.currentUser));
             const sExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
             return [...sDocs, ...sExps].filter(item => filterItem(item, term));
         default: return [];
@@ -1136,7 +1158,7 @@ function sortItems(items, model) {
             case 'subject': vA = a.subject.toLowerCase(); vB = b.subject.toLowerCase(); break;
             case 'status': vA = a.status; vB = b.status; break;
             case 'sender': vA = getSender(a).toLowerCase(); vB = getSender(b).toLowerCase(); break;
-            case 'acceso': vA = a.type === 'expediente' ? (a.isPublic ? 'Publico' : 'Reservado') : '-'; vB = b.type === 'expediente' ? (b.isPublic ? 'Publico' : 'Reservado') : '-'; break;
+            case 'acceso': vA = a.isPublic ? 'Publico' : 'Reservado'; vB = b.isPublic ? 'Publico' : 'Reservado'; break;
             case 'fojas': vA = a.type === 'expediente' ? (a.linkedDocs?.length || 0) : -1; vB = b.type === 'expediente' ? (b.linkedDocs?.length || 0) : -1; break;
             case 'date': default: vA = new Date(a.createdAt).getTime(); vB = new Date(b.createdAt).getTime(); break;
         }
@@ -1213,7 +1235,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         <div class="overflow-x-auto relative">
             <div class="absolute top-2 right-4 z-10"><button data-action="export-csv" data-model="${model}" class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> CSV</button></div>
             <table class="w-full text-left border-collapse mt-8">
-                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${isExpList ? th('Acceso', 'acceso') : ''} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${showAcquireBtn ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
+                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${th('Acceso', 'acceso')} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${showAcquireBtn ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
                 <tbody class="divide-y divide-gray-100 text-sm">
                     ${paginatedItems.map(item => `
                         <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
@@ -1222,7 +1244,7 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                             <td class="p-4 font-medium text-gray-800">${getReadReceiptUI(item)}${item.subject}</td>
                             <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
                             <td class="p-4 text-gray-700">${getSender(item)}</td>
-                            ${isExpList ? `<td class="p-4 text-gray-600 text-xs font-semibold uppercase tracking-wider">${item.type === 'expediente' ? (item.isPublic ? 'Público' : 'Reservado') : '-'}</td>` : ''}
+                            <td class="p-4">${renderAccessBadge(item)}</td>
                             <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${item.type === 'expediente' ? (item.linkedDocs?.length || 0) : '-'}</td>` : ''}
                             ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
@@ -2785,6 +2807,7 @@ function renderBatchSign() {
                                 <th class="p-4">Tipo</th>
                                 <th class="p-4">Asunto</th>
                                 <th class="p-4">Creador</th>
+                                <th class="p-4">Acceso</th>
                                 <th class="p-4">Fecha</th>
                                 <th class="p-4 text-center">Ver</th>
                             </tr>
@@ -2796,6 +2819,7 @@ function renderBatchSign() {
                                     <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType)}">${item.docType}</span></td>
                                     <td class="p-4 font-medium text-gray-800">${item.subject}</td>
                                     <td class="p-4 text-gray-700">${getUserName(item.creatorId)}</td>
+                                    <td class="p-4">${renderAccessBadge(item)}</td>
                                     <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
                                     <td class="p-4 text-center"><button data-action="view-item" data-id="${item.id}" data-type="documento" class="text-blue-600 hover:text-blue-800 p-1 bg-blue-50 rounded" title="Revisar Documento"><i data-lucide="eye" class="w-4 h-4"></i></button></td>
                                 </tr>
@@ -2825,21 +2849,21 @@ function renderDrafts() {
 
 function renderArchive() {
     const term = state.searchTerms.archive;
-    const docs = state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId)).filter(d => filterItem(d, term));
+    const docs = state.db.documents.filter(d => d.status === STATUS.ARCHIVADO && (d.creatorId === state.currentUser.id || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId) || state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId) && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
     const exps = state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="archive" placeholder="Filtrar archivo..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos Archivados (${docs.length})</h3></div>${renderTable(docs, 'archiveDoc', 'No hay documentos archivados.')}</div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-stone-100"><h3 class="font-semibold text-stone-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes Archivados (${exps.length})</h3></div>${renderTable(exps, 'archiveExp', 'No hay expedientes archivados.', true)}</div></div>`;
 }
 
 function renderAnulados() {
     const term = state.searchTerms.anulados;
-    const docs = state.db.documents.filter(d => d.status === STATUS.ANULADO).filter(d => filterItem(d, term));
+    const docs = state.db.documents.filter(d => d.status === STATUS.ANULADO && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
     const exps = state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="anulados" placeholder="Filtrar anulados..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden"><div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos Anulados (${docs.length})</h3></div>${renderTable(docs, 'anuladosDoc', 'No hay documentos anulados.')}</div><div class="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden"><div class="px-6 py-4 border-b border-red-200 bg-red-50"><h3 class="font-semibold text-red-800 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes Anulados (${exps.length})</h3></div>${renderTable(exps, 'anuladosExp', 'No hay expedientes anulados.', true)}</div></div>`;
 }
 
 function renderSearcher() {
     const term = state.searchTerms.search; const filter = state.searchTerms.globalFilter;
-    const searchableDocs = state.db.documents.filter(d => { if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status)) return false; return state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId); });
+    const searchableDocs = state.db.documents.filter(d => { if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status)) return false; return (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)) && canViewDocumento(d, state.currentUser); });
     const searchableExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
     const results = [...searchableDocs, ...searchableExps].filter(item => { if (!filterItem(item, term)) return false; if (filter === 'doc' && item.type !== 'documento') return false; if (filter === 'exp' && item.type !== 'expediente') return false; return true; });
     return `<div class="max-w-5xl mx-auto space-y-6"><div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200"><h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="search" class="w-5 h-5"></i> Consulta General</h2><div class="flex gap-4"><input type="text" data-search-model="search" placeholder="Buscar general..." value="${term}" class="flex-1 px-4 py-2 border rounded-lg outline-none focus:border-blue-500" autofocus /><select data-search-model="globalFilter" class="px-4 py-2 border rounded-lg bg-white outline-none"><option value="todos" ${filter === 'todos' ? 'selected' : ''}>Todos</option><option value="doc" ${filter === 'doc' ? 'selected' : ''}>Solo Documentos</option><option value="exp" ${filter === 'exp' ? 'selected' : ''}>Solo Expedientes</option></select></div></div><div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">${renderTable(results, 'search', 'No se encontraron resultados.', filter === 'exp' || filter === 'todos')}</div></div>`;
@@ -2849,13 +2873,47 @@ function renderCreateDocument() {
     const term = state.searchTerms.docTypeCreate.toLowerCase();
     const filterOpts = (arr) => arr.filter(t => t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term));
     const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
+    const canCreateReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create_reserved');
 
     return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
+    ${canCreateReserved ? `
+    <div class="p-4 bg-blue-50 rounded-lg border border-blue-100">
+        <label class="flex items-center gap-3 cursor-pointer mb-2">
+            <input type="checkbox" id="create-doc-public" checked class="w-5 h-5 text-blue-600 rounded" onchange="document.getElementById('private-doc-auth-box').classList.toggle('hidden', this.checked)" />
+            <div>
+                <p class="font-medium text-blue-900">Documento Público</p>
+                <p class="text-xs text-blue-700">Si se desmarca, deberá elegir quién puede verlo.</p>
+            </div>
+        </label>
+        <div id="private-doc-auth-box" class="hidden mt-4 pt-4 border-t border-blue-200">
+            <p class="text-sm font-medium mb-2">Autorizados (además de usted y su área):</p>
+            <input type="text" 
+                   data-local-search="create-doc-auth" 
+                   placeholder="Buscar áreas o usuarios..." 
+                   class="w-full px-3 py-1.5 border rounded-lg outline-none mb-2 text-xs bg-slate-50 border-blue-100 focus:border-blue-300 focus:bg-white transition-colors" />
+            <div class="max-h-40 overflow-y-auto bg-white border rounded p-2 text-sm space-y-1" id="create-doc-auth-list">
+                ${state.db.areas.map(a => `
+                    <label class="flex items-center gap-2 p-1 hover:bg-slate-50 cursor-pointer rounded dest-item">
+                        <input type="checkbox" name="auth_areas" value="${a.id}"> 
+                        <span class="dest-text">Área: ${a.name}</span>
+                    </label>
+                `).join('')}
+                ${state.db.users.filter(u => u.id !== state.currentUser.id).map(u => `
+                    <label class="flex items-center gap-2 p-1 hover:bg-slate-50 cursor-pointer rounded dest-item">
+                        <input type="checkbox" name="auth_users" value="${u.id}"> 
+                        <span class="dest-text">Usuario: ${u.name}</span>
+                    </label>
+                `).join('')}
+            </div>
+        </div>
+    </div>
+    ` : ''}
     <div id="dest-container" style="display:none;"><label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios Iniciales (Opcional)</label><input type="text" data-local-search="create-dest" placeholder="Buscar usuarios o áreas..." class="w-full px-3 py-2 border rounded-lg outline-none mb-2" /><div class="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50" id="create-dest-list">${[...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id)].map(u => `<label class="flex items-center gap-2 p-1 text-sm dest-item hover:bg-white cursor-pointer border-b last:border-0"><input type="checkbox" name="create_doc_dest" value="${u.id}"> <span class="dest-text">${u.name}</span></label>`).join('')}</div></div>
     <div class="flex justify-end gap-3 pt-4 border-t"><button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center gap-2">Continuar Borrador <i data-lucide="chevron-right" class="w-4 h-4"></i></button></div></form></div>`;
 }
 
 function renderCreateExpediente() {
+    const canCreateReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create_reserved');
     return `<div class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
             <i data-lucide="folder-plus" class="text-purple-600 w-5 h-5"></i>
@@ -2866,6 +2924,7 @@ function renderCreateExpediente() {
                 <label class="block text-sm font-medium text-gray-700 mb-1">Carátula / Asunto</label>
                 <input required type="text" id="create-exp-subject" class="w-full px-3 py-2 border rounded-lg outline-none" />
             </div>
+            ${canCreateReserved ? `
             <div class="p-4 bg-purple-50 rounded-lg border border-purple-100">
                 <label class="flex items-center gap-3 cursor-pointer mb-2">
                     <input type="checkbox" id="create-exp-public" checked class="w-5 h-5 text-purple-600 rounded" onchange="document.getElementById('private-auth-box').classList.toggle('hidden', this.checked)" />
@@ -2896,6 +2955,7 @@ function renderCreateExpediente() {
                     </div>
                 </div>
             </div>
+            ` : ''}
             <div class="flex justify-end pt-4 border-t">
                 <button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium flex items-center gap-2">
                     <i data-lucide="check" class="w-4 h-4"></i> Generar Expediente
@@ -2913,6 +2973,8 @@ function renderDocumentDetail() {
     // Variables de estado
     const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
     const isHidden = isHiddenFromInbox(doc, state.currentUser);
+    const canSignReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_sign_reserved');
+    const showSignButton = doc.isPublic || canSignReserved;
 
     let promotorHTML = '';
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
@@ -2927,7 +2989,7 @@ function renderDocumentDetail() {
     return `
         <div class="flex ${isMobile() ? 'flex-col h-auto' : 'h-[calc(100vh-8rem)]'} gap-6 max-w-7xl mx-auto">
             <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm ${getTypeColorClass(doc.docType)}">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span></div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
+                <div class="px-8 py-4 border-b border-gray-200 bg-white flex justify-between items-center"><div class="flex items-center gap-3"><span class="font-medium px-3 py-1 rounded-full text-sm ${getTypeColorClass(doc.docType)}">${doc.docType}</span><span class="font-mono text-lg text-gray-700">${doc.number || 'Borrador S/N'}</span>${!doc.isPublic ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800 flex items-center gap-1"><i data-lucide="shield" class="w-3.5 h-3.5"></i> RESERVADO</span>' : ''}</div><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(doc.status)}">${doc.status}</span></div>
                 <div class="flex-1 overflow-auto p-8 bg-gray-50/50">
                     <div class="max-w-4xl mx-auto bg-white min-h-[700px] shadow-lg border border-gray-300 p-12 flex flex-col relative">
                         ${doc.status === STATUS.ANULADO ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span class="text-8xl text-red-600 font-black transform -rotate-45 border-8 border-red-600 p-8">ANULADO</span></div>` : ''}
@@ -2980,8 +3042,9 @@ function renderDocumentDetail() {
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                     <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
                     <div class="space-y-2">
-                        ${isBorradorOrRechazado ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}<button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button><button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button><button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button><button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>` : ''}
-                        ${isMyTurnToSign ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}<button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button><button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>` : ''}
+                        ${!doc.isPublic && isOwner ? `<button data-action="open-modal" data-modal-type="editar_permisos_doc" class="w-full py-2 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2 mb-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
+                        ${isBorradorOrRechazado ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}${showSignButton ? `<button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>` : ''}<button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button><button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button><button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>` : ''}
+                        ${isMyTurnToSign ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}${showSignButton ? `<button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button>` : ''}<button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>` : ''}
                         ${isSignedOrArchived ? `
                         <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>
                         
@@ -3017,7 +3080,7 @@ function renderExpedienteDetail() {
             <div class="px-8 py-6 border-b border-gray-200 bg-purple-50 flex ${isMobile() ? 'flex-col gap-4' : 'justify-between'} items-center shrink-0">
                 <div class="flex items-center gap-4"><div class="p-3 bg-white rounded-lg shadow-sm text-purple-600"><i data-lucide="folder-open" class="w-8 h-8"></i></div><div><h2 class="text-2xl font-bold">${exp.number}</h2><p class="text-gray-600 font-medium">${exp.subject}</p></div></div>
                 <div class="flex items-center gap-4">
-                    ${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800">RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
+                    ${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800 flex items-center gap-1"><i data-lucide="shield" class="w-3.5 h-3.5"></i> RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
                     <button data-action="download-exp-zip" data-id="${exp.id}" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 flex items-center gap-2 font-bold shadow-sm"><i data-lucide="package" class="w-4 h-4"></i> Exportar ZIP</button>
                     <button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
                 </div>
@@ -3095,7 +3158,7 @@ function renderModalOverlay() {
     const m = state.modal; let title = '', content = ''; const term = (m.search || '').toLowerCase();
     const mixedList = [...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))].filter(i => i.name.toLowerCase().includes(term));
     const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
-    const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
+    const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && canViewDocumento(d, state.currentUser) && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
 
     if (m.type === 'editar_usuario') {
         title = 'Editar Usuario';
@@ -3228,8 +3291,8 @@ function renderModalOverlay() {
             ${m.type !== 'destinatarios' ? `<textarea data-modal-input="note" placeholder="Nota (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>` : ''}
         `;
     }
-    else if (m.type === 'editar_permisos_exp') {
-        title = 'Editar Permisos del Expediente';
+    else if (m.type === 'editar_permisos_exp' || m.type === 'editar_permisos_doc') {
+        title = m.type === 'editar_permisos_exp' ? 'Editar Permisos del Expediente' : 'Editar Permisos del Documento';
         const filteredAreas = state.db.areas.filter(a => a.name.toLowerCase().includes(term));
         const filteredUsers = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
         content = `
@@ -3265,11 +3328,19 @@ function renderModalOverlay() {
     }
     else if (m.type === 'confirmar_firma') {
         title = 'Confirmar Firma Digital';
+        const isReserved = state.selectedItem && !state.selectedItem.isPublic;
         content = `
             <div class="mb-4 text-sm text-gray-700 bg-blue-50 p-4 rounded border border-blue-100">
                 <p class="font-bold mb-2">¿Está seguro que desea aplicar su firma a este documento?</p>
                 <p class="text-xs text-gray-600">Al confirmar, se registrará su identidad, la estampa de tiempo actual y el documento avanzará en su ciclo de vida. Esta acción es irreversible.</p>
             </div>
+            ${isReserved ? `
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Código de Autenticación de 2 Factores (2FA)</label>
+                    <input required type="text" id="signature-2fa-code" placeholder="Código de 6 dígitos..." class="w-full px-3 py-2 border rounded-lg outline-none text-center font-mono tracking-widest text-lg" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" />
+                    <p class="text-xs text-amber-600 mt-1">Este documento es reservado. Debe ingresar el código 2FA de su aplicación de autenticación para firmar.</p>
+                </div>
+            ` : ''}
         `;
     }
     else if (['archivar_doc', 'anular_doc', 'archivar_exp', 'anular_exp', 'rechazar_doc'].includes(m.type)) {
@@ -3464,6 +3535,8 @@ document.addEventListener('input', (e) => {
             items = document.querySelectorAll('#create-dest-list .dest-item');
         } else if (searchType === 'create-exp-auth') {
             items = document.querySelectorAll('#create-exp-auth-list .dest-item');
+        } else if (searchType === 'create-doc-auth') {
+            items = document.querySelectorAll('#create-doc-auth-list .dest-item');
         } else {
             items = document.querySelectorAll('.dest-item');
         }
@@ -3747,11 +3820,17 @@ document.addEventListener('submit', async (e) => {
 
         const contentHTML = window.tinymce && tinymce.get('create-doc-content') ? tinymce.get('create-doc-content').getContent() : document.getElementById('create-doc-content').value;
 
+        const isPublicEl = document.getElementById('create-doc-public');
+        const isPublic = isPublicEl ? isPublicEl.checked : true;
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('#create-doc-auth-list input[name="auth_areas"]:checked')).map(el => el.value);
+        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('#create-doc-auth-list input[name="auth_users"]:checked')).map(el => el.value);
+
         const newDoc = {
             id: `doc_${Date.now()}`, docType: type, subject: document.getElementById('create-doc-subject').value,
             content: contentHTML, // <-- Usamos el HTML capturado
             creatorId: state.currentUser.id, currentOwnerId: state.currentUser.id, owners: [state.currentUser.id], status: STATUS.BORRADOR, recipients: dests, attachments: [],
-            areaId: state.currentUser.areaId, createdAt: new Date().toISOString()
+            areaId: state.currentUser.areaId, createdAt: new Date().toISOString(),
+            isPublic: isPublic, authAreas: authAreas, authUsers: authUsers
         };
 
         fetch(`${API_BASE}/api/docs/create`, {
@@ -3768,9 +3847,10 @@ document.addEventListener('submit', async (e) => {
     }
     else if (e.target.id === 'form-create-exp') {
         e.preventDefault();
-        const isPublic = document.getElementById('create-exp-public').checked;
-        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_areas"]:checked')).map(el => el.value);
-        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('input[name="auth_users"]:checked')).map(el => el.value);
+        const isPublicEl = document.getElementById('create-exp-public');
+        const isPublic = isPublicEl ? isPublicEl.checked : true;
+        const authAreas = isPublic ? [] : Array.from(document.querySelectorAll('#create-exp-auth-list input[name="auth_areas"]:checked')).map(el => el.value);
+        const authUsers = isPublic ? [] : Array.from(document.querySelectorAll('#create-exp-auth-list input[name="auth_users"]:checked')).map(el => el.value);
 
         const newExp = {
             id: `exp_${Date.now()}`, number: null, subject: document.getElementById('create-exp-subject').value,
@@ -4204,6 +4284,7 @@ document.addEventListener('click', async (e) => {
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
 
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
+            if (item && type === 'documento' && !canViewDocumento(item, state.currentUser)) return alert("Acceso denegado. Documento reservado.");
 
             if (item) {
                 checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
@@ -4527,7 +4608,7 @@ document.addEventListener('click', async (e) => {
             await autoSaveDraft();
             const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
-            if (type === 'editar_permisos_exp') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
+            if (type === 'editar_permisos_exp' || type === 'editar_permisos_doc') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
             if (type === 'editar_usuario') { 
                 const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); 
                 mState.editUId = u.id; 
@@ -4685,9 +4766,10 @@ document.addEventListener('click', async (e) => {
                 item.recipients = [...m.selectionArr]; state.selectedItem.recipients = [...m.selectionArr];
                 await syncData(item, 'documento'); return setState({ modal: null });
             }
-            if (m.type === 'editar_permisos_exp') {
+            if (m.type === 'editar_permisos_exp' || m.type === 'editar_permisos_doc') {
                 item.authAreas = m.selectionArr.filter(id => id.startsWith('a')); item.authUsers = m.selectionArr.filter(id => id.startsWith('u'));
-                await syncData(item, 'expediente'); return setState({ modal: null });
+                const typeName = m.type === 'editar_permisos_exp' ? 'expediente' : 'documento';
+                await syncData(item, typeName); return setState({ modal: null });
             }
 
             if (m.type === 'revisar') {
@@ -4886,7 +4968,13 @@ document.addEventListener('click', async (e) => {
                 let newStatus = ''; let actionName = '';
                 if (m.type.includes('archivar')) { newStatus = STATUS.ARCHIVADO; actionName = 'Archivado'; }
                 if (m.type.includes('anular')) { newStatus = STATUS.ANULADO; actionName = 'Anulado'; }
-                if (m.type === 'rechazar_doc') { newStatus = STATUS.RECHAZADO; actionName = 'Rechazado'; item.currentOwnerId = getPreviousSenderId(item); }
+                if (m.type === 'rechazar_doc') {
+                    newStatus = STATUS.RECHAZADO;
+                    actionName = 'Rechazado';
+                    item.currentOwnerId = getPreviousSenderId(item);
+                    const prevOwner = state.db.users.find(u => u.id === item.currentOwnerId);
+                    if (prevOwner) item.areaId = prevOwner.areaId;
+                }
 
                 item.status = newStatus;
                 if (m.type === 'archivar_exp') item.sealedDocs = [...new Set([...(item.sealedDocs || []), ...item.linkedDocs])];
@@ -4911,6 +4999,48 @@ document.addEventListener('click', async (e) => {
             if (m.type === 'confirmar_firma') {
                 // === CRÍTICO: Sincronizar el área del documento con el área activa del usuario ===
                 item.areaId = state.currentUser.areaId;
+
+                let twoFactorCode = '';
+                if (!item.isPublic) {
+                    const codeInput = document.getElementById('signature-2fa-code');
+                    twoFactorCode = codeInput ? codeInput.value.trim() : '';
+                    if (!/^\d{6}$/.test(twoFactorCode)) {
+                        alert("Por favor ingrese un código 2FA válido de 6 dígitos.");
+                        return;
+                    }
+
+                    // Si es firma intermedia (no se sella aún, se actualiza metadata)
+                    const pendingSignersLeft = (item.signatories || []).filter(id => id !== state.currentUser.id);
+                    const isFinalSignature = !(m.signAction === 'doc-sign-pending' && pendingSignersLeft.length > 0);
+                    if (!isFinalSignature) {
+                        const btn = e.target;
+                        const origHtml = btn.innerHTML;
+                        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Verificando 2FA...';
+                        btn.disabled = true;
+
+                        try {
+                            const verifyRes = await fetch(`${API_BASE}/api/auth/2fa/verify`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                                body: JSON.stringify({ code: twoFactorCode })
+                            });
+                            if (!verifyRes.ok) {
+                                const verifyData = await verifyRes.json();
+                                alert(`Error de verificación 2FA: ${verifyData.message || 'Código incorrecto.'}`);
+                                btn.disabled = false;
+                                btn.innerHTML = origHtml;
+                                if (window.lucide) lucide.createIcons();
+                                return;
+                            }
+                        } catch (err) {
+                            alert("Error al comunicarse con el servidor para validar 2FA.");
+                            btn.disabled = false;
+                            btn.innerHTML = origHtml;
+                            if (window.lucide) lucide.createIcons();
+                            return;
+                        }
+                    }
+                }
 
                 if (!item.signedBy) item.signedBy = [];
                 const alreadySigned = item.signedBy.some(s => s.id === state.currentUser.id);
@@ -4973,7 +5103,7 @@ document.addEventListener('click', async (e) => {
 
                 btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Sellando PDF...';
 
-                const success = await sealAndSaveDocument(item, hEntry);
+                const success = await sealAndSaveDocument(item, hEntry, twoFactorCode);
 
                 if (success) {
                     if (isConDest && item.recipients && item.recipients.length > 0) {

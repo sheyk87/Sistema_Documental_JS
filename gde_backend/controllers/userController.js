@@ -252,6 +252,9 @@ exports.getMe = async (req, res) => {
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
 
+        const { getUserPermissions } = require('../middlewares/roleMiddleware');
+        user.permissions = await getUserPermissions(user.id);
+
         res.json({ user });
     } catch (error) {
         console.error(error);

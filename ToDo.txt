@@ -1,6 +1,6 @@
 Features:
-- Documentación con clasificación de seguridad
-- 2fa para firma de documentación con clasificación de seguridad
+- Crear ABM de Roles, para poder asginar los Permisos Granulares
+- Cambiar todos los mensajes Alert() por modales.
 - Gestión de Primer Ingreso: Incorporar una bandera en users para forzar el cambio de contraseña al ingresar por primera vez.
 - Bloqueo por Intentos Fallidos: Guardar el contador de intentos de acceso fallidos en la base de datos para suspender temporalmente cuentas tras una secuencia consecutiva de fallos de credenciales.
 - Control de Inactividad del Usuario: Agregar un timer en el frontend de la SPA (app.js) que capture la falta de interacción del cursor/teclado y limpie automáticamente el token de sesión JWT del almacenamiento local tras un lapso determinado (ej. 15 minutos).

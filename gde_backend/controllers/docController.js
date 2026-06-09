@@ -27,17 +27,33 @@ const getArgTime = () => {
 
 exports.createDocument = async (req, res) => {
     // Ya no usamos el createdAt del frontend
-    const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients, areaId } = req.body;
+    const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients, areaId, isPublic, authAreas, authUsers } = req.body;
     try {
         const serverTime = getArgTime(); // Hora blindada
         // OWASP A03: Sanitizar contenido HTML y texto plano
         const safeSubject = sanitizeText(subject);
         const safeContent = sanitizeHtml(content);
+
+        const isPublicVal = isPublic === false ? 0 : 1;
+        if (isPublicVal === 0) {
+            const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+            const hasCreateReserved = await checkUserHasPermission(req.user.id, 'doc_create_reserved');
+            if (!hasCreateReserved) {
+                return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear documentación reservada.' });
+            }
+        }
         
         await pool.query(
-            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, created_at, area_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', '[]', ?, ?)`,
-            [id, docType, safeSubject, safeContent, creatorId, currentOwnerId, status, JSON.stringify(owners||[]), JSON.stringify(recipients||[]), serverTime, areaId]
+            `INSERT INTO documents (id, doc_type, subject, content, creator_id, current_owner_id, status, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, created_at, area_id, is_public, auth_areas, auth_users) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '[]', '[]', ?, ?, ?, ?, ?)`,
+            [
+                id, docType, safeSubject, safeContent, creatorId, currentOwnerId, status, 
+                JSON.stringify(owners||[]), JSON.stringify(recipients||[]), 
+                serverTime, areaId,
+                isPublicVal,
+                JSON.stringify(authAreas || []),
+                JSON.stringify(authUsers || [])
+            ]
         );
         await pool.query(
             `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Creación', 'Se generó borrador', ?)`,
@@ -57,7 +73,7 @@ exports.getAllDocuments = async (req, res) => {
         const includeContent = req.query.includeContent === 'true';
         const columns = includeContent
             ? '*'
-            : 'id, doc_type, subject, creator_id, current_owner_id, area_id, status, number, created_at, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, pdf_hash';
+            : 'id, doc_type, subject, creator_id, current_owner_id, area_id, status, number, created_at, owners, recipients, read_by, signed_by, related_docs, signatories, attachments, pdf_hash, is_public, auth_areas, auth_users';
         
         const [docs] = await pool.query(`SELECT ${columns} FROM documents`);
         const [history] = await pool.query(
@@ -65,14 +81,42 @@ exports.getAllDocuments = async (req, res) => {
         );
         
         // Optimización: Pre-indexamos el historial en un Map para lookup O(1) por documento
-        // En lugar de history.filter() por cada doc (O(N*M)), ahora es O(N+M)
         const historyMap = new Map();
         for (const h of history) {
             if (!historyMap.has(h.item_id)) historyMap.set(h.item_id, []);
             historyMap.get(h.item_id).push({ date: h.created_at, userId: h.user_id, action: h.action, notes: h.notes });
         }
+
+        // CONTROL DE ACCESOS SEGURO (OWASP A01: Broken Access Control)
+        const userId = req.user.id;
+        const [userRows] = await pool.query('SELECT area_id, areas, role FROM users WHERE id = ?', [userId]);
+        if (userRows.length === 0) {
+            return res.status(404).json({ message: 'Usuario no encontrado.' });
+        }
+        const user = userRows[0];
+        const userAreas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         
-        const formattedDocs = docs.map(doc => {
+        const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+        const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
+
+        let filteredDocs = docs;
+        if (!isAuditorOrAdmin) {
+            filteredDocs = docs.filter(doc => {
+                if (doc.is_public !== 0) return true;
+                
+                const authAreas = typeof doc.auth_areas === 'string' ? JSON.parse(doc.auth_areas) : (doc.auth_areas || []);
+                const authUsers = typeof doc.auth_users === 'string' ? JSON.parse(doc.auth_users) : (doc.auth_users || []);
+                
+                const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
+                const isAreaOwner = userAreas.includes(doc.current_owner_id);
+                const isUserAuth = authUsers.includes(userId);
+                const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+                
+                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth;
+            });
+        }
+        
+        const formattedDocs = filteredDocs.map(doc => {
             return {
                 id: doc.id, type: 'documento', docType: doc.doc_type, subject: doc.subject,
                 content: includeContent ? doc.content : '',
@@ -84,6 +128,9 @@ exports.getAllDocuments = async (req, res) => {
                 relatedDocs: typeof doc.related_docs === 'string' ? JSON.parse(doc.related_docs) : (doc.related_docs || []),
                 signatories: typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []),
                 attachments: typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []),
+                isPublic: doc.is_public === 1,
+                authAreas: typeof doc.auth_areas === 'string' ? JSON.parse(doc.auth_areas) : (doc.auth_areas || []),
+                authUsers: typeof doc.auth_users === 'string' ? JSON.parse(doc.auth_users) : (doc.auth_users || []),
                 history: historyMap.get(doc.id) || []
             };
         });
@@ -157,13 +204,18 @@ exports.updateDocument = async (req, res) => {
         await pool.query(
             `UPDATE documents SET 
                 subject = ?, content = ?, status = ?, current_owner_id = ?, 
-                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?, area_id = ?
+                owners = ?, recipients = ?, signed_by = ?, related_docs = ?, signatories = ?, number = ?, area_id = ?,
+                is_public = ?, auth_areas = ?, auth_users = ?
              WHERE id = ?`,
             [
                 finalSubject, finalContent, item.status, item.currentOwnerId,
                 JSON.stringify(item.owners || []), JSON.stringify(item.recipients || []), 
                 JSON.stringify(item.signedBy || []), JSON.stringify(item.relatedDocs || []), 
-                JSON.stringify(item.signatories || []), item.number, item.areaId, item.id
+                JSON.stringify(item.signatories || []), item.number, item.areaId,
+                item.isPublic ? 1 : 0,
+                JSON.stringify(item.authAreas || []),
+                JSON.stringify(item.authUsers || []),
+                item.id
             ]
         );
 
@@ -287,7 +339,7 @@ exports.downloadAttachment = async (req, res) => {
         // 1. VALIDACIÓN DE AUTORIZACIÓN (OWASP A01 / BOLA):
         // Buscamos el documento al que pertenece este adjunto para evaluar la ACL
         const [docRows] = await pool.query(
-            `SELECT id, creator_id, current_owner_id, owners, recipients, signatories, status FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
+            `SELECT id, creator_id, current_owner_id, owners, recipients, signatories, status, is_public, auth_areas, auth_users FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
             [filename]
         );
 
@@ -299,19 +351,33 @@ exports.downloadAttachment = async (req, res) => {
             }
             const user = userRows[0];
             const userAreas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
-
-            const owners = typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []);
-            const recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
-            const signatories = typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []);
-
-            const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
-            const isOwner = owners.includes(userId) || userAreas.some(area => owners.includes(area));
-            const isRecipient = recipients.includes(userId) || userAreas.some(area => recipients.includes(area));
-            const isPendingSignatory = signatories.includes(userId);
             const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
 
-            if (!hasDirectAccess && !isOwner && !isRecipient && !isPendingSignatory && !isAuditorOrAdmin) {
-                return res.status(403).json({ message: 'Acceso denegado: No tiene permisos para descargar el anexo de este documento.' });
+            if (doc.is_public === 0) {
+                const authAreas = typeof doc.auth_areas === 'string' ? JSON.parse(doc.auth_areas) : (doc.auth_areas || []);
+                const authUsers = typeof doc.auth_users === 'string' ? JSON.parse(doc.auth_users) : (doc.auth_users || []);
+                
+                const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
+                const isAreaOwner = userAreas.includes(doc.current_owner_id);
+                const isUserAuth = authUsers.includes(userId);
+                const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+
+                if (!hasDirectAccess && !isAreaOwner && !isUserAuth && !isAreaAuth && !isAuditorOrAdmin) {
+                    return res.status(403).json({ message: 'Acceso denegado: Este documento es reservado.' });
+                }
+            } else {
+                const owners = typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []);
+                const recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
+                const signatories = typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []);
+
+                const hasDirectAccess = doc.creator_id === userId || doc.current_owner_id === userId;
+                const isOwner = owners.includes(userId) || userAreas.some(area => owners.includes(area));
+                const isRecipient = recipients.includes(userId) || userAreas.some(area => recipients.includes(area));
+                const isPendingSignatory = signatories.includes(userId);
+
+                if (!hasDirectAccess && !isOwner && !isRecipient && !isPendingSignatory && !isAuditorOrAdmin) {
+                    return res.status(403).json({ message: 'Acceso denegado: No tiene permisos para descargar el anexo de este documento.' });
+                }
             }
         }
 
@@ -522,11 +588,40 @@ exports.signFinalAndSeal = async (req, res) => {
         const docData = JSON.parse(req.body.documentData);
         const historyEntry = JSON.parse(req.body.historyEntry);
 
-        // Validar que el documento existe antes de encolar
-        const [checkRows] = await pool.query('SELECT id FROM documents WHERE id = ?', [id]);
+        // Validar que el documento existe antes de encolar y verificar su privacidad
+        const [checkRows] = await pool.query('SELECT id, is_public FROM documents WHERE id = ?', [id]);
         if (!checkRows || checkRows.length === 0) {
             try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
             return res.status(404).json({ message: 'Documento no encontrado' });
+        }
+
+        const docObj = checkRows[0];
+        if (docObj.is_public === 0) {
+            // El documento es reservado, se requiere validación de 2FA
+            const twoFactorCode = req.body.twoFactorCode;
+            if (!twoFactorCode) {
+                try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
+                return res.status(400).json({ message: 'Se requiere el código 2FA para firmar este documento reservado.' });
+            }
+
+            const [userRows] = await pool.query('SELECT two_factor_enabled, two_factor_secret FROM users WHERE id = ?', [req.user.id]);
+            if (userRows.length === 0) {
+                try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
+                return res.status(404).json({ message: 'Usuario no encontrado.' });
+            }
+
+            const userObj = userRows[0];
+            if (userObj.two_factor_enabled !== 1 || !userObj.two_factor_secret) {
+                try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
+                return res.status(400).json({ message: 'Debe configurar y activar 2FA en su cuenta para firmar documentos reservados.' });
+            }
+
+            const authController = require('./authController');
+            const is2faValid = authController.verifyTOTP(String(twoFactorCode).trim(), userObj.two_factor_secret);
+            if (!is2faValid) {
+                try { await fsPromises.unlink(req.file.path); } catch (e) { /* */ }
+                return res.status(401).json({ message: 'Código 2FA incorrecto.' });
+            }
         }
 
         // Encolar el trabajo pesado en BullMQ (respuesta instantánea)

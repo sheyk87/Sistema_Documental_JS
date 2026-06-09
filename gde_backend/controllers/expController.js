@@ -13,6 +13,15 @@ exports.createExpediente = async (req, res) => {
     const { id, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers, areaId } = req.body;
 
     try {
+        const isPublicVal = isPublic === false ? 0 : 1;
+        if (isPublicVal === 0) {
+            const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+            const hasCreateReserved = await checkUserHasPermission(req.user.id, 'doc_create_reserved');
+            if (!hasCreateReserved) {
+                return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear expedientes reservados.' });
+            }
+        }
+
         const serverTime = getArgTime();
 
         // Generamos el número atómico en el backend
@@ -75,7 +84,36 @@ exports.getAllExpedientes = async (req, res) => {
             });
         }
 
-        const formattedExps = exps.map(e => {
+        // CONTROL DE ACCESOS SEGURO (OWASP A01: Broken Access Control)
+        const userId = req.user.id;
+        const [userRows] = await pool.query('SELECT area_id, areas, role FROM users WHERE id = ?', [userId]);
+        if (userRows.length === 0) {
+            return res.status(404).json({ message: 'Usuario no encontrado.' });
+        }
+        const user = userRows[0];
+        const userAreas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
+        
+        const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+        const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
+
+        let filteredExps = exps;
+        if (!isAuditorOrAdmin) {
+            filteredExps = exps.filter(e => {
+                if (e.is_public !== 0) return true;
+                
+                const authAreas = typeof e.auth_areas === 'string' ? JSON.parse(e.auth_areas) : (e.auth_areas || []);
+                const authUsers = typeof e.auth_users === 'string' ? JSON.parse(e.auth_users) : (e.auth_users || []);
+                
+                const hasDirectAccess = e.creator_id === userId || e.current_owner_id === userId;
+                const isAreaOwner = userAreas.includes(e.current_owner_id);
+                const isUserAuth = authUsers.includes(userId);
+                const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+                
+                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth;
+            });
+        }
+
+        const formattedExps = filteredExps.map(e => {
             return {
                 id: e.id,
                 type: 'expediente',
