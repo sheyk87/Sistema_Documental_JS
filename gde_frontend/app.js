@@ -52,7 +52,7 @@ const CHART_COLORS = {
 };
 
 let state = {
-    db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {} },
+    db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {}, roles: [], permissions: [] },
     currentUser: null, currentView: 'inbox', selectedItem: null,
 
     // Añadido 'batchSign: ''' al final
@@ -640,6 +640,20 @@ async function loadFullState(token) {
 
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
+    state.db.roles = sysData.roles || [];
+
+    if (state.currentUser && (state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin')))) {
+        try {
+            const permsResponse = await fetch(`${API_BASE}/api/roles/permissions`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (permsResponse.ok) {
+                state.db.permissions = await permsResponse.json();
+            }
+        } catch (e) {
+            console.error('Error al cargar permisos:', e);
+        }
+    }
 
     const docsResponse = await fetch(`${API_BASE}/api/docs/all`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -1869,7 +1883,7 @@ function renderMainLayout() {
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
-                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
+                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
@@ -1952,7 +1966,7 @@ function renderMobileLayout() {
             ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
             ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
             ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
-            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
+            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('shield', `Roles`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
         </nav>
         <div class="p-4 border-t border-slate-800">
             <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -2017,7 +2031,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
 function renderLogin() {
@@ -2087,14 +2101,11 @@ function renderLogin() {
 }
 
 function renderAdminUsers() {
-    const rolesList = [
-        { id: 'admin', name: 'Administrador Técnico', desc: 'Control total de usuarios, áreas, servidores y logs de auditoría.' },
-        { id: 'user', name: 'Usuario Estándar', desc: 'Permiso básico para redactar, revisar, firmar y realizar pases de expedientes.' },
-        { id: 'redactor', name: 'Redactor de Documentos', desc: 'Especialista enfocado en la confección e inicio de borradores.' },
-        { id: 'revisor', name: 'Revisor de Trámites', desc: 'Encargado de controlar la foliatura y contenido antes del sellado digital.' },
-        { id: 'firmante', name: 'Firmante Oficial', desc: 'Agente con potestad legal y token de firma para autorizar documentos públicos.' },
-        { id: 'auditor', name: 'Auditor Gubernamental', desc: 'Acceso exclusivo de sólo lectura a expedientes reservados y logs de auditoría.' }
-    ];
+    const rolesList = state.db.roles.map(r => ({
+        id: r.id,
+        name: r.name,
+        desc: r.description || ''
+    }));
 
     return `
         <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
@@ -2378,6 +2389,150 @@ function renderAdminAreas() {
             <td class="p-2 whitespace-nowrap"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
             </tr>`;
     }).join('')}</tbody></table></div></div>`;
+}
+
+function renderAdminRoles() {
+    const categories = [
+        {
+            title: 'Gestión de Documentos',
+            icon: 'file-text',
+            permissionIds: ['doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign']
+        },
+        {
+            title: 'Gestión de Expedientes',
+            icon: 'folder-open',
+            permissionIds: ['exp_read', 'exp_create', 'exp_write', 'exp_pase']
+        },
+        {
+            title: 'Administración y Trazabilidad',
+            icon: 'settings',
+            permissionIds: ['admin_users', 'admin_areas', 'admin_services', 'audit_logs']
+        },
+        {
+            title: 'Clasificación de Seguridad',
+            icon: 'shield',
+            permissionIds: ['doc_create_reserved', 'doc_sign_reserved']
+        }
+    ];
+
+    const allPerms = state.db.permissions || [];
+    const groupedIds = categories.reduce((acc, cat) => acc.concat(cat.permissionIds), []);
+    const otherPerms = allPerms.filter(p => !groupedIds.includes(p.id));
+    if (otherPerms.length > 0) {
+        categories.push({
+            title: 'Otros Permisos',
+            icon: 'key',
+            permissionIds: otherPerms.map(p => p.id)
+        });
+    }
+
+    const rolesList = state.db.roles || [];
+
+    return `
+        <div class="max-w-6xl mx-auto space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="shield" class="w-5 h-5 text-blue-600"></i> ABM de Roles (${rolesList.length})</h3>
+                
+                <form id="form-admin-role" class="flex flex-col gap-6 p-5 bg-slate-50 rounded-xl border border-slate-200 shadow-inner">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Nombre del Rol</label>
+                            <input required type="text" id="admin-r-name" placeholder="Ej: Redactor Senior, Firmante..." class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white focus:border-blue-500" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Descripción del Rol</label>
+                            <input type="text" id="admin-r-desc" placeholder="Detalle informativo sobre el rol..." class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white focus:border-blue-500" />
+                        </div>
+                    </div>
+
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm" open>
+                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                            <span class="flex items-center gap-1.5">
+                                <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Selección de Permisos Granulares
+                            </span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                        </summary>
+                        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 border-t border-slate-200">
+                            ${categories.map(cat => {
+                                const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                                if (catPerms.length === 0) return '';
+                                return `
+                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
+                                            <span class="flex items-center gap-1.5">
+                                                <i data-lucide="${cat.icon}" class="w-4 h-4 text-blue-600"></i> ${cat.title}
+                                            </span>
+                                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                        </summary>
+                                        <div class="space-y-2 mt-3">
+                                            ${catPerms.map(p => `
+                                                <div class="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                                                    <div class="flex flex-col pr-4">
+                                                        <span class="text-xs font-bold text-slate-800">${p.name}</span>
+                                                        <span class="text-[10px] text-gray-500 max-w-xs leading-tight mt-0.5">${p.description || ''}</span>
+                                                    </div>
+                                                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                        <input type="checkbox" name="permissions" value="${p.id}" class="sr-only peer">
+                                                        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                                    </label>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </details>
+                                `;
+                            }).join('')}
+                        </div>
+                    </details>
+
+                    <div class="flex justify-end pt-2 border-t border-slate-200">
+                        <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center gap-1 shadow-md transition-colors"><i data-lucide="plus" class="w-4 h-4"></i> Crear Rol</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="shield-check" class="w-5 h-5 text-gray-500"></i> Roles Registrados</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm border-collapse">
+                        <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                            <tr class="border-b">
+                                <th class="p-4">ID</th>
+                                <th class="p-4">Nombre</th>
+                                <th class="p-4">Descripción</th>
+                                <th class="p-4">Permisos</th>
+                                <th class="p-4 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            ${rolesList.map(r => {
+                                const isSystemRole = ['admin', 'user'].includes(r.id);
+                                const permBadges = (r.permissions || []).map(pId => {
+                                    const p = allPerms.find(x => x.id === pId);
+                                    const pName = p ? p.name.split(':')[0] : pId;
+                                    return `<span class="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[9px] font-bold" title="${p ? p.description : pId}">${pName}</span>`;
+                                }).join(' ') || '<span class="text-xs text-gray-400 italic">Sin permisos asignados</span>';
+
+                                return `
+                                    <tr class="hover:bg-slate-50/50 transition-colors">
+                                        <td class="p-4 font-mono text-xs text-gray-500">${r.id}</td>
+                                        <td class="p-4 font-semibold text-slate-800">${r.name}</td>
+                                        <td class="p-4 text-xs text-gray-600 max-w-xs truncate" title="${r.description || ''}">${r.description || '-'}</td>
+                                        <td class="p-4 max-w-sm"><div class="flex flex-wrap gap-1">${permBadges}</div></td>
+                                        <td class="p-4 text-right whitespace-nowrap">
+                                            <button data-action="open-modal" data-modal-type="editar_rol" data-id="${r.id}" class="text-blue-600 hover:text-blue-800 text-xs font-bold inline-flex items-center gap-1 mr-3"><i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar</button>
+                                            <button data-action="admin-del-role" data-id="${r.id}" ${isSystemRole ? 'disabled title="No se pueden eliminar los roles del sistema" class="text-gray-300 cursor-not-allowed text-xs font-bold inline-flex items-center gap-1"' : 'class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"'}><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Eliminar</button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function renderAdminServices() {
@@ -3160,17 +3315,105 @@ function renderModalOverlay() {
     const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
     const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && canViewDocumento(d, state.currentUser) && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
 
-    if (m.type === 'editar_usuario') {
+    if (m.type === 'editar_rol') {
+        title = 'Editar Rol';
+        const categories = [
+            {
+                title: 'Gestión de Documentos',
+                icon: 'file-text',
+                permissionIds: ['doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign']
+            },
+            {
+                title: 'Gestión de Expedientes',
+                icon: 'folder-open',
+                permissionIds: ['exp_read', 'exp_create', 'exp_write', 'exp_pase']
+            },
+            {
+                title: 'Administración y Trazabilidad',
+                icon: 'settings',
+                permissionIds: ['admin_users', 'admin_areas', 'admin_services', 'audit_logs']
+            },
+            {
+                title: 'Clasificación de Seguridad',
+                icon: 'shield',
+                permissionIds: ['doc_create_reserved', 'doc_sign_reserved']
+            }
+        ];
+
+        const allPerms = state.db.permissions || [];
+        const groupedIds = categories.reduce((acc, cat) => acc.concat(cat.permissionIds), []);
+        const otherPerms = allPerms.filter(p => !groupedIds.includes(p.id));
+        if (otherPerms.length > 0) {
+            categories.push({
+                title: 'Otros Permisos',
+                icon: 'key',
+                permissionIds: otherPerms.map(p => p.id)
+            });
+        }
+
+        content = `
+            <div class="space-y-4 mb-4 max-h-[60vh] overflow-y-auto pr-1">
+                <div>
+                    <label class="text-xs font-bold text-gray-600 block mb-1">Nombre del Rol</label>
+                    <input type="text" data-modal-input="editRName" value="${m.editRName}" class="w-full p-2 border rounded text-sm outline-none" />
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-gray-600 block mb-1">Descripción del Rol</label>
+                    <input type="text" data-modal-input="editRDesc" value="${m.editRDesc}" class="w-full p-2 border rounded text-sm outline-none" />
+                </div>
+
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm" open>
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Selección de Permisos Granulares
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-4 grid grid-cols-1 gap-4 bg-slate-50/50 border-t border-slate-200">
+                        ${categories.map(cat => {
+                            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                            if (catPerms.length === 0) return '';
+                            return `
+                                <details class="group/cat bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
+                                        <span class="flex items-center gap-1.5">
+                                            <i data-lucide="${cat.icon}" class="w-3.5 h-3.5 text-blue-600"></i> ${cat.title}
+                                        </span>
+                                        <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                    </summary>
+                                    <div class="space-y-1.5 mt-3">
+                                        ${catPerms.map(p => {
+                                            const isChecked = m.editRPermissions.includes(p.id);
+                                            return `
+                                                <div class="flex items-center justify-between p-2 hover:bg-slate-100/50 bg-white rounded border border-slate-100 transition-colors">
+                                                    <div class="flex flex-col pr-2">
+                                                        <span class="text-[10px] font-bold text-slate-800">${p.name}</span>
+                                                        <span class="text-[8px] text-gray-500 leading-tight mt-0.5">${p.description || ''}</span>
+                                                    </div>
+                                                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                        <input type="checkbox" value="${p.id}" ${isChecked ? 'checked' : ''} data-modal-toggle="editRPermissions" class="sr-only peer">
+                                                        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                                    </label>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </details>
+                            `;
+                        }).join('')}
+                    </div>
+                </details>
+            </div>
+        `;
+    }
+    else if (m.type === 'editar_usuario') {
         title = 'Editar Usuario';
         
-        const rolesList = [
-            { id: 'admin', name: 'Admin Técnico', desc: 'Control total de usuarios, áreas, servidores y logs de auditoría.' },
-            { id: 'user', name: 'Usuario Estándar', desc: 'Permiso básico para redactar, revisar, firmar y realizar pases de expedientes.' },
-            { id: 'redactor', name: 'Redactor', desc: 'Especialista enfocado en la confección e inicio de borradores.' },
-            { id: 'revisor', name: 'Revisor', desc: 'Encargado de controlar la foliatura y contenido antes del sellado digital.' },
-            { id: 'firmante', name: 'Firmante Oficial', desc: 'Agente con potestad legal y token de firma para autorizar documentos públicos.' },
-            { id: 'auditor', name: 'Auditor', desc: 'Acceso exclusivo de sólo lectura a expedientes reservados y logs.' }
-        ];
+        const rolesList = state.db.roles.map(r => ({
+            id: r.id,
+            name: r.name,
+            desc: r.description || ''
+        }));
 
         content = `
             <div class="space-y-3 mb-4 max-h-[70vh] overflow-y-auto pr-1">
@@ -3695,39 +3938,19 @@ document.addEventListener('change', (e) => {
 
 async function initializeAppWithToken(token, user) {
     localStorage.setItem('gde_token', token);
-    const sysResponse = await fetch(`${API_BASE}/api/system/init`, {
-        method: 'GET', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-    });
-    if (!sysResponse.ok) throw new Error('Error al cargar datos del sistema');
-    const sysData = await sysResponse.json();
-    state.db.areas = sysData.areas;
-    state.db.users = sysData.users;
-    const docsResponse = await fetch(`${API_BASE}/api/docs/all`, { headers: { 'Authorization': `Bearer ${token}` } });
-    state.db.documents = await docsResponse.json();
-    const expsResponse = await fetch(`${API_BASE}/api/exps/all`, { headers: { 'Authorization': `Bearer ${token}` } });
-    state.db.expedientes = await expsResponse.json();
+    state.currentUser = user;
+    if (state.currentUser) {
+        state.currentUser.areaId = user.area_id; // Asegurar consistencia de nombres
+    }
 
-    state.db.counters = {};
-    const allItems = [...state.db.documents, ...state.db.expedientes];
-    allItems.forEach(item => {
-        if (item.number) {
-            const parts = item.number.split('-');
-            if (parts.length >= 3) {
-                const key = `${parts[0]}-${parts[1]}`;
-                const currentNum = parseInt(parts[2], 10);
-                if (!state.db.counters[key] || currentNum > state.db.counters[key]) {
-                    state.db.counters[key] = currentNum;
-                }
-            }
-        }
-    });
+    await loadFullState(token);
 
     localStorage.setItem('gde_login_time', Date.now());
     document.cookie = "gde_session=active; path=/; SameSite=Strict";
     await fetchNotifications();
 
     state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
-    setState({ currentUser: user, currentView: 'inbox', selectedItem: null });
+    setState({ currentView: 'inbox', selectedItem: null });
 }
 
 document.addEventListener('submit', async (e) => {
@@ -3914,6 +4137,41 @@ document.addEventListener('submit', async (e) => {
         fetch(`${API_BASE}/api/areas/create`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, body: JSON.stringify({ id, name })
         }).then(res => { if (res.ok) { state.db.areas.push({ id, name }); setState({}); } });
+    }
+    else if (e.target.id === 'form-admin-role') {
+        e.preventDefault();
+        const name = document.getElementById('admin-r-name').value;
+        const description = document.getElementById('admin-r-desc').value;
+        const selectedPermissions = Array.from(document.querySelectorAll('input[name="permissions"]:checked')).map(el => el.value);
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
+
+        fetch(`${API_BASE}/api/roles/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+            },
+            body: JSON.stringify({ name, description, permissions: selectedPermissions })
+        }).then(async res => {
+            if (res.ok) {
+                alert("Rol creado correctamente.");
+                await loadFullState(localStorage.getItem('gde_token'));
+                setState({});
+            } else {
+                const errData = await res.json();
+                alert(`Error: ${errData.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        }).catch(err => {
+            console.error(err);
+            alert("Error de conexión al crear el rol.");
+            btn.innerHTML = originalHtml;
+            if (window.lucide) lucide.createIcons();
+        });
     }
     else if (e.target.id === 'form-admin-services') {
         e.preventDefault();
@@ -4566,6 +4824,32 @@ document.addEventListener('click', async (e) => {
             }
             return;
         }
+        if (action === 'admin-del-role') {
+            const id = actionBtn.getAttribute('data-id');
+            if (['admin', 'user'].includes(id)) {
+                alert('No se pueden eliminar los roles básicos del sistema (admin/user).');
+                return;
+            }
+            if (confirm('¿Está seguro de que desea eliminar este rol?')) {
+                fetch(`${API_BASE}/api/roles/delete/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async res => {
+                    if (res.ok) {
+                        alert("Rol eliminado exitosamente.");
+                        await loadFullState(localStorage.getItem('gde_token'));
+                        setState({});
+                    } else {
+                        const err = await res.json();
+                        alert(`Error: ${err.message}`);
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    alert("Error de conexión al eliminar el rol.");
+                });
+            }
+            return;
+        }
 
         // Caso 1: Usuario pide regenerar los suyos (Pedimos contraseña)
         if (action === 'ask-password-regenerate-2fa') {
@@ -4625,6 +4909,13 @@ document.addEventListener('click', async (e) => {
                 mState.editUDelegatedTo = u.delegated_to || '';
                 mState.editULicenceNote = '';
             }
+            if (type === 'editar_rol') {
+                const r = state.db.roles.find(x => x.id === actionBtn.getAttribute('data-id'));
+                mState.editRId = r.id;
+                mState.editRName = r.name;
+                mState.editRDesc = r.description || '';
+                mState.editRPermissions = [...(r.permissions || [])];
+            }
             if (type === 'ver_usuarios_area') { mState.selectedId = actionBtn.getAttribute('data-id'); }
             return setState({ modal: mState });
         }
@@ -4682,6 +4973,35 @@ document.addEventListener('click', async (e) => {
 
             if (m.type === 'batch_sign_confirm') {
                 return processBatchSign(); // Inicia el motor secuencial
+            }
+
+            if (m.type === 'editar_rol') {
+                if (!m.editRName || !m.editRName.trim()) return alert("El nombre del rol es obligatorio.");
+                const updatedRole = {
+                    name: m.editRName,
+                    description: m.editRDesc,
+                    permissions: m.editRPermissions
+                };
+
+                fetch(`${API_BASE}/api/roles/update/${m.editRId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                    body: JSON.stringify(updatedRole)
+                }).then(async res => {
+                    if (res.ok) {
+                        alert("Rol actualizado correctamente.");
+                        setState({ modal: null });
+                        await loadFullState(localStorage.getItem('gde_token'));
+                        setState({});
+                    } else {
+                        const data = await res.json();
+                        alert(`Error al actualizar el rol: ${data.message}`);
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    alert("Error de conexión al actualizar el rol.");
+                });
+                return;
             }
 
             if (m.type === 'editar_usuario') {

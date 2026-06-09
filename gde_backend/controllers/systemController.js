@@ -72,17 +72,29 @@ exports.getInitialData = async (req, res) => {
         // --- CACHE MISS: Consultar MySQL y cachear ---
         const [areas] = await pool.query('SELECT id, name FROM areas');
         const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status, licence_start, licence_end, delegated_to FROM users');
+        const [rolesRows] = await pool.query('SELECT id, name, description FROM roles');
+        const [mappings] = await pool.query('SELECT role_id, permission_id FROM role_permissions');
+        const [userRolesMappings] = await pool.query('SELECT user_id, role_id FROM user_roles');
         
-        const users = usersRows.map(u => ({
-            ...u,
-            twoFactorEnabled: u.two_factor_enabled === 1,
-            areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId]),
-            licence_start: u.licence_start,
-            licence_end: u.licence_end,
-            delegated_to: u.delegated_to
+        const users = usersRows.map(u => {
+            const uRoles = userRolesMappings.filter(ur => ur.user_id === u.id).map(ur => ur.role_id);
+            return {
+                ...u,
+                twoFactorEnabled: u.two_factor_enabled === 1,
+                areas: typeof u.areas === 'string' ? JSON.parse(u.areas) : (u.areas || [u.areaId]),
+                licence_start: u.licence_start,
+                licence_end: u.licence_end,
+                delegated_to: u.delegated_to,
+                roles: uRoles.length > 0 ? uRoles : [u.role || 'user']
+            };
+        });
+
+        const roles = rolesRows.map(r => ({
+            ...r,
+            permissions: mappings.filter(m => m.role_id === r.id).map(m => m.permission_id)
         }));
         
-        const responseData = { areas, users };
+        const responseData = { areas, users, roles };
         await cacheSet(CACHE_KEYS.INITIAL_DATA, responseData, CACHE_TTL.INITIAL_DATA);
 
         res.json(responseData);

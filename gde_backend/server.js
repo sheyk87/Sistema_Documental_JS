@@ -168,11 +168,13 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
     const notificationRoutes = require('./routes/notificationRoutes');
     app.use('/api/notifications', notificationRoutes);
 
-    // === NUEVO: Módulos de Plantillas y Licencias (Fase 3) ===
+    // === NUEVO: Módulos de Plantillas y Licencias (Fase 3) y Roles ===
     const templateRoutes = require('./routes/templateRoutes');
     const licenceRoutes = require('./routes/licenceRoutes');
+    const roleRoutes = require('./routes/roleRoutes');
     app.use('/api/templates', templateRoutes);
     app.use('/api/licences', licenceRoutes);
+    app.use('/api/roles', roleRoutes);
 
     // Fase 4: Rutas para consultar estado de jobs (firma async)
     const jobRoutes = require('./routes/jobRoutes');

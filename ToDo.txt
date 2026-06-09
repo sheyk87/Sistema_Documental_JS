@@ -1,5 +1,4 @@
 Features:
-- Crear ABM de Roles, para poder asginar los Permisos Granulares
 - Cambiar todos los mensajes Alert() por modales.
 - Gestión de Primer Ingreso: Incorporar una bandera en users para forzar el cambio de contraseña al ingresar por primera vez.
 - Bloqueo por Intentos Fallidos: Guardar el contador de intentos de acceso fallidos en la base de datos para suspender temporalmente cuentas tras una secuencia consecutiva de fallos de credenciales.
