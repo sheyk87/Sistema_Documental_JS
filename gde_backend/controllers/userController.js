@@ -255,6 +255,8 @@ exports.getMe = async (req, res) => {
 
         const { getUserPermissions } = require('../middlewares/roleMiddleware');
         user.permissions = await getUserPermissions(user.id);
+        const [rRows] = await pool.query('SELECT role_id FROM user_roles WHERE user_id = ?', [user.id]);
+        user.roles = rRows.map(r => r.role_id);
 
         res.json({ user });
     } catch (error) {

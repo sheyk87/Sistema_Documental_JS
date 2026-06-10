@@ -75,6 +75,7 @@ exports.getInitialData = async (req, res) => {
         const [rolesRows] = await pool.query('SELECT id, name, description FROM roles');
         const [mappings] = await pool.query('SELECT role_id, permission_id FROM role_permissions');
         const [userRolesMappings] = await pool.query('SELECT user_id, role_id FROM user_roles');
+        const [docTypesRows] = await pool.query('SELECT code, name, requires_signature, allows_attachments, is_reserved, dest_type, template_id FROM document_types');
         
         const users = usersRows.map(u => {
             const uRoles = userRolesMappings.filter(ur => ur.user_id === u.id).map(ur => ur.role_id);
@@ -93,8 +94,18 @@ exports.getInitialData = async (req, res) => {
             ...r,
             permissions: mappings.filter(m => m.role_id === r.id).map(m => m.permission_id)
         }));
+
+        const documentTypes = docTypesRows.map(dt => ({
+            code: dt.code,
+            name: dt.name,
+            requires_signature: dt.requires_signature === 1,
+            allows_attachments: dt.allows_attachments === 1,
+            is_reserved: dt.is_reserved === 1,
+            dest_type: dt.dest_type || 'none',
+            template_id: dt.template_id
+        }));
         
-        const responseData = { areas, users, roles };
+        const responseData = { areas, users, roles, documentTypes };
         await cacheSet(CACHE_KEYS.INITIAL_DATA, responseData, CACHE_TTL.INITIAL_DATA);
 
         res.json(responseData);

@@ -28,7 +28,7 @@ const INITIAL_USERS = [
     { id: 'u4', name: 'Carlos Lopez', email: 'carlos@gde.com', areaId: 'a3', role: 'user' }
 ];
 
-const DOC_TYPES = {
+let DOC_TYPES = {
     CON_DEST_EXCL: ['Solicitud', 'Solicitud de Compra', 'Solicitud de Gasto', 'Orden de Compra', 'Carta'],
     CON_DEST_MULT: ['Memo', 'Nota', 'Notificación', 'Circular'],
     SIN_DEST: ['Acta', 'Informe', 'Resolucion', 'Disposicion', 'Actuacion', 'Dictamen', 'Sanción', 'Acuerdo de confidencialidad', 'Factura', 'Presupuesto', 'Balance', 'Informes Técnico', 'Evaluación', 'Manual de procedimientos', 'Código de conducta', 'Política Interna', 'Contrato']
@@ -246,6 +246,9 @@ const getCurrentYear = () => new Date().getFullYear().toString();
 function formatDateOnly(dateString) { const d = new Date(dateString); return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`; }
 
 const getDocCode = (type) => {
+    if (type === 'expediente' || type === 'exp') return 'EX';
+    const found = state.db.documentTypes?.find(dt => dt.name === type);
+    if (found) return found.code;
     const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX', 'Dictamen': 'DICT', 'Sanción': 'SANC', 'Acuerdo de confidencialidad': 'CONF', 'Factura': 'FACT', 'Presupuesto': 'PRESUP', 'Balance': 'BAL', 'Informes Técnico': 'IFT', 'Evaluación': 'EVAL', 'Manual de procedimientos': 'MPROC', 'Código de conducta': 'CCOND', 'Política Interna': 'POL', 'Contrato': 'CONT', 'Solicitud': 'SOLI', 'Solicitud de Compra': 'SC', 'Solicitud de Gasto': 'GASTO', 'Orden de Compra': 'OC', 'Carta': 'CAR', 'Notificación': 'NOTI', 'Circular': 'CIRC' };
     return map[type] || type.toUpperCase().substring(0, 4);
 };
@@ -690,6 +693,15 @@ async function loadFullState(token) {
     state.db.areas = sysData.areas;
     state.db.users = sysData.users;
     state.db.roles = sysData.roles || [];
+    
+    // Configuración dinámica de tipos documentales configurables
+    const docTypes = sysData.documentTypes || [];
+    state.db.documentTypes = docTypes;
+    if (docTypes.length > 0) {
+        DOC_TYPES.CON_DEST_EXCL = docTypes.filter(dt => dt.dest_type === 'single').map(dt => dt.name);
+        DOC_TYPES.CON_DEST_MULT = docTypes.filter(dt => dt.dest_type === 'multiple').map(dt => dt.name);
+        DOC_TYPES.SIN_DEST = docTypes.filter(dt => dt.dest_type === 'none').map(dt => dt.name);
+    }
 
     if (state.currentUser && (state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin')))) {
         try {
@@ -1996,7 +2008,7 @@ function renderMainLayout() {
                     ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
-                    ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
+                    ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc. (${state.db.documentTypes?.length || 0})`, 'admin_doctypes')) : ''}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
@@ -2079,7 +2091,7 @@ function renderMobileLayout() {
             ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
             ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
             ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
-            ${state.currentUser.role === 'admin' ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('shield', `Roles`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates')) : ''}
+            ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('shield', `Roles`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc.`, 'admin_doctypes')) : ''}
         </nav>
         <div class="p-4 border-t border-slate-800">
             <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -2144,7 +2156,7 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
 function renderPasswordRequirementsHTML() {
@@ -2573,6 +2585,160 @@ function renderAdminTemplates() {
                                 </tr>
                             `;
     }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function renderAdminDocTypes() {
+    // Autocarga de tipos documentales
+    if (state.db.documentTypes === undefined) {
+        state.db.documentTypes = [];
+        fetch(`${API_BASE}/api/doc-types`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        })
+            .then(res => res.json())
+            .then(data => {
+                state.db.documentTypes = data.documentTypes || data || [];
+                renderApp();
+            })
+            .catch(err => console.error("Error al cargar los tipos de documentos:", err));
+    }
+
+    // Autocarga de plantillas
+    if (state.db.templates === undefined) {
+        state.db.templates = [];
+        fetch(`${API_BASE}/api/templates`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        })
+            .then(res => res.json())
+            .then(data => {
+                state.db.templates = data.templates || data || [];
+                renderApp();
+            })
+            .catch(err => console.error("Error al cargar las plantillas:", err));
+    }
+
+    const docTypes = state.db.documentTypes || [];
+    const templates = state.db.templates || [];
+    const isEditing = !!state.editingDocType;
+    const dt = state.editingDocType || { code: '', name: '', requires_signature: true, allows_attachments: true, is_reserved: false, dest_type: 'none', template_id: '' };
+
+    return `
+        <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                <i data-lucide="file-cog" class="w-5 h-5 text-blue-600"></i> 
+                Gestión de Tipos Documentales
+            </h3>
+            
+            <form id="form-admin-doctype" class="space-y-4 mb-8 p-6 bg-slate-50 rounded-xl border border-slate-200">
+                <h4 class="font-bold text-sm text-slate-700 border-b pb-2 flex items-center gap-1">
+                    <i data-lucide="${isEditing ? 'edit-3' : 'plus-circle'}" class="w-4 h-4 text-blue-500"></i>
+                    ${isEditing ? `Editar Tipo de Documento: "${dt.name}"` : 'Crear Nuevo Tipo de Documento'}
+                </h4>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Código (Único, Alfanumérico)</label>
+                        <input required type="text" id="admin-dt-code" value="${dt.code}" placeholder="Ej: SOLI, SC, DICT" 
+                            class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white uppercase font-bold" 
+                            maxlength="10" ${isEditing ? 'disabled' : ''} />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Nombre (Único)</label>
+                        <input required type="text" id="admin-dt-name" value="${dt.name}" placeholder="Ej: Solicitud, Dictamen" 
+                            class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Destinatario Inicial</label>
+                        <select id="admin-dt-dest" class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white">
+                            <option value="none" ${dt.dest_type === 'none' ? 'selected' : ''}>Sin Destinatario (ej: Acta, Informe)</option>
+                            <option value="single" ${dt.dest_type === 'single' ? 'selected' : ''}>Destinatario Único (ej: Solicitud, Carta)</option>
+                            <option value="multiple" ${dt.dest_type === 'multiple' ? 'selected' : ''}>Destinatarios Múltiples (ej: Memo, Nota)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="admin-dt-signature" class="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500" ${dt.requires_signature ? 'checked' : ''} />
+                        <label for="admin-dt-signature" class="text-sm font-bold text-slate-700 select-none cursor-pointer">Requiere Firma</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="admin-dt-attachments" class="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500" ${dt.allows_attachments ? 'checked' : ''} />
+                        <label for="admin-dt-attachments" class="text-sm font-bold text-slate-700 select-none cursor-pointer">Admite Adjuntos</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="admin-dt-reserved" class="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500" ${dt.is_reserved ? 'checked' : ''} />
+                        <label for="admin-dt-reserved" class="text-sm font-bold text-slate-700 select-none cursor-pointer">Reservado por Defecto</label>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Plantilla Preasociada</label>
+                        <select id="admin-dt-template" class="w-full px-3 py-1.5 border rounded-lg outline-none text-xs bg-white">
+                            <option value="">Ninguna</option>
+                            ${templates.map(t => `<option value="${t.id}" ${dt.template_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end gap-2 pt-2 border-t">
+                    ${isEditing ? `<button type="button" data-action="cancel-edit-doctype" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-xs">Cancelar</button>` : ''}
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1">
+                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                        ${isEditing ? 'Guardar Cambios' : 'Crear Tipo de Doc.'}
+                    </button>
+                </div>
+            </form>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50 border-b">
+                        <tr>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Código</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Nombre</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Firma / Adjuntos / Reservado</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Destinatario</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Plantilla</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y text-slate-600">
+                        ${docTypes.length === 0 ? `<tr><td colspan="6" class="p-4 text-center text-gray-400 italic">No hay tipos documentales registrados. Cree uno arriba.</td></tr>` : ''}
+                        ${docTypes.map(d => {
+                            const sigBadge = d.requires_signature ? '<span class="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">Firma</span>' : '';
+                            const attBadge = d.allows_attachments ? '<span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">Adjuntos</span>' : '';
+                            const resBadge = d.is_reserved ? '<span class="px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded text-[10px] font-bold animate-pulse">Reservado</span>' : '';
+                            const badges = [sigBadge, attBadge, resBadge].filter(Boolean).join(' ') || '<span class="text-xs text-gray-400 italic">Ninguno</span>';
+                            
+                            let destLabel = 'Sin Destinatario';
+                            let destColor = 'bg-slate-100 text-slate-800';
+                            if (d.dest_type === 'single') {
+                                destLabel = 'Dest. Único';
+                                destColor = 'bg-amber-100 text-amber-850 border-amber-200';
+                            } else if (d.dest_type === 'multiple') {
+                                destLabel = 'Dest. Múltiples';
+                                destColor = 'bg-emerald-100 text-emerald-850 border-emerald-200';
+                            }
+                            const destBadge = `<span class="inline-block px-2 py-0.5 rounded text-xs font-medium border ${destColor}">${destLabel}</span>`;
+                            
+                            const templateName = templates.find(t => t.id === d.template_id)?.name || '<span class="text-gray-400 italic">Ninguna</span>';
+
+                            return `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-3 font-bold text-slate-800">${d.code}</td>
+                                    <td class="p-3 font-semibold text-slate-700">${d.name}</td>
+                                    <td class="p-3">${badges}</td>
+                                    <td class="p-3">${destBadge}</td>
+                                    <td class="p-3 text-xs">${templateName}</td>
+                                    <td class="p-3 text-right whitespace-nowrap">
+                                        <button type="button" data-action="edit-doctype-btn" data-code="${d.code}" class="text-blue-600 hover:text-blue-800 text-xs font-bold mr-3 inline-flex items-center gap-1"><i data-lucide="edit-3" class="w-3 h-3"></i> Editar</button>
+                                        <button type="button" data-action="delete-doctype-btn" data-code="${d.code}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -4720,6 +4886,73 @@ document.addEventListener('submit', async (e) => {
             }
         });
     }
+    else if (e.target.id === 'form-admin-doctype') {
+        e.preventDefault();
+        const code = document.getElementById('admin-dt-code').value.trim().toUpperCase();
+        const name = document.getElementById('admin-dt-name').value.trim();
+        const destType = document.getElementById('admin-dt-dest').value;
+        const requiresSignature = document.getElementById('admin-dt-signature').checked;
+        const allowsAttachments = document.getElementById('admin-dt-attachments').checked;
+        const isReserved = document.getElementById('admin-dt-reserved').checked;
+        const templateId = document.getElementById('admin-dt-template').value || null;
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Guardando...';
+
+        const isEditing = !!state.editingDocType;
+        const url = isEditing
+            ? `${API_BASE}/api/doc-types/update/${state.editingDocType.code}`
+            : `${API_BASE}/api/doc-types/create`;
+        const method = isEditing ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify({
+                code,
+                name,
+                dest_type: destType,
+                requires_signature: requiresSignature,
+                allows_attachments: allowsAttachments,
+                is_reserved: isReserved,
+                template_id: templateId
+            })
+        }).then(async res => {
+            const data = await res.json();
+            if (res.ok) {
+                alert(isEditing ? "Tipo de documento actualizado correctamente." : "Tipo de documento creado correctamente.");
+
+                // Recargar tipos de documentos y re-renderizar
+                fetch(`${API_BASE}/api/doc-types`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async r => {
+                    if (r.ok) {
+                        const listData = await r.json();
+                        state.db.documentTypes = listData.documentTypes || listData;
+                        
+                        // Sincronizar DOC_TYPES en caliente
+                        if (state.db.documentTypes.length > 0) {
+                            DOC_TYPES.CON_DEST_EXCL = state.db.documentTypes.filter(dt => dt.dest_type === 'single').map(dt => dt.name);
+                            DOC_TYPES.CON_DEST_MULT = state.db.documentTypes.filter(dt => dt.dest_type === 'multiple').map(dt => dt.name);
+                            DOC_TYPES.SIN_DEST = state.db.documentTypes.filter(dt => dt.dest_type === 'none').map(dt => dt.name);
+                        }
+
+                        state.editingDocType = null;
+                        setState({ currentView: 'admin_doctypes' });
+                    }
+                });
+            } else {
+                alert(`Error: ${data.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        }).catch(err => {
+            alert(`Error de red: ${err.message}`);
+            btn.innerHTML = originalHtml;
+            if (window.lucide) lucide.createIcons();
+        });
+    }
     else if (e.target.id === 'form-forgot-step1') {
         e.preventDefault();
         const email = document.getElementById('forgot-email').value;
@@ -5145,6 +5378,60 @@ document.addEventListener('click', async (e) => {
                                 state.db.templates = listData.templates || listData;
                                 state.editingTemplate = null;
                                 setState({ currentView: 'admin_templates' });
+                            }
+                        });
+                    } else {
+                        alert(`Error: ${data.message}`);
+                    }
+                });
+            });
+            return;
+        }
+
+        if (action === 'edit-doctype-btn') {
+            const code = actionBtn.getAttribute('data-code');
+            const dt = state.db.documentTypes.find(d => d.code === code);
+            if (dt) {
+                state.editingDocType = { ...dt };
+                setState({});
+            }
+            return;
+        }
+
+        if (action === 'cancel-edit-doctype') {
+            state.editingDocType = null;
+            return setState({});
+        }
+
+        if (action === 'delete-doctype-btn') {
+            const code = actionBtn.getAttribute('data-code');
+            const dt = state.db.documentTypes.find(d => d.code === code);
+            const dtName = dt ? dt.name : code;
+            showConfirm(`¿Está seguro de eliminar definitivamente el tipo de documento "${dtName}"?`, () => {
+                fetch(`${API_BASE}/api/doc-types/delete/${code}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(async res => {
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert("Tipo de documento eliminado correctamente.");
+                        // Recargar
+                        fetch(`${API_BASE}/api/doc-types`, {
+                            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                        }).then(async r => {
+                            if (r.ok) {
+                                const listData = await r.json();
+                                state.db.documentTypes = listData.documentTypes || listData;
+
+                                // Sincronizar DOC_TYPES en caliente
+                                if (state.db.documentTypes.length > 0) {
+                                    DOC_TYPES.CON_DEST_EXCL = state.db.documentTypes.filter(dt => dt.dest_type === 'single').map(dt => dt.name);
+                                    DOC_TYPES.CON_DEST_MULT = state.db.documentTypes.filter(dt => dt.dest_type === 'multiple').map(dt => dt.name);
+                                    DOC_TYPES.SIN_DEST = state.db.documentTypes.filter(dt => dt.dest_type === 'none').map(dt => dt.name);
+                                }
+
+                                state.editingDocType = null;
+                                setState({ currentView: 'admin_doctypes' });
                             }
                         });
                     } else {

@@ -211,6 +211,8 @@ exports.login = async (req, res) => {
         user.areaId = user.area_id; 
         user.twoFactorEnabled = user.two_factor_enabled === 1;
         user.permissions = await getUserPermissions(user.id);
+        const [rRows] = await pool.query('SELECT role_id FROM user_roles WHERE user_id = ?', [user.id]);
+        user.roles = rRows.map(r => r.role_id);
         delete user.password;
         delete user.two_factor_secret;
 
@@ -354,6 +356,8 @@ exports.verify2FA = async (req, res) => {
         user.areaId = user.area_id; 
         user.twoFactorEnabled = 1;
         user.permissions = await getUserPermissions(user.id);
+        const [rRows] = await pool.query('SELECT role_id FROM user_roles WHERE user_id = ?', [user.id]);
+        user.roles = rRows.map(r => r.role_id);
         delete user.password;
         delete user.two_factor_secret;
         delete user.two_factor_recovery_codes;

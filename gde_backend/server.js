@@ -172,9 +172,11 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
     const templateRoutes = require('./routes/templateRoutes');
     const licenceRoutes = require('./routes/licenceRoutes');
     const roleRoutes = require('./routes/roleRoutes');
+    const docTypeRoutes = require('./routes/docTypeRoutes');
     app.use('/api/templates', templateRoutes);
     app.use('/api/licences', licenceRoutes);
     app.use('/api/roles', roleRoutes);
+    app.use('/api/doc-types', docTypeRoutes);
 
     // Fase 4: Rutas para consultar estado de jobs (firma async)
     const jobRoutes = require('./routes/jobRoutes');

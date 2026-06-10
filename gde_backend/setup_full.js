@@ -152,6 +152,7 @@ async function setupFull() {
                 requires_signature BOOLEAN DEFAULT TRUE,
                 allows_attachments BOOLEAN DEFAULT TRUE,
                 is_reserved BOOLEAN DEFAULT FALSE,
+                dest_type ENUM('none', 'single', 'multiple') DEFAULT 'none',
                 template_id VARCHAR(50) NULL,
                 FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -358,33 +359,33 @@ async function setupFull() {
 
         console.log('📥 Cargando tipos de documentos...');
         await pool.query(`
-            INSERT INTO document_types (code, name, requires_signature, allows_attachments, is_reserved) VALUES 
-            ('SOLI', 'Solicitud', 1, 1, 0),
-            ('SC', 'Solicitud de Compra', 1, 1, 0),
-            ('GASTO', 'Solicitud de Gasto', 1, 1, 0),
-            ('OC', 'Orden de Compra', 1, 1, 0),
-            ('CAR', 'Carta', 1, 1, 0),
-            ('ME', 'Memo', 1, 1, 0),
-            ('NO', 'Nota', 1, 1, 0),
-            ('NOTI', 'Notificación', 1, 1, 0),
-            ('CIRC', 'Circular', 1, 1, 0),
-            ('ACTA', 'Acta', 1, 1, 0),
-            ('IF', 'Informe', 1, 1, 0),
-            ('RESOL', 'Resolucion', 1, 1, 0),
-            ('DISP', 'Disposicion', 1, 1, 0),
-            ('ACTU', 'Actuacion', 1, 1, 0),
-            ('DICT', 'Dictamen', 1, 1, 0),
-            ('SANC', 'Sanción', 1, 1, 0),
-            ('CONF', 'Acuerdo de confidencialidad', 1, 1, 0),
-            ('FACT', 'Factura', 1, 1, 0),
-            ('PRESUP', 'Presupuesto', 1, 1, 0),
-            ('BAL', 'Balance', 1, 1, 0),
-            ('IFT', 'Informes Técnico', 1, 1, 0),
-            ('EVAL', 'Evaluación', 1, 1, 0),
-            ('MPROC', 'Manual de procedimientos', 1, 1, 0),
-            ('CCOND', 'Código de conducta', 1, 1, 0),
-            ('POL', 'Política Interna', 1, 1, 0),
-            ('CONT', 'Contrato', 1, 1, 0)
+            INSERT INTO document_types (code, name, requires_signature, allows_attachments, is_reserved, dest_type) VALUES 
+            ('SOLI', 'Solicitud', 1, 1, 0, 'single'),
+            ('SC', 'Solicitud de Compra', 1, 1, 0, 'single'),
+            ('GASTO', 'Solicitud de Gasto', 1, 1, 0, 'single'),
+            ('OC', 'Orden de Compra', 1, 1, 0, 'single'),
+            ('CAR', 'Carta', 1, 1, 0, 'single'),
+            ('ME', 'Memo', 1, 1, 0, 'multiple'),
+            ('NO', 'Nota', 1, 1, 0, 'multiple'),
+            ('NOTI', 'Notificación', 1, 1, 0, 'multiple'),
+            ('CIRC', 'Circular', 1, 1, 0, 'multiple'),
+            ('ACTA', 'Acta', 1, 1, 0, 'none'),
+            ('IF', 'Informe', 1, 1, 0, 'none'),
+            ('RESOL', 'Resolucion', 1, 1, 0, 'none'),
+            ('DISP', 'Disposicion', 1, 1, 0, 'none'),
+            ('ACTU', 'Actuacion', 1, 1, 0, 'none'),
+            ('DICT', 'Dictamen', 1, 1, 0, 'none'),
+            ('SANC', 'Sanción', 1, 1, 0, 'none'),
+            ('CONF', 'Acuerdo de confidencialidad', 1, 1, 0, 'none'),
+            ('FACT', 'Factura', 1, 1, 0, 'none'),
+            ('PRESUP', 'Presupuesto', 1, 1, 0, 'none'),
+            ('BAL', 'Balance', 1, 1, 0, 'none'),
+            ('IFT', 'Informes Técnico', 1, 1, 0, 'none'),
+            ('EVAL', 'Evaluación', 1, 1, 0, 'none'),
+            ('MPROC', 'Manual de procedimientos', 1, 1, 0, 'none'),
+            ('CCOND', 'Código de conducta', 1, 1, 0, 'none'),
+            ('POL', 'Política Interna', 1, 1, 0, 'none'),
+            ('CONT', 'Contrato', 1, 1, 0, 'none')
         `);
 
         // 15. Crear índices de optimización para base de datos
