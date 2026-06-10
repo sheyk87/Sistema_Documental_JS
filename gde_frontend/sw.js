@@ -1,5 +1,5 @@
 // Service Worker para Sistema GDE PWA
-const CACHE_NAME = 'gde-pwa-v13';
+const CACHE_NAME = 'gde-pwa-v16';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

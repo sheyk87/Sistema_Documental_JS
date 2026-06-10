@@ -229,6 +229,25 @@ const getDocCode = (type) => {
 
 function setState(newState) { state = { ...state, ...newState }; renderApp(); }
 
+window.alert = function(message) {
+    setState({
+        modal: {
+            type: 'alerta',
+            message: message
+        }
+    });
+};
+
+function showConfirm(message, callback) {
+    setState({
+        modal: {
+            type: 'confirmar_accion',
+            message: message,
+            onConfirm: callback
+        }
+    });
+}
+
 function getBadgeColor(status) {
     const colors = { [STATUS.BORRADOR]: 'bg-gray-100 text-gray-600 border-gray-200', [STATUS.FIRMANDOSE]: 'bg-amber-100 text-amber-700 border-amber-200', [STATUS.FIRMADO]: 'bg-emerald-100 text-emerald-700 border-emerald-200', [STATUS.RECHAZADO]: 'bg-red-100 text-red-700 border-red-200', [STATUS.ANULADO]: 'bg-slate-800 text-slate-200 border-slate-700', [STATUS.ELIMINADO]: 'bg-red-900 text-red-100 border-red-900', [STATUS.DERIVADO]: 'bg-indigo-100 text-indigo-700 border-indigo-200', [STATUS.ARCHIVADO]: 'bg-stone-100 text-stone-600 border-stone-200' };
     return colors[status] || colors[STATUS.BORRADOR];
@@ -761,8 +780,8 @@ function handleExport(model) {
         if (currentStatsData.top) { r.push(['', '']); Object.entries(currentStatsData.top).forEach(([title, list]) => { r.push([title.toUpperCase()], ['Elemento', 'Cantidad']); list.forEach(i => r.push([i.label, i.count])); r.push(['', '']); }); }
         return exportToCSV(`Estadisticas_GDE.csv`, r);
     } else {
-        headers = ['Número', 'Tipo', 'Asunto', 'Estado', 'Enviado Por', 'Fecha', 'Fojas']; items = sortItems([...getFilteredItemsForModel(model)], model);
-        rows = [headers, ...items.map(i => [i.number || 'S/N', i.docType || i.type, i.subject, i.status, getSender(i), formatDateOnly(i.createdAt), i.linkedDocs?.length || 0])];
+        headers = ['Número', 'Tipo', 'Asunto', 'Estado', 'Enviado Por', 'Acceso', 'Fecha', 'Fojas']; items = sortItems([...getFilteredItemsForModel(model)], model);
+        rows = [headers, ...items.map(i => [i.number || 'S/N', i.docType || i.type, i.subject, i.status, getSender(i), i.isPublic ? 'Público' : 'Reservado', formatDateOnly(i.createdAt), i.linkedDocs?.length || 0])];
     }
     exportToCSV(`${model}_export.csv`, rows);
 }
@@ -1040,7 +1059,37 @@ async function processBatchReject(note) {
 }
 
 // === MOTOR DE FIRMA MASIVA SECUENCIAL ===
-async function processBatchSign() {
+async function processBatchSign(twoFactorCode = '') {
+    const hasReserved = state.batchSelection.some(id => {
+        const d = state.db.documents.find(doc => doc.id === id);
+        return d && !d.isPublic;
+    });
+
+    if (hasReserved) {
+        state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Verificando código 2FA...' };
+        renderApp();
+
+        try {
+            const verifyRes = await fetch(`${API_BASE}/api/auth/2fa/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                body: JSON.stringify({ code: twoFactorCode })
+            });
+            if (!verifyRes.ok) {
+                const verifyData = await verifyRes.json();
+                alert(`Error de verificación 2FA: ${verifyData.message || 'Código incorrecto.'}`);
+                state.batchProgress = null;
+                renderApp();
+                return;
+            }
+        } catch (err) {
+            alert("Error al comunicarse con el servidor para validar 2FA.");
+            state.batchProgress = null;
+            renderApp();
+            return;
+        }
+    }
+
     state.batchProgress = { current: 0, total: state.batchSelection.length, status: 'Preparando motor criptográfico...' };
     renderApp();
 
@@ -1054,6 +1103,27 @@ async function processBatchSign() {
 
         const item = state.db.documents.find(d => d.id === docId);
         if (!item) continue;
+
+        // Capturamos el estado original para rollback ante cualquier fallo
+        const originalStatus = item.status;
+        const originalSignedBy = item.signedBy ? [...item.signedBy] : [];
+        const originalSignatories = item.signatories ? [...item.signatories] : [];
+        const originalCurrentOwnerId = item.currentOwnerId;
+        const originalNumber = item.number;
+        const originalOwners = item.owners ? [...item.owners] : [];
+        const originalHistoryLength = item.history ? item.history.length : 0;
+
+        const rollbackState = () => {
+            item.status = originalStatus;
+            item.signedBy = originalSignedBy;
+            item.signatories = originalSignatories;
+            item.currentOwnerId = originalCurrentOwnerId;
+            item.number = originalNumber;
+            item.owners = originalOwners;
+            if (item.history && item.history.length > originalHistoryLength) {
+                item.history = item.history.slice(0, originalHistoryLength);
+            }
+        };
 
         // === CRÍTICO: El documento adopta el área activa del firmante en este momento ===
         item.areaId = state.currentUser.areaId;
@@ -1085,10 +1155,7 @@ async function processBatchSign() {
             const assignedNum = await requestDocumentNumber(item.id);
             if (!assignedNum) {
                 console.error(`Error al obtener número correlativo para documento ${item.id}`);
-                item.status = STATUS.FIRMANDOSE;
-                if (item.signedBy) {
-                    item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
-                }
+                rollbackState();
                 continue; // Saltear si falla la obtención del número correlativo
             }
             item.number = assignedNum;
@@ -1115,7 +1182,7 @@ async function processBatchSign() {
         item.history.push(hEntry);
 
         // ¡EL MOMENTO MÁGICO! Llamamos a la generación del PDF.
-        const success = await sealAndSaveDocument(item, hEntry);
+        const success = await sealAndSaveDocument(item, hEntry, twoFactorCode);
 
         if (success) {
             if (isConDest && item.recipients && item.recipients.length > 0) {
@@ -1123,10 +1190,7 @@ async function processBatchSign() {
             }
             successCount++;
         } else {
-            item.status = STATUS.FIRMANDOSE; // Si falla, lo devuelve a su estado original
-            if (item.signedBy) {
-                item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
-            }
+            rollbackState();
         }
     }
 
@@ -1148,7 +1212,16 @@ function getFilteredItemsForModel(model) {
         case 'archiveExp': return state.db.expedientes.filter(e => e.status === STATUS.ARCHIVADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
         case 'anuladosDoc': return state.db.documents.filter(d => d.status === STATUS.ANULADO && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
         case 'anuladosExp': return state.db.expedientes.filter(e => e.status === STATUS.ANULADO && canViewExpediente(e, state.currentUser)).filter(e => filterItem(e, term));
-        case 'batchSign': return state.db.documents.filter(d => d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id && d.isPublic && canViewDocumento(d, state.currentUser)).filter(d => filterItem(d, term));
+        case 'batchSign':
+            return state.db.documents.filter(d => {
+                const isMyTurn = d.status === STATUS.FIRMANDOSE && d.currentOwnerId === state.currentUser.id;
+                if (!isMyTurn) return false;
+                if (!d.isPublic) {
+                    const hasReservedPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_sign_reserved');
+                    return hasReservedPerm && canViewDocumento(d, state.currentUser);
+                }
+                return canViewDocumento(d, state.currentUser);
+            }).filter(d => filterItem(d, term));
         case 'search':
             const sDocs = state.db.documents.filter(d => ![STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.ELIMINADO].includes(d.status) && (state.db.users.find(u => u.id === d.creatorId)?.areaId === state.currentUser.areaId || d.owners?.includes(state.currentUser.id) || d.owners?.includes(state.currentUser.areaId)) && canViewDocumento(d, state.currentUser));
             const sExps = state.db.expedientes.filter(e => e.status !== STATUS.ELIMINADO && canViewExpediente(e, state.currentUser));
@@ -1821,10 +1894,10 @@ function renderApp() {
 
     // NUEVO: Manejo de la vista de recuperación de contraseña antes del layout
     if (state.currentView === 'forgot_password') {
-        appRoot.innerHTML = renderForgotPassword();
+        appRoot.innerHTML = renderForgotPassword() + renderModalOverlay();
     }
     else if (!state.currentUser) {
-        appRoot.innerHTML = renderLogin();
+        appRoot.innerHTML = renderLogin() + renderModalOverlay();
     }
     else {
         appRoot.innerHTML = renderMainLayout();
@@ -3311,9 +3384,63 @@ function renderExpedienteDetail() {
 function renderModalOverlay() {
     if (!state.modal) return '';
     const m = state.modal; let title = '', content = ''; const term = (m.search || '').toLowerCase();
-    const mixedList = [...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== state.currentUser.id).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))].filter(i => i.name.toLowerCase().includes(term));
-    const usersList = state.db.users.filter(u => u.id !== state.currentUser.id && u.name.toLowerCase().includes(term));
-    const docsFirmados = state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && canViewDocumento(d, state.currentUser) && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term)));
+    const currentUserId = state.currentUser ? state.currentUser.id : null;
+    const mixedList = currentUserId ? [...state.db.areas.map(a => ({ id: a.id, name: `[Área] ${a.name}` })), ...state.db.users.filter(u => u.id !== currentUserId).map(u => ({ id: u.id, name: `${u.name} (${getAreaName(u.areaId)})` }))].filter(i => i.name.toLowerCase().includes(term)) : [];
+    const usersList = currentUserId ? state.db.users.filter(u => u.id !== currentUserId && u.name.toLowerCase().includes(term)) : [];
+    const docsFirmados = (currentUserId && state.db.documents) ? state.db.documents.filter(d => (d.status === STATUS.FIRMADO || d.status === STATUS.ARCHIVADO) && d.id !== state.selectedItem?.id && canViewDocumento(d, state.currentUser) && ((d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term))) : [];
+
+    if (m.type === 'alerta') {
+        const msg = m.message || '';
+        let icon = 'info';
+        let iconColor = 'text-blue-500 bg-blue-50 border-blue-100';
+        title = m.title || 'Información';
+
+        const lowercaseMsg = msg.toLowerCase();
+        if (lowercaseMsg.includes('error') || lowercaseMsg.includes('denegado') || lowercaseMsg.includes('inválido') || lowercaseMsg.includes('no coinciden') || lowercaseMsg.includes('falló') || lowercaseMsg.includes('incorrecto') || lowercaseMsg.includes('expirada')) {
+            icon = 'alert-triangle';
+            iconColor = 'text-red-600 bg-red-50 border-red-100';
+            title = m.title || 'Atención';
+        } else if (lowercaseMsg.includes('éxito') || lowercaseMsg.includes('exitosamente') || lowercaseMsg.includes('correctamente') || lowercaseMsg.includes('correcto') || lowercaseMsg.includes('creada') || lowercaseMsg.includes('actualizada') || lowercaseMsg.includes('importadas') || lowercaseMsg.includes('importados') || lowercaseMsg.includes('eliminada') || lowercaseMsg.includes('eliminado') || lowercaseMsg.includes('restablecida') || lowercaseMsg.includes('guardada') || lowercaseMsg.includes('aplicada')) {
+            icon = 'check-circle';
+            iconColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
+            title = m.title || 'Operación Exitosa';
+        }
+
+        content = `
+            <div class="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-2">
+                <div class="p-2 rounded-lg border ${iconColor} shrink-0">
+                    <i data-lucide="${icon}" class="w-6 h-6"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-slate-600 leading-relaxed break-words whitespace-pre-line">${escapeHtml(msg)}</p>
+                </div>
+            </div>
+        `;
+    }
+    else if (m.type === 'confirmar_accion') {
+        title = m.title || 'Confirmar Acción';
+        const msg = m.message || '';
+        content = `
+            <div class="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-2">
+                <div class="p-2 rounded-lg border text-amber-600 bg-amber-50 border-amber-100 shrink-0">
+                    <i data-lucide="help-circle" class="w-6 h-6"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-slate-600 leading-relaxed break-words whitespace-pre-line">${escapeHtml(msg)}</p>
+                </div>
+            </div>
+        `;
+    }
+    else if (m.type === 'pedir_contrasena') {
+        title = m.title || 'Validar Identidad';
+        const msg = m.message || 'Para continuar, ingrese su contraseña actual:';
+        content = `
+            <div class="space-y-4 mb-2">
+                <p class="text-sm text-slate-600 leading-relaxed break-words">${escapeHtml(msg)}</p>
+                <input required type="password" id="prompt-password-input" placeholder="Contraseña..." class="w-full px-3 py-2 border rounded-lg outline-none text-center font-mono tracking-widest text-lg bg-slate-50 border-gray-200" />
+            </div>
+        `;
+    }
 
     if (m.type === 'editar_rol') {
         title = 'Editar Rol';
@@ -3615,11 +3742,22 @@ function renderModalOverlay() {
 
     else if (m.type === 'batch_sign_confirm') {
         title = 'Confirmar Firma Masiva';
+        const hasReserved = state.batchSelection.some(id => {
+            const d = state.db.documents.find(doc => doc.id === id);
+            return d && !d.isPublic;
+        });
         content = `
             <div class="mb-4 text-sm text-gray-700 bg-emerald-50 p-4 rounded border border-emerald-100">
                 <div class="flex items-center gap-3 mb-2 text-emerald-800 font-bold"><i data-lucide="shield-check" class="w-6 h-6"></i> Se firmarán ${state.batchSelection.length} documentos.</div>
                 <p class="text-xs text-gray-600">Al confirmar, el sistema procesará secuencialmente los documentos seleccionados. Por favor, <strong>no cierre ni recargue la página</strong> hasta que el proceso finalice.</p>
             </div>
+            ${hasReserved ? `
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Código de Autenticación de 2 Factores (2FA)</label>
+                    <input required type="text" id="signature-2fa-code" placeholder="Código de 6 dígitos..." class="w-full px-3 py-2 border rounded-lg outline-none text-center font-mono tracking-widest text-lg" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" />
+                    <p class="text-xs text-amber-600 mt-1">La selección contiene documentos reservados. Debe ingresar el código 2FA de su aplicación de autenticación para firmar.</p>
+                </div>
+            ` : ''}
         `;
     }
     else if (m.type === 'batch_reject') {
@@ -3640,15 +3778,16 @@ function renderModalOverlay() {
         `;
     }
 
-    const confirmBtnHtml = m.type === 'ver_usuarios_area' ? '' : `<button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>`;
+    const confirmBtnHtml = (m.type === 'ver_usuarios_area' || m.type === 'alerta') ? '' : `<button data-action="confirm-modal" class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Confirmar</button>`;
+    const closeBtnText = (m.type === 'ver_usuarios_area' || m.type === 'alerta') ? 'Aceptar' : 'Cancelar';
 
     const mobile = isMobile();
     return `
-        <div class="${mobile ? 'fixed' : 'absolute'} inset-0 bg-slate-900/40 z-[9999] flex items-center justify-center backdrop-blur-sm">
+        <div class="fixed inset-0 bg-slate-900/40 z-[9999] flex items-center justify-center backdrop-blur-sm">
             <div class="bg-white ${mobile ? 'mobile-modal-fullscreen p-4' : 'rounded-xl p-6 w-[500px] max-h-[90vh]'} shadow-2xl flex flex-col overflow-y-auto">
                 <h3 class="font-bold text-lg mb-4 text-gray-800">${title}</h3>${content}
                 <div class="flex justify-end gap-2 mt-auto pt-4">
-                    <button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 border rounded">${m.type === 'ver_usuarios_area' ? 'Cerrar' : 'Cancelar'}</button>
+                    <button data-action="close-modal" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 border rounded">${closeBtnText}</button>
                     ${confirmBtnHtml}
                 </div>
             </div>
@@ -3950,6 +4089,7 @@ async function initializeAppWithToken(token, user) {
     await fetchNotifications();
 
     state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
+    state.modal = null;
     setState({ currentView: 'inbox', selectedItem: null });
 }
 
@@ -4505,9 +4645,11 @@ document.addEventListener('click', async (e) => {
         }
         if (action === 'cancel-login') {
             state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
+            state.modal = null;
             return renderApp();
         }
         if (action === 'cancel-forgot-password') {
+            state.modal = null;
             return setState({ currentView: 'inbox' }); // Esto forzará volver al Login al no haber currentUser
         }
 
@@ -4599,25 +4741,26 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'delete-file') {
             e.preventDefault();
-            if (!confirm('¿Seguro que desea eliminar este archivo adjunto?')) return;
             const filename = actionBtn.getAttribute('data-filename');
-            fetch(`${API_BASE}/api/docs/${state.selectedItem.id}/attach/${filename}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
-            }).then(res => {
-                if (res.ok) {
-                    const originalName = state.selectedItem.attachments.find(a => a.filename === filename)?.originalname || filename;
+            showConfirm('¿Seguro que desea eliminar este archivo adjunto?', () => {
+                fetch(`${API_BASE}/api/docs/${state.selectedItem.id}/attach/${filename}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                }).then(res => {
+                    if (res.ok) {
+                        const originalName = state.selectedItem.attachments.find(a => a.filename === filename)?.originalname || filename;
 
-                    // Solo actualizamos la memoria central
-                    const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
-                    if (docIdx > -1) {
-                        state.db.documents[docIdx].attachments = state.db.documents[docIdx].attachments.filter(a => a.filename !== filename);
-                        state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
+                        // Solo actualizamos la memoria central
+                        const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+                        if (docIdx > -1) {
+                            state.db.documents[docIdx].attachments = state.db.documents[docIdx].attachments.filter(a => a.filename !== filename);
+                            state.db.documents[docIdx].history.push(createHistoryEntry(state.currentUser.id, 'Archivo Eliminado', originalName));
 
-                        state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
-                    }
-                    setState({});
-                } else { alert("Error al eliminar el archivo."); }
+                            state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
+                        }
+                        setState({});
+                    } else { alert("Error al eliminar el archivo."); }
+                });
             });
             return;
         }
@@ -4707,16 +4850,17 @@ document.addEventListener('click', async (e) => {
         }
 
         if (action === 'delete-all-notifications') {
-            if (!confirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?')) return;
+            showConfirm('¿Seguro que deseas eliminar definitivamente todo tu historial de notificaciones?', () => {
+                fetch(`${API_BASE}/api/notifications/delete-all`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                });
 
-            fetch(`${API_BASE}/api/notifications/delete-all`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                // Vaciamos el array en memoria local y repintamos la campana
+                state.notifications = [];
+                renderNotificationUI();
             });
-
-            // Vaciamos el array en memoria local y repintamos la campana
-            state.notifications = [];
-            return renderNotificationUI();
+            return;
         }
 
         if (action === 'toggle-dark-mode') {
@@ -4742,7 +4886,7 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'delete-template-btn') {
             const tplId = actionBtn.getAttribute('data-id');
-            if (confirm('¿Está seguro de eliminar definitivamente esta plantilla?')) {
+            showConfirm('¿Está seguro de eliminar definitivamente esta plantilla?', () => {
                 fetch(`${API_BASE}/api/templates/delete/${tplId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
@@ -4765,12 +4909,12 @@ document.addEventListener('click', async (e) => {
                         alert(`Error: ${data.message}`);
                     }
                 });
-            }
+            });
             return;
         }
 
         if (action === 'clear-my-licence') {
-            if (confirm('¿Está seguro de eliminar su configuración de licencia activa?')) {
+            showConfirm('¿Está seguro de eliminar su configuración de licencia activa?', () => {
                 fetch(`${API_BASE}/api/licences/configure`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
@@ -4799,29 +4943,29 @@ document.addEventListener('click', async (e) => {
                         alert(`Error: ${data.message}`);
                     }
                 });
-            }
+            });
             return;
         }
 
         if (action === 'admin-del-user') {
-            if (confirm('¿Eliminar usuario?')) {
-                const id = actionBtn.getAttribute('data-id');
+            const id = actionBtn.getAttribute('data-id');
+            showConfirm('¿Eliminar usuario?', () => {
                 fetch(`${API_BASE}/api/users/delete/${id}`, {
                     method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(res => { if (res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
-            }
+            });
             return;
         }
         if (action === 'admin-del-area') {
-            if (confirm('¿Eliminar area?')) {
-                const id = actionBtn.getAttribute('data-id');
+            const id = actionBtn.getAttribute('data-id');
+            showConfirm('¿Eliminar area?', () => {
                 fetch(`${API_BASE}/api/areas/delete/${id}`, {
                     method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
                 }).then(res => {
                     if (res.ok) { state.db.areas = state.db.areas.filter(a => a.id !== id); setState({}); }
                     else { alert("No se puede eliminar un area que contiene usuarios registrados."); }
                 });
-            }
+            });
             return;
         }
         if (action === 'admin-del-role') {
@@ -4830,7 +4974,7 @@ document.addEventListener('click', async (e) => {
                 alert('No se pueden eliminar los roles básicos del sistema (admin/user).');
                 return;
             }
-            if (confirm('¿Está seguro de que desea eliminar este rol?')) {
+            showConfirm('¿Está seguro de que desea eliminar este rol?', () => {
                 fetch(`${API_BASE}/api/roles/delete/${id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
@@ -4847,40 +4991,47 @@ document.addEventListener('click', async (e) => {
                     console.error(err);
                     alert("Error de conexión al eliminar el rol.");
                 });
-            }
+            });
             return;
         }
 
         // Caso 1: Usuario pide regenerar los suyos (Pedimos contraseña)
         if (action === 'ask-password-regenerate-2fa') {
-            const pass = prompt("Para regenerar sus códigos de seguridad, ingrese su contraseña actual:");
-            if (!pass) return;
-
-            fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-                body: JSON.stringify({ password: pass })
-            }).then(async res => {
-                const data = await res.json();
-                if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
-                else alert(data.message);
+            setState({
+                modal: {
+                    type: 'pedir_contrasena',
+                    message: 'Para regenerar sus códigos de seguridad, ingrese su contraseña actual:',
+                    onConfirm: (pass) => {
+                        fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                            body: JSON.stringify({ password: pass })
+                        }).then(async res => {
+                            const data = await res.json();
+                            if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
+                            else alert(data.message);
+                        });
+                    }
+                }
             });
+            return;
         }
 
         // Caso 2: Admin regenera a otro usuario (No pide contraseña, el admin ya está autenticado)
         if (action === 'admin-regenerate-user-2fa-codes') {
             const targetUserId = actionBtn.getAttribute('data-user-id');
-            if (!confirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?")) return;
-
-            fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-                body: JSON.stringify({ targetUserId })
-            }).then(async res => {
-                const data = await res.json();
-                if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
-                else alert(data.message);
+            showConfirm("¿Está seguro de invalidar los códigos actuales del usuario y generar unos nuevos?", () => {
+                fetch(`${API_BASE}/api/auth/2fa/regenerate-codes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                    body: JSON.stringify({ targetUserId })
+                }).then(async res => {
+                    const data = await res.json();
+                    if (res.ok) showNewRecoveryCodes(data.recoveryCodes);
+                    else alert(data.message);
+                });
             });
+            return;
         }
 
         if (action === 'complete-login-after-2fa') {
@@ -4955,6 +5106,27 @@ document.addEventListener('click', async (e) => {
         if (action === 'confirm-modal') {
             const m = state.modal;
 
+            if (m.type === 'confirmar_accion') {
+                const cb = m.onConfirm;
+                setState({ modal: null });
+                if (typeof cb === 'function') {
+                    await cb();
+                }
+                return;
+            }
+
+            if (m.type === 'pedir_contrasena') {
+                const passInput = document.getElementById('prompt-password-input');
+                const pass = passInput ? passInput.value : '';
+                if (!pass) return alert("Debe ingresar su contraseña.");
+                const cb = m.onConfirm;
+                setState({ modal: null });
+                if (typeof cb === 'function') {
+                    await cb(pass);
+                }
+                return;
+            }
+
             if (m.type === 'advertencia_licencia') {
                 const pending = state.pendingLicenceAction;
                 if (pending && typeof pending.callback === 'function') {
@@ -4972,7 +5144,20 @@ document.addEventListener('click', async (e) => {
             }
 
             if (m.type === 'batch_sign_confirm') {
-                return processBatchSign(); // Inicia el motor secuencial
+                const hasReserved = state.batchSelection.some(id => {
+                    const d = state.db.documents.find(doc => doc.id === id);
+                    return d && !d.isPublic;
+                });
+                let twoFactorCode = '';
+                if (hasReserved) {
+                    const codeInput = document.getElementById('signature-2fa-code');
+                    twoFactorCode = codeInput ? codeInput.value.trim() : '';
+                    if (!/^\d{6}$/.test(twoFactorCode)) {
+                        alert("Por favor ingrese un código 2FA válido de 6 dígitos.");
+                        return;
+                    }
+                }
+                return processBatchSign(twoFactorCode); // Inicia el motor secuencial
             }
 
             if (m.type === 'editar_rol') {
@@ -5010,9 +5195,6 @@ document.addEventListener('click', async (e) => {
                         return alert("La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.");
                     }
                 }
-                if (!confirm("¿Está seguro de aplicar estos cambios al usuario? Se enviará una notificación por correo al interesado si está configurado.")) {
-                    return;
-                }
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
                 
                 const updatedUser = {
@@ -5027,52 +5209,53 @@ document.addEventListener('click', async (e) => {
                     twoFactorEnabled: m.editU2FA
                 };
 
-                fetch(`${API_BASE}/api/users/update/${m.editUId}`, {
-                    method: 'PUT', 
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
-                    body: JSON.stringify(updatedUser)
-                }).then(async res => {
-                    if (res.ok) {
-                        const uIdx = state.db.users.findIndex(u => u.id === m.editUId);
-                        if (uIdx > -1) { 
-                            state.db.users[uIdx] = { 
-                                ...state.db.users[uIdx], 
-                                ...updatedUser
-                            }; 
-                        }
+                const licencePayload = {
+                    licenceStart: m.editULicenceStart ? new Date(m.editULicenceStart).toISOString() : null,
+                    licenceEnd: m.editULicenceEnd ? new Date(m.editULicenceEnd).toISOString() : null,
+                    delegatedTo: m.editUDelegatedTo || null,
+                    notes: m.editULicenceNote || null,
+                    targetUserId: m.editUId
+                };
 
-                        // Configurar/actualizar la licencia administrativamente en el backend
-                        const licencePayload = {
-                            licenceStart: m.editULicenceStart ? new Date(m.editULicenceStart).toISOString() : null,
-                            licenceEnd: m.editULicenceEnd ? new Date(m.editULicenceEnd).toISOString() : null,
-                            delegatedTo: m.editUDelegatedTo || null,
-                            notes: m.editULicenceNote || null,
-                            targetUserId: m.editUId
-                        };
+                const targetUserId = m.editUId;
 
-                        const licenceRes = await fetch(`${API_BASE}/api/licences/admin-configure`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
-                            body: JSON.stringify(licencePayload)
-                        });
-
-                        if (!licenceRes.ok) {
-                            const licenceData = await licenceRes.json();
-                            alert(`Usuario guardado pero hubo un error con la Licencia: ${licenceData.message}`);
-                        } else {
-                            if (uIdx > -1) {
-                                state.db.users[uIdx].licence_start = licencePayload.licenceStart;
-                                state.db.users[uIdx].licence_end = licencePayload.licenceEnd;
-                                state.db.users[uIdx].delegated_to = licencePayload.delegatedTo;
+                showConfirm("¿Está seguro de aplicar estos cambios al usuario? Se enviará una notificación por correo al interesado si está configurado.", () => {
+                    fetch(`${API_BASE}/api/users/update/${targetUserId}`, {
+                        method: 'PUT', 
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
+                        body: JSON.stringify(updatedUser)
+                    }).then(async res => {
+                        if (res.ok) {
+                            const uIdx = state.db.users.findIndex(u => u.id === targetUserId);
+                            if (uIdx > -1) { 
+                                state.db.users[uIdx] = { 
+                                    ...state.db.users[uIdx], 
+                                    ...updatedUser
+                                }; 
                             }
-                            alert("Usuario y Licencia actualizados correctamente.");
-                        }
 
-                        setState({ modal: null });
-                    } else { 
-                        const data = await res.json();
-                        alert(`Error al actualizar el usuario: ${data.message}`); 
-                    }
+                            const licenceRes = await fetch(`${API_BASE}/api/licences/admin-configure`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+                                body: JSON.stringify(licencePayload)
+                            });
+
+                            if (!licenceRes.ok) {
+                                const licenceData = await licenceRes.json();
+                                alert(`Usuario guardado pero hubo un error con la Licencia: ${licenceData.message}`);
+                            } else {
+                                if (uIdx > -1) {
+                                    state.db.users[uIdx].licence_start = licencePayload.licenceStart;
+                                    state.db.users[uIdx].licence_end = licencePayload.licenceEnd;
+                                    state.db.users[uIdx].delegated_to = licencePayload.delegatedTo;
+                                }
+                                alert("Usuario y Licencia actualizados correctamente.");
+                            }
+                        } else { 
+                            const data = await res.json();
+                            alert(`Error al actualizar el usuario: ${data.message}`); 
+                        }
+                    });
                 });
                 return;
             }
@@ -5317,6 +5500,27 @@ document.addEventListener('click', async (e) => {
                 return setState({ selectedItem: null, currentView: 'inbox' });
             }
             if (m.type === 'confirmar_firma') {
+                // Capturamos el estado original para rollback ante cualquier fallo
+                const originalStatus = item.status;
+                const originalSignedBy = item.signedBy ? [...item.signedBy] : [];
+                const originalSignatories = item.signatories ? [...item.signatories] : [];
+                const originalCurrentOwnerId = item.currentOwnerId;
+                const originalNumber = item.number;
+                const originalOwners = item.owners ? [...item.owners] : [];
+                const originalHistoryLength = item.history ? item.history.length : 0;
+
+                const rollbackState = () => {
+                    item.status = originalStatus;
+                    item.signedBy = originalSignedBy;
+                    item.signatories = originalSignatories;
+                    item.currentOwnerId = originalCurrentOwnerId;
+                    item.number = originalNumber;
+                    item.owners = originalOwners;
+                    if (item.history && item.history.length > originalHistoryLength) {
+                        item.history = item.history.slice(0, originalHistoryLength);
+                    }
+                };
+
                 // === CRÍTICO: Sincronizar el área del documento con el área activa del usuario ===
                 item.areaId = state.currentUser.areaId;
 
@@ -5326,6 +5530,7 @@ document.addEventListener('click', async (e) => {
                     twoFactorCode = codeInput ? codeInput.value.trim() : '';
                     if (!/^\d{6}$/.test(twoFactorCode)) {
                         alert("Por favor ingrese un código 2FA válido de 6 dígitos.");
+                        rollbackState();
                         return;
                     }
 
@@ -5350,6 +5555,7 @@ document.addEventListener('click', async (e) => {
                                 btn.disabled = false;
                                 btn.innerHTML = origHtml;
                                 if (window.lucide) lucide.createIcons();
+                                rollbackState();
                                 return;
                             }
                         } catch (err) {
@@ -5357,6 +5563,7 @@ document.addEventListener('click', async (e) => {
                             btn.disabled = false;
                             btn.innerHTML = origHtml;
                             if (window.lucide) lucide.createIcons();
+                            rollbackState();
                             return;
                         }
                     }
@@ -5396,6 +5603,7 @@ document.addEventListener('click', async (e) => {
                         btn.disabled = false;
                         btn.innerHTML = origHtml;
                         if (window.lucide) lucide.createIcons();
+                        rollbackState();
                         return;
                     }
                     item.number = assignedNum;
@@ -5434,10 +5642,7 @@ document.addEventListener('click', async (e) => {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                     // Si falla, revertimos estado visual y removemos la firma fallida
-                    item.status = STATUS.FIRMANDOSE;
-                    if (item.signedBy) {
-                        item.signedBy = item.signedBy.filter(s => s.id !== state.currentUser.id);
-                    }
+                    rollbackState();
                 }
                 return;
             }
@@ -5459,33 +5664,34 @@ document.addEventListener('click', async (e) => {
             }
             else if (action === 'doc-delete') {
                 e.preventDefault();
-                if (!confirm('¿Seguro que desea eliminar este borrador de forma permanente? Se eliminarán también todos sus archivos adjuntos del servidor.')) return;
-
+                const targetId = state.selectedItem.id;
                 const originalHtml = actionBtn.innerHTML;
-                actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
-
-                fetch(`${API_BASE}/api/docs/delete/${state.selectedItem.id}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
-                }).then(async res => {
-                    if (res.ok) {
-                        // Quitamos el documento de la memoria principal visual
-                        state.db.documents = state.db.documents.filter(d => d.id !== state.selectedItem.id);
-                        // Volvemos a la bandeja de borradores
-                        setState({ selectedItem: null, currentView: 'drafts' });
-                    } else {
-                        actionBtn.innerHTML = originalHtml;
-                        if (window.lucide) lucide.createIcons();
-                        alert("Error al eliminar el borrador.");
-                    }
+                showConfirm('¿Seguro que desea eliminar este borrador de forma permanente? Se eliminarán también todos sus archivos adjuntos del servidor.', () => {
+                    actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Eliminando...';
+                    fetch(`${API_BASE}/api/docs/delete/${targetId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+                    }).then(async res => {
+                        if (res.ok) {
+                            // Quitamos el documento de la memoria principal visual
+                            state.db.documents = state.db.documents.filter(d => d.id !== targetId);
+                            // Volvemos a la bandeja de borradores
+                            setState({ selectedItem: null, currentView: 'drafts' });
+                        } else {
+                            actionBtn.innerHTML = originalHtml;
+                            if (window.lucide) lucide.createIcons();
+                            alert("Error al eliminar el borrador.");
+                        }
+                    });
                 });
                 return;
             }
             else if (action === 'doc-unrelate') {
-                if (!confirm('¿Seguro que desea eliminar esta relación?')) return;
                 const docId = actionBtn.getAttribute('data-id');
-                item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs;
-                await syncData(item, 'documento'); setState({});
+                showConfirm('¿Seguro que desea eliminar esta relación?', async () => {
+                    item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs;
+                    await syncData(item, 'documento'); setState({});
+                });
             }
             else if (action === 'exp-desarchivar') {
                 item.status = 'En Tramite';
