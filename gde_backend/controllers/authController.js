@@ -116,6 +116,13 @@ exports.login = async (req, res) => {
         
         let user = rows[0];
         
+        // === NUEVO: Comprobar bloqueo temporal por intentos fallidos ===
+        if (user.lockout_until && new Date() < new Date(user.lockout_until)) {
+            const minutesLeft = Math.ceil((new Date(user.lockout_until) - new Date()) / 60000);
+            logAuthEvent('LOGIN_FAILED', { email, reason: 'account_locked', ip: req.ip });
+            return res.status(403).json({ message: `Cuenta bloqueada temporalmente. Intente nuevamente en ${minutesLeft} minutos.` });
+        }
+        
         // === NUEVO: Comprobar estado de cuenta (Fase 3) ===
         if (user.status !== 'active') {
             logAuthEvent('LOGIN_FAILED', { email, reason: `account_${user.status}`, ip: req.ip });
@@ -133,11 +140,49 @@ exports.login = async (req, res) => {
 
         if (!isAuthenticated) {
             const validPassword = await bcrypt.compare(password, user.password);
-            if (!validPassword) {
-                logAuthEvent('LOGIN_FAILED', { email, reason: 'invalid_password', ip: req.ip });
-                // OWASP A07: Mismo mensaje genérico que cuando el usuario no existe
-                return res.status(401).json({ message: 'Credenciales inválidas.' });
+            if (validPassword) {
+                isAuthenticated = true;
             }
+        }
+
+        if (!isAuthenticated) {
+            logAuthEvent('LOGIN_FAILED', { email, reason: 'invalid_credentials', ip: req.ip });
+            
+            const newAttempts = (user.failed_login_attempts || 0) + 1;
+            let lockoutUntil = null;
+            if (newAttempts >= 5) {
+                lockoutUntil = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+            }
+
+            await pool.query(
+                'UPDATE users SET failed_login_attempts = ?, lockout_until = ? WHERE id = ?',
+                [newAttempts, lockoutUntil, user.id]
+            );
+
+            if (newAttempts >= 5) {
+                logAuthEvent('ACCOUNT_LOCKED', { userId: user.id, email, ip: req.ip });
+
+                if (process.env.EMAIL_ENABLED === 'true' && user.email_notifications === 1) {
+                    const mailSubject = 'GDE - Cuenta Suspendida Temporalmente';
+                    const mailHtml = `
+                        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <h2 style="color: #dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 10px; margin-top: 0;">Cuenta Suspendida Temporalmente</h2>
+                            <p style="color: #334155; font-size: 15px;">Le informamos que su cuenta en el Sistema GDE ha sido suspendida temporalmente por 5 minutos debido a 5 intentos de inicio de sesión fallidos consecutivos.</p>
+                            <p style="color: #64748b; font-size: 12px; margin-top: 20px;">Si usted no realizó estos intentos de acceso, le sugerimos comunicarse con el administrador de sistemas de inmediato.</p>
+                        </div>
+                    `;
+                    emailService.sendMail(user.email, mailSubject, 'Cuenta Suspendida', mailHtml);
+                }
+
+                return res.status(403).json({ message: 'Cuenta bloqueada temporalmente por 5 minutos debido a reiterados intentos fallidos.' });
+            }
+
+            return res.status(401).json({ message: 'Credenciales inválidas.' });
+        }
+
+        // Resetear intentos fallidos tras login exitoso
+        if (user.failed_login_attempts > 0 || user.lockout_until) {
+            await pool.query('UPDATE users SET failed_login_attempts = 0, lockout_until = NULL WHERE id = ?', [user.id]);
         }
 
         logAuthEvent('LOGIN_SUCCESS', { userId: user.id, email, ip: req.ip });

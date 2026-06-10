@@ -70,6 +70,8 @@ async function setupFull() {
                 must_change_password TINYINT(1) DEFAULT 1,
                 password_resets_today INT DEFAULT 0,
                 last_password_reset_date DATE DEFAULT NULL,
+                failed_login_attempts INT DEFAULT 0,
+                lockout_until DATETIME DEFAULT NULL,
                 FOREIGN KEY (area_id) REFERENCES areas(id),
                 CONSTRAINT fk_users_superior FOREIGN KEY (superior_id) REFERENCES users(id) ON DELETE SET NULL,
                 CONSTRAINT fk_users_delegated FOREIGN KEY (delegated_to) REFERENCES users(id) ON DELETE SET NULL
