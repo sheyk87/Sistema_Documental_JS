@@ -98,6 +98,31 @@ let state = {
 };
 
 // ==========================================
+// CONTROL DE INACTIVIDAD (Auto-logout en 15 mins)
+// ==========================================
+let inactivityTimer = null;
+
+function resetInactivityTimer() {
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+    }
+    if (state.currentUser) {
+        inactivityTimer = setTimeout(async () => {
+            console.log("Sesión cerrada por inactividad.");
+            alert("Su sesión ha expirado por inactividad.");
+            await clearSession();
+            renderApp();
+        }, 15 * 60 * 1000); // 15 minutos
+    }
+}
+
+// Escuchar interacciones para resetear el contador de inactividad
+const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+activityEvents.forEach(eventName => {
+    document.addEventListener(eventName, resetInactivityTimer, { passive: true });
+});
+
+// ==========================================
 // MOBILE DETECTION & PWA
 // ==========================================
 function isMobile() { return window.innerWidth <= 768; }
@@ -615,6 +640,11 @@ async function clearSession() {
     // OWASP A02: Cookie con flags de seguridad
     document.cookie = "gde_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict";
     state.currentUser = null;
+
+    if (inactivityTimer) {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+    }
 }
 
 // Fase 4: Polling de estado de jobs BullMQ (firma async)
@@ -726,6 +756,7 @@ async function initSession() {
 
             if (state.currentUser && state.currentUser.must_change_password == 1) {
                 renderApp();
+                resetInactivityTimer();
                 return;
             }
 
@@ -735,6 +766,7 @@ async function initSession() {
 
             state.currentView = 'inbox';
             renderApp();
+            resetInactivityTimer();
         } else {
             clearSession();
             renderApp();
@@ -4198,6 +4230,7 @@ async function initializeAppWithToken(token, user) {
         state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
         state.modal = null;
         renderApp();
+        resetInactivityTimer();
         return;
     }
 
@@ -4210,6 +4243,7 @@ async function initializeAppWithToken(token, user) {
     state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
     state.modal = null;
     setState({ currentView: 'inbox', selectedItem: null });
+    resetInactivityTimer();
 }
 
 document.addEventListener('submit', async (e) => {
