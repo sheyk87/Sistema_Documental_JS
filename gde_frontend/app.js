@@ -229,7 +229,7 @@ const getDocCode = (type) => {
 
 function setState(newState) { state = { ...state, ...newState }; renderApp(); }
 
-window.alert = function(message) {
+window.alert = function (message) {
     setState({
         modal: {
             type: 'alerta',
@@ -524,7 +524,7 @@ function getPreviousSenderId(item) {
     for (let i = item.history.length - 1; i >= 0; i--) {
         const entry = item.history[i];
         if (entry.action && (
-            entry.action.startsWith('Enviado a firmar') || 
+            entry.action.startsWith('Enviado a firmar') ||
             entry.action.startsWith('Enviado a Revisar') ||
             entry.action.startsWith('Derivado')
         )) {
@@ -724,6 +724,11 @@ async function initSession() {
             state.currentUser = data.user;
             state.currentUser.areaId = data.user.area_id; // Asegurar consistencia de nombres
 
+            if (state.currentUser && state.currentUser.must_change_password == 1) {
+                renderApp();
+                return;
+            }
+
             // === CRÍTICO: Cargar la base de datos antes de renderizar ===
             await loadFullState(token);
             await fetchNotifications();
@@ -752,27 +757,27 @@ function exportToCSV(filename, rows) {
 
 function handleExport(model) {
     let items = [], headers = [], rows = [];
-    if (model === 'admin_users') { 
-        headers = ['id', 'name', 'email', 'password', 'areaId', 'role', 'areas', 'status', 'twoFactorEnabled', 'roles', 'licenceStart', 'licenceEnd', 'delegatedTo']; 
+    if (model === 'admin_users') {
+        headers = ['id', 'name', 'email', 'password', 'areaId', 'role', 'areas', 'status', 'twoFactorEnabled', 'roles', 'licenceStart', 'licenceEnd', 'delegatedTo'];
         rows = [headers, ...state.db.users.map(u => [
             u.id,
-            u.name, 
-            u.email, 
-            '********', 
-            u.areaId, 
-            u.role || 'user', 
-            (u.areas || [u.areaId]).join('-'), 
-            u.status || 'active', 
-            u.twoFactorEnabled ? 'true' : 'false', 
-            (u.roles || [u.role]).join(';'), 
-            u.licence_start ? new Date(u.licence_start).toISOString() : '', 
-            u.licence_end ? new Date(u.licence_end).toISOString() : '', 
+            u.name,
+            u.email,
+            '********',
+            u.areaId,
+            u.role || 'user',
+            (u.areas || [u.areaId]).join('-'),
+            u.status || 'active',
+            u.twoFactorEnabled ? 'true' : 'false',
+            (u.roles || [u.role]).join(';'),
+            u.licence_start ? new Date(u.licence_start).toISOString() : '',
+            u.licence_end ? new Date(u.licence_end).toISOString() : '',
             u.delegated_to || ''
-        ])]; 
+        ])];
     }
-    else if (model === 'admin_areas') { 
-        headers = ['id', 'name']; 
-        rows = [headers, ...state.db.areas.map(a => [a.id, a.name])]; 
+    else if (model === 'admin_areas') {
+        headers = ['id', 'name'];
+        rows = [headers, ...state.db.areas.map(a => [a.id, a.name])];
     }
     else if (model === 'stats') {
         let r = [['--- ESTADISTICAS EXPORTADAS ---']];
@@ -1437,9 +1442,9 @@ function stopDashboardPolling() {
 function getTimeAgo(dateStr) {
     const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
     if (diff < 60) return 'hace un momento';
-    if (diff < 3600) return `hace ${Math.floor(diff/60)} min`;
-    if (diff < 86400) return `hace ${Math.floor(diff/3600)}h`;
-    return `hace ${Math.floor(diff/86400)}d`;
+    if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `hace ${Math.floor(diff / 3600)}h`;
+    return `hace ${Math.floor(diff / 86400)}d`;
 }
 
 function getActivityIcon(action) {
@@ -1524,9 +1529,9 @@ function renderStats() {
         const d = state.dashboardData;
         const u = o.realtimeUnit || 'min';
         const m = d?.realtimeMetrics || {};
-        const sigVal = u === 'min' ? (m.signaturesPerMinute||0) : u === 'hora' ? (m.signaturesPerHour||0) : (m.signaturesPerDay||0);
-        const uplVal = u === 'min' ? (m.uploadsPerMinute||0) : u === 'hora' ? (m.uploadsPerHour||0) : (m.uploadsPerDay||0);
-        const dlVal = u === 'min' ? (m.downloadsPerMinute||0) : u === 'hora' ? (m.downloadsPerHour||0) : (m.downloadsPerDay||0);
+        const sigVal = u === 'min' ? (m.signaturesPerMinute || 0) : u === 'hora' ? (m.signaturesPerHour || 0) : (m.signaturesPerDay || 0);
+        const uplVal = u === 'min' ? (m.uploadsPerMinute || 0) : u === 'hora' ? (m.uploadsPerHour || 0) : (m.uploadsPerDay || 0);
+        const dlVal = u === 'min' ? (m.downloadsPerMinute || 0) : u === 'hora' ? (m.downloadsPerHour || 0) : (m.downloadsPerDay || 0);
 
         return `<div class="max-w-7xl mx-auto space-y-0">${tabsHtml}
             <div class="dashboard-grid">
@@ -1552,10 +1557,10 @@ function renderStats() {
                     <div class="flex items-center justify-between mb-4">
                         <h4 class="font-bold text-sm text-gray-700">Documentos Firmados</h4>
                         <select data-action="set-timeline-range" class="text-xs border rounded-lg px-3 py-1.5 outline-none font-medium bg-gray-50">
-                            <option value="7" ${o.timelineRange==7?'selected':''}>Últimos 7 días</option>
-                            <option value="30" ${o.timelineRange==30?'selected':''}>Últimos 30 días</option>
-                            <option value="90" ${o.timelineRange==90?'selected':''}>Últimos 90 días</option>
-                            <option value="365" ${o.timelineRange==365?'selected':''}>Este año</option>
+                            <option value="7" ${o.timelineRange == 7 ? 'selected' : ''}>Últimos 7 días</option>
+                            <option value="30" ${o.timelineRange == 30 ? 'selected' : ''}>Últimos 30 días</option>
+                            <option value="90" ${o.timelineRange == 90 ? 'selected' : ''}>Últimos 90 días</option>
+                            <option value="365" ${o.timelineRange == 365 ? 'selected' : ''}>Este año</option>
                         </select>
                     </div>
                     <div class="dash-chart-container"><canvas id="dash-line-chart"></canvas></div>
@@ -1568,9 +1573,9 @@ function renderStats() {
                         <span class="refresh-indicator"><span class="metric-live-dot"></span> LIVE</span>
                     </div>
                     <div class="metric-time-selector mb-4">
-                        <button data-action="set-realtime-unit" data-unit="min" class="metric-time-btn ${u==='min'?'active':''}">Min</button>
-                        <button data-action="set-realtime-unit" data-unit="hora" class="metric-time-btn ${u==='hora'?'active':''}">Hora</button>
-                        <button data-action="set-realtime-unit" data-unit="dia" class="metric-time-btn ${u==='dia'?'active':''}">Día</button>
+                        <button data-action="set-realtime-unit" data-unit="min" class="metric-time-btn ${u === 'min' ? 'active' : ''}">Min</button>
+                        <button data-action="set-realtime-unit" data-unit="hora" class="metric-time-btn ${u === 'hora' ? 'active' : ''}">Hora</button>
+                        <button data-action="set-realtime-unit" data-unit="dia" class="metric-time-btn ${u === 'dia' ? 'active' : ''}">Día</button>
                     </div>
                     <div class="realtime-metric-row">
                         <div class="flex items-center gap-3">
@@ -1598,7 +1603,7 @@ function renderStats() {
                             <div class="realtime-metric-icon bg-blue-500/20"><i data-lucide="users" class="w-4 h-4 text-blue-400"></i></div>
                             <div><p class="realtime-metric-label">Usuarios Online</p></div>
                         </div>
-                        <div class="text-right"><span id="rt-online" class="realtime-metric-value">${m.onlineUsers||0}</span><span class="realtime-metric-unit">activos</span></div>
+                        <div class="text-right"><span id="rt-online" class="realtime-metric-value">${m.onlineUsers || 0}</span><span class="realtime-metric-unit">activos</span></div>
                     </div>
                 </div>
 
@@ -1628,16 +1633,16 @@ function renderStats() {
                     </div>
                     <div id="activity-feed-list" class="activity-feed">
                         ${d && d.recentActivity ? d.recentActivity.map(a => {
-                            const ic = getActivityIcon(a.action);
-                            return `<div class="activity-item">
+            const ic = getActivityIcon(a.action);
+            return `<div class="activity-item">
                                 <div class="activity-icon ${ic.bg}"><i data-lucide="${ic.icon}" class="w-4 h-4 ${ic.color}"></i></div>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-sm text-gray-800 font-medium truncate"><span class="font-bold">${escapeHtml(a.userName)}</span> <span class="text-gray-500">${escapeHtml(a.action)}</span></p>
-                                    <p class="text-xs text-gray-500 truncate">${escapeHtml(a.itemLabel)} ${a.notes ? '— '+escapeHtml(a.notes) : ''}</p>
+                                    <p class="text-xs text-gray-500 truncate">${escapeHtml(a.itemLabel)} ${a.notes ? '— ' + escapeHtml(a.notes) : ''}</p>
                                 </div>
                                 <span class="time-ago">${getTimeAgo(a.createdAt)}</span>
                             </div>`;
-                        }).join('') : '<p class="text-xs text-gray-400 text-center py-8">Cargando actividad...</p>'}
+        }).join('') : '<p class="text-xs text-gray-400 text-center py-8">Cargando actividad...</p>'}
                     </div>
                 </div>
 
@@ -1691,7 +1696,7 @@ function drawDashboardCharts() {
     // 1. LINE CHART — Carga de Documentos
     const lineCtx = document.getElementById('dash-line-chart');
     if (lineCtx && d.loadTimeline && d.loadTimeline.length > 0) {
-        const labels = d.loadTimeline.map(r => { const dt = new Date(r.date); return `${dt.getDate()}/${dt.getMonth()+1}`; });
+        const labels = d.loadTimeline.map(r => { const dt = new Date(r.date); return `${dt.getDate()}/${dt.getMonth() + 1}`; });
         const data = d.loadTimeline.map(r => r.count);
         chartInstances['dash-line-chart'] = new Chart(lineCtx, {
             type: 'line',
@@ -1794,7 +1799,7 @@ function drawDashboardCharts() {
                     legend: { display: false },
                     datalabels: {
                         color: textColor, font: { weight: 'bold', size: 13 },
-                        formatter: (v) => total > 0 ? `${v} (${Math.round(v/total*100)}%)` : v
+                        formatter: (v) => total > 0 ? `${v} (${Math.round(v / total * 100)}%)` : v
                     }
                 },
                 scales: {
@@ -1898,6 +1903,9 @@ function renderApp() {
     }
     else if (!state.currentUser) {
         appRoot.innerHTML = renderLogin() + renderModalOverlay();
+    }
+    else if (state.currentUser.must_change_password == 1) {
+        appRoot.innerHTML = renderForcePasswordChange() + renderModalOverlay();
     }
     else {
         appRoot.innerHTML = renderMainLayout();
@@ -2107,6 +2115,98 @@ function getViewContent() {
     switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
+function renderPasswordRequirementsHTML() {
+    return `
+        <div class="mt-3 p-3 bg-slate-50 border rounded-lg text-xs space-y-1.5 text-left">
+            <p class="font-bold text-gray-700 mb-1 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-blue-600"></i> Requisitos de la contraseña:</p>
+            <div class="flex items-center gap-1.5 text-gray-500 transition-colors" id="req-length">
+                <i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>
+                <span>Al menos 8 caracteres</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-gray-500 transition-colors" id="req-upper">
+                <i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>
+                <span>Al menos una letra mayúscula (A-Z)</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-gray-500 transition-colors" id="req-lower">
+                <i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>
+                <span>Al menos una letra minúscula (a-z)</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-gray-500 transition-colors" id="req-number">
+                <i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>
+                <span>Al menos un número (0-9)</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-gray-500 transition-colors" id="req-symbol">
+                <i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>
+                <span>Al menos un símbolo o carácter especial (!@#$%^&*, etc.)</span>
+            </div>
+        </div>
+    `;
+}
+
+function updatePasswordStrengthUI(password) {
+    const checks = {
+        length: password.length >= 8,
+        upper: /[A-Z]/.test(password),
+        lower: /[a-z]/.test(password),
+        number: /[0-9]/.test(password),
+        symbol: /[^A-Za-z0-9]/.test(password)
+    };
+
+    const updateReq = (id, isValid) => {
+        const el = document.getElementById(`req-${id}`);
+        if (!el) return;
+        const icon = el.querySelector('.req-icon');
+        if (isValid) {
+            el.classList.remove('text-gray-500', 'text-red-500');
+            el.classList.add('text-emerald-600', 'font-medium');
+            if (icon) {
+                icon.outerHTML = '<i data-lucide="check" class="w-3 h-3 req-icon shrink-0 text-emerald-600"></i>';
+            }
+        } else {
+            el.classList.remove('text-emerald-600', 'font-medium');
+            el.classList.add('text-gray-500');
+            if (icon) {
+                icon.outerHTML = '<i data-lucide="circle" class="w-3 h-3 req-icon shrink-0"></i>';
+            }
+        }
+    };
+
+    Object.keys(checks).forEach(key => updateReq(key, checks[key]));
+    if (window.lucide) lucide.createIcons();
+
+    return Object.values(checks).every(Boolean);
+}
+
+function renderForcePasswordChange() {
+    return `
+        <div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 relative">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
+                        <i data-lucide="shield-alert" class="w-8 h-8"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900">Cambio de Contraseña Obligatorio</h2>
+                    <p class="text-sm text-gray-500 mt-2">Por motivos de seguridad, debe cambiar su contraseña antes de continuar.</p>
+                </div>
+                <form id="form-force-password" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Nueva contraseña</label>
+                        <input type="password" id="force-password-input" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" />
+                        ${renderPasswordRequirementsHTML()}
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Confirme la nueva contraseña</label>
+                        <input type="password" id="force-password-confirm" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" />
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2">
+                        <i data-lucide="check" class="w-5 h-5"></i> Cambiar Contraseña e Ingresar
+                    </button>
+                </form>
+            </div>
+        </div>
+    `;
+}
+
 function renderLogin() {
     const f = state.loginFlow;
     let content = '';
@@ -2123,7 +2223,7 @@ function renderLogin() {
             <form id="form-login" class="space-y-4">
                 <input type="email" id="login-email" value="admin@gde.com" placeholder="Correo electronico" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
                 <input type="password" id="login-password" value="123" placeholder="Contrasena" class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" required />
-                <div class="flex justify-end"><button type="button" data-action="go-forgot-password" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">Olvide mi contrasena</button></div>
+                <div class="flex justify-end"><button type="button" data-action="go-forgot-password" class="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none">Olvide mi contraseña</button></div>
                 <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 shadow-md flex items-center justify-center gap-2"><i data-lucide="log-in" class="w-5 h-5"></i> Ingresar</button>
             </form>
         `;
@@ -2249,8 +2349,8 @@ function renderAdminUsers() {
                     </thead>
                     <tbody class="divide-y">
                         ${state.db.users.map(u => {
-                            const activeRoles = u.roles ? u.roles.join(', ') : u.role;
-                            return `
+        const activeRoles = u.roles ? u.roles.join(', ') : u.role;
+        return `
                                 <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="p-2 text-xs text-gray-500 whitespace-nowrap">${u.id}</td>
                                     <td class="p-2 font-medium whitespace-nowrap">${u.name}</td>
@@ -2279,7 +2379,7 @@ function renderAdminUsers() {
                                     </td>
                                 </tr>
                             `;
-                        }).join('')}
+    }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -2331,12 +2431,12 @@ function renderAdminTemplates() {
         fetch(`${API_BASE}/api/templates`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         })
-        .then(res => res.json())
-        .then(data => {
-            state.db.templates = data.templates || data || [];
-            renderApp();
-        })
-        .catch(err => console.error("Error al cargar las plantillas:", err));
+            .then(res => res.json())
+            .then(data => {
+                state.db.templates = data.templates || data || [];
+                renderApp();
+            })
+            .catch(err => console.error("Error al cargar las plantillas:", err));
     }
 
     const templates = state.db.templates || [];
@@ -2380,12 +2480,12 @@ function renderAdminTemplates() {
                     <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documentales Asignados (Un tipo documental no admite más de 1 plantilla)</label>
                     <div class="max-h-40 overflow-y-auto border rounded-lg bg-white p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
                         ${docTypesList.map(type => {
-                            const code = getDocCode(type);
-                            const isChecked = (tpl.doc_types || []).includes(code);
-                            // Buscar si este tipo ya está asignado a otra plantilla para avisar al usuario
-                            const otherTpl = templates.find(t => t.id !== tpl.id && t.doc_types.includes(code));
-                            const labelSuffix = otherTpl ? `<span class="text-[10px] text-amber-600 font-bold block">(Reasignará de: ${otherTpl.name})</span>` : '';
-                            return `
+        const code = getDocCode(type);
+        const isChecked = (tpl.doc_types || []).includes(code);
+        // Buscar si este tipo ya está asignado a otra plantilla para avisar al usuario
+        const otherTpl = templates.find(t => t.id !== tpl.id && t.doc_types.includes(code));
+        const labelSuffix = otherTpl ? `<span class="text-[10px] text-amber-600 font-bold block">(Reasignará de: ${otherTpl.name})</span>` : '';
+        return `
                                 <label class="flex items-start gap-2 p-1.5 hover:bg-slate-50 cursor-pointer rounded border border-transparent hover:border-slate-200">
                                     <input type="checkbox" name="admin_t_doctype" value="${code}" ${isChecked ? 'checked' : ''} class="mt-1 w-4 h-4 rounded text-blue-600" />
                                     <span class="text-xs text-slate-700 leading-tight">
@@ -2394,7 +2494,7 @@ function renderAdminTemplates() {
                                     </span>
                                 </label>
                             `;
-                        }).join('')}
+    }).join('')}
                     </div>
                 </div>
                 
@@ -2425,11 +2525,11 @@ function renderAdminTemplates() {
                     <tbody class="divide-y text-slate-600">
                         ${templates.length === 0 ? `<tr><td colspan="4" class="p-4 text-center text-gray-400 italic">No hay plantillas registradas. Cree una arriba.</td></tr>` : ''}
                         ${templates.map(t => {
-                            const badges = t.doc_types.map(code => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">${code}</span>`).join(' ') || '<span class="text-xs text-gray-400 italic">Ninguno</span>';
-                            const alcanceBadge = t.is_global 
-                                ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Global</span>` 
-                                : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">Específico</span>`;
-                            return `
+        const badges = t.doc_types.map(code => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">${code}</span>`).join(' ') || '<span class="text-xs text-gray-400 italic">Ninguno</span>';
+        const alcanceBadge = t.is_global
+            ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Global</span>`
+            : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">Específico</span>`;
+        return `
                                 <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="p-3 font-semibold text-slate-800">${t.name}</td>
                                     <td class="p-3">${badges}</td>
@@ -2440,7 +2540,7 @@ function renderAdminTemplates() {
                                     </td>
                                 </tr>
                             `;
-                        }).join('')}
+    }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -2527,9 +2627,9 @@ function renderAdminRoles() {
                         </summary>
                         <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 border-t border-slate-200">
                             ${categories.map(cat => {
-                                const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
-                                if (catPerms.length === 0) return '';
-                                return `
+        const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+        if (catPerms.length === 0) return '';
+        return `
                                     <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
                                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                             <span class="flex items-center gap-1.5">
@@ -2553,7 +2653,7 @@ function renderAdminRoles() {
                                         </div>
                                     </details>
                                 `;
-                            }).join('')}
+    }).join('')}
                         </div>
                     </details>
 
@@ -2580,14 +2680,14 @@ function renderAdminRoles() {
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             ${rolesList.map(r => {
-                                const isSystemRole = ['admin', 'user'].includes(r.id);
-                                const permBadges = (r.permissions || []).map(pId => {
-                                    const p = allPerms.find(x => x.id === pId);
-                                    const pName = p ? p.name.split(':')[0] : pId;
-                                    return `<span class="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[9px] font-bold" title="${p ? p.description : pId}">${pName}</span>`;
-                                }).join(' ') || '<span class="text-xs text-gray-400 italic">Sin permisos asignados</span>';
+        const isSystemRole = ['admin', 'user'].includes(r.id);
+        const permBadges = (r.permissions || []).map(pId => {
+            const p = allPerms.find(x => x.id === pId);
+            const pName = p ? p.name.split(':')[0] : pId;
+            return `<span class="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[9px] font-bold" title="${p ? p.description : pId}">${pName}</span>`;
+        }).join(' ') || '<span class="text-xs text-gray-400 italic">Sin permisos asignados</span>';
 
-                                return `
+        return `
                                     <tr class="hover:bg-slate-50/50 transition-colors">
                                         <td class="p-4 font-mono text-xs text-gray-500">${r.id}</td>
                                         <td class="p-4 font-semibold text-slate-800">${r.name}</td>
@@ -2599,7 +2699,7 @@ function renderAdminRoles() {
                                         </td>
                                     </tr>
                                 `;
-                            }).join('')}
+    }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -2677,15 +2777,15 @@ function renderUserSettings() {
     // Autocarga de delegados elegibles para el perfil del usuario (Fase 3)
     if (state.eligibleDelegates === undefined) {
         state.eligibleDelegates = [];
-        fetch(`${API_BASE}/api/licences/eligible-delegates`, { 
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` } 
+        fetch(`${API_BASE}/api/licences/eligible-delegates`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         })
-        .then(res => res.json())
-        .then(data => {
-            state.eligibleDelegates = data.delegates || [];
-            renderApp();
-        })
-        .catch(err => console.error("Error loading delegates:", err));
+            .then(res => res.json())
+            .then(data => {
+                state.eligibleDelegates = data.delegates || [];
+                renderApp();
+            })
+            .catch(err => console.error("Error loading delegates:", err));
     }
 
     const renderToggle = (id, label, checked) => `
@@ -2708,7 +2808,13 @@ function renderUserSettings() {
                         <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="user"></i> Credenciales de Acceso</h3>
                         <div class="grid grid-cols-1 gap-4">
                             <div><label class="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico</label><input type="email" id="profile-email" value="${u.email}" required class="w-full p-2 border rounded outline-none text-sm" /></div>
-                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label><input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label>
+                                <input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" />
+                                <div id="profile-password-requirements" class="hidden">
+                                    ${renderPasswordRequirementsHTML()}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -2738,13 +2844,13 @@ function renderUserSettings() {
                         <div>
                             <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Inicio</label>
                             <input type="datetime-local" id="licence-start" 
-                                   value="${u.licence_start ? new Date(new Date(u.licence_start).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" 
+                                   value="${u.licence_start ? new Date(new Date(u.licence_start).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
                                    class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Fin</label>
                             <input type="datetime-local" id="licence-end" 
-                                   value="${u.licence_end ? new Date(new Date(u.licence_end).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" 
+                                   value="${u.licence_end ? new Date(new Date(u.licence_end).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
                                    class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
                         </div>
                     </div>
@@ -3349,9 +3455,9 @@ function renderExpedienteDetail() {
                         ${(!exp.movements || exp.movements.length === 0) ? `
                             <p class="text-xs text-gray-400 italic text-center py-4">No se han realizado pases formales aún.</p>
                         ` : [...exp.movements].reverse().map((mov, idx) => {
-                            const senderName = getUserName(mov.senderId);
-                            const receiverName = mov.receiverId ? getUserName(mov.receiverId) : `Área: ${getAreaName(mov.receiverAreaId)}`;
-                            return `
+            const senderName = getUserName(mov.senderId);
+            const receiverName = mov.receiverId ? getUserName(mov.receiverId) : `Área: ${getAreaName(mov.receiverAreaId)}`;
+            return `
                                 <div class="relative pl-6 pb-4 border-l border-indigo-200 last:border-0 last:pb-0">
                                     <div class="absolute -left-1.5 top-1.5 w-3 h-3 rounded-full bg-indigo-500 border border-white"></div>
                                     <div class="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 shadow-sm text-xs space-y-1">
@@ -3373,7 +3479,7 @@ function renderExpedienteDetail() {
                                     </div>
                                 </div>
                             `;
-                        }).join('')}
+        }).join('')}
                     </div>
                 </div>
             </div>
@@ -3498,9 +3604,9 @@ function renderModalOverlay() {
                     </summary>
                     <div class="p-4 grid grid-cols-1 gap-4 bg-slate-50/50 border-t border-slate-200">
                         ${categories.map(cat => {
-                            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
-                            if (catPerms.length === 0) return '';
-                            return `
+            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+            if (catPerms.length === 0) return '';
+            return `
                                 <details class="group/cat bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
                                     <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                         <span class="flex items-center gap-1.5">
@@ -3510,8 +3616,8 @@ function renderModalOverlay() {
                                     </summary>
                                     <div class="space-y-1.5 mt-3">
                                         ${catPerms.map(p => {
-                                            const isChecked = m.editRPermissions.includes(p.id);
-                                            return `
+                const isChecked = m.editRPermissions.includes(p.id);
+                return `
                                                 <div class="flex items-center justify-between p-2 hover:bg-slate-100/50 bg-white rounded border border-slate-100 transition-colors">
                                                     <div class="flex flex-col pr-2">
                                                         <span class="text-[10px] font-bold text-slate-800">${p.name}</span>
@@ -3523,11 +3629,11 @@ function renderModalOverlay() {
                                                     </label>
                                                 </div>
                                             `;
-                                        }).join('')}
+            }).join('')}
                                     </div>
                                 </details>
                             `;
-                        }).join('')}
+        }).join('')}
                     </div>
                 </details>
             </div>
@@ -3535,7 +3641,7 @@ function renderModalOverlay() {
     }
     else if (m.type === 'editar_usuario') {
         title = 'Editar Usuario';
-        
+
         const rolesList = state.db.roles.map(r => ({
             id: r.id,
             name: r.name,
@@ -3602,11 +3708,11 @@ function renderModalOverlay() {
                     <div class="grid grid-cols-2 gap-2 mb-2">
                         <div>
                             <label class="text-[10px] font-bold text-gray-500">Inicio de Licencia</label>
-                            <input type="datetime-local" data-modal-input="editULicenceStart" value="${m.editULicenceStart ? new Date(new Date(m.editULicenceStart).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
+                            <input type="datetime-local" data-modal-input="editULicenceStart" value="${m.editULicenceStart ? new Date(new Date(m.editULicenceStart).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
                         </div>
                         <div>
                             <label class="text-[10px] font-bold text-gray-500">Fin de Licencia</label>
-                            <input type="datetime-local" data-modal-input="editULicenceEnd" value="${m.editULicenceEnd ? new Date(new Date(m.editULicenceEnd).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
+                            <input type="datetime-local" data-modal-input="editULicenceEnd" value="${m.editULicenceEnd ? new Date(new Date(m.editULicenceEnd).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" class="w-full p-1.5 border rounded text-xs outline-none" />
                         </div>
                     </div>
                     
@@ -3834,6 +3940,7 @@ function renderForgotPassword() {
                 <div>
                     <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Nueva contraseña</label>
                     <input type="password" id="forgot-pass1" required class="w-full px-4 py-2 border rounded-lg outline-none focus:border-blue-500" />
+                    ${renderPasswordRequirementsHTML()}
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-600 mb-1 text-left">Confirme la nueva contraseña</label>
@@ -3888,6 +3995,9 @@ async function syncData(item, type, historyEntry = null) {
 }
 
 document.addEventListener('input', (e) => {
+    if (e.target.id === 'profile-password' || e.target.id === 'forgot-pass1' || e.target.id === 'force-password-input') {
+        updatePasswordStrengthUI(e.target.value);
+    }
     if (e.target.hasAttribute('data-search-model')) {
         const model = e.target.getAttribute('data-search-model');
         state.searchTerms[model] = e.target.value;
@@ -3957,25 +4067,25 @@ document.addEventListener('change', (e) => {
         fetch(`${API_BASE}/api/templates/for-type/${docCode}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data && data.template && data.template.content) {
-                if (window.tinymce && tinymce.get('create-doc-content')) {
-                    tinymce.get('create-doc-content').setContent(data.template.content);
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.template && data.template.content) {
+                    if (window.tinymce && tinymce.get('create-doc-content')) {
+                        tinymce.get('create-doc-content').setContent(data.template.content);
+                    } else {
+                        const txt = document.getElementById('create-doc-content');
+                        if (txt) txt.value = data.template.content;
+                    }
                 } else {
-                    const txt = document.getElementById('create-doc-content');
-                    if (txt) txt.value = data.template.content;
+                    if (window.tinymce && tinymce.get('create-doc-content')) {
+                        tinymce.get('create-doc-content').setContent('');
+                    } else {
+                        const txt = document.getElementById('create-doc-content');
+                        if (txt) txt.value = '';
+                    }
                 }
-            } else {
-                if (window.tinymce && tinymce.get('create-doc-content')) {
-                    tinymce.get('create-doc-content').setContent('');
-                } else {
-                    const txt = document.getElementById('create-doc-content');
-                    if (txt) txt.value = '';
-                }
-            }
-        })
-        .catch(err => console.error("Error al cargar la plantilla:", err));
+            })
+            .catch(err => console.error("Error al cargar la plantilla:", err));
     }
     if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'change-limit') {
         const model = e.target.getAttribute('data-model');
@@ -4042,11 +4152,11 @@ document.addEventListener('change', (e) => {
                 });
                 const [name, email, password, areaId, role, areas, status, twoFactorEnabled, roles, licenceStart, licenceEnd, delegatedTo] = parts;
                 return {
-                    name, 
-                    email, 
-                    password: password === '********' ? '' : password, 
-                    areaId, 
-                    role, 
+                    name,
+                    email,
+                    password: password === '********' ? '' : password,
+                    areaId,
+                    role,
                     areas,
                     status: status || 'active',
                     twoFactorEnabled: twoFactorEnabled === 'true',
@@ -4080,6 +4190,15 @@ async function initializeAppWithToken(token, user) {
     state.currentUser = user;
     if (state.currentUser) {
         state.currentUser.areaId = user.area_id; // Asegurar consistencia de nombres
+    }
+
+    if (state.currentUser && state.currentUser.must_change_password == 1) {
+        localStorage.setItem('gde_login_time', Date.now());
+        document.cookie = "gde_session=active; path=/; SameSite=Strict";
+        state.loginFlow = { step: 1, tempToken: null, qrCodeUrl: null };
+        state.modal = null;
+        renderApp();
+        return;
     }
 
     await loadFullState(token);
@@ -4237,9 +4356,24 @@ document.addEventListener('submit', async (e) => {
     else if (e.target.id === 'form-user-settings') {
         e.preventDefault();
 
+        const newPassword = document.getElementById('profile-password').value;
+        if (newPassword && newPassword.trim() !== '') {
+            // Validar fortaleza de la contraseña en el cliente
+            const checks = {
+                length: newPassword.length >= 8,
+                upper: /[A-Z]/.test(newPassword),
+                lower: /[a-z]/.test(newPassword),
+                number: /[0-9]/.test(newPassword),
+                symbol: /[^A-Za-z0-9]/.test(newPassword)
+            };
+            if (!Object.values(checks).every(Boolean)) {
+                return alert("La contraseña no cumple con los requisitos de fortaleza.");
+            }
+        }
+
         const payload = {
             email: document.getElementById('profile-email').value,
-            newPassword: document.getElementById('profile-password').value,
+            newPassword: newPassword,
             webNotifications: document.getElementById('profile-web-notif').checked,
             emailNotifications: document.getElementById('profile-email-notif').checked
         };
@@ -4261,8 +4395,70 @@ document.addEventListener('submit', async (e) => {
                 state.currentUser.email_notifications = payload.emailNotifications ? 1 : 0;
 
                 document.getElementById('profile-password').value = ''; // Vaciamos el input del password
+                const reqs = document.getElementById('profile-password-requirements');
+                if (reqs) reqs.classList.add('hidden'); // Ocultar requisitos tras actualizar
                 btn.innerHTML = originalHtml;
                 if (window.lucide) lucide.createIcons();
+            } else {
+                const err = await res.json();
+                alert(`Error: ${err.message}`);
+                btn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        });
+    }
+    else if (e.target.id === 'form-force-password') {
+        e.preventDefault();
+        const newPassword = document.getElementById('force-password-input').value;
+        const confirmPassword = document.getElementById('force-password-confirm').value;
+
+        if (newPassword !== confirmPassword) {
+            return alert("Las contraseñas no coinciden. Verifique e intente nuevamente.");
+        }
+
+        const checks = {
+            length: newPassword.length >= 8,
+            upper: /[A-Z]/.test(newPassword),
+            lower: /[a-z]/.test(newPassword),
+            number: /[0-9]/.test(newPassword),
+            symbol: /[^A-Za-z0-9]/.test(newPassword)
+        };
+        if (!Object.values(checks).every(Boolean)) {
+            return alert("La contraseña no cumple con los requisitos de fortaleza.");
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Guardando...';
+
+        const payload = {
+            email: state.currentUser.email,
+            newPassword: newPassword,
+            webNotifications: state.currentUser.web_notifications !== 0,
+            emailNotifications: state.currentUser.email_notifications !== 0
+        };
+
+        fetch(`${API_BASE}/api/users/profile`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
+            body: JSON.stringify(payload)
+        }).then(async res => {
+            if (res.ok) {
+                alert("Contraseña actualizada correctamente.");
+                state.currentUser.must_change_password = 0;
+                
+                // === NUEVO: Cargar el estado completo tras cambiar la contraseña obligatoria ===
+                try {
+                    const token = localStorage.getItem('gde_token');
+                    await loadFullState(token);
+                    await fetchNotifications();
+                    setState({ currentView: 'inbox' });
+                } catch (loadError) {
+                    console.error("Error al cargar estado tras cambio de clave:", loadError);
+                    alert("Error al cargar datos del sistema. Intente iniciar sesión nuevamente.");
+                    clearSession();
+                    renderApp();
+                }
             } else {
                 const err = await res.json();
                 alert(`Error: ${err.message}`);
@@ -4357,7 +4553,7 @@ document.addEventListener('submit', async (e) => {
         const selectedRoles = Array.from(document.querySelectorAll('input[name="create_u_roles"]:checked')).map(el => el.value);
         const status = document.getElementById('admin-u-status').value;
         const newUser = {
-            id: `u${Date.now()}`, 
+            id: `u${Date.now()}`,
             name: document.getElementById('admin-u-name').value,
             email: document.getElementById('admin-u-email').value,
             areaId: selectedAreas[0], // La primera que seleccione será su área principal
@@ -4368,15 +4564,15 @@ document.addEventListener('submit', async (e) => {
             password: document.getElementById('admin-u-pass').value
         };
         fetch(`${API_BASE}/api/users/create`, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
             body: JSON.stringify(newUser)
-        }).then(async res => { 
-            if (res.ok) { 
+        }).then(async res => {
+            if (res.ok) {
                 newUser.twoFactorEnabled = false;
-                state.db.users.push(newUser); 
+                state.db.users.push(newUser);
                 alert("Usuario creado correctamente.");
-                setState({}); 
+                setState({});
             } else {
                 const errData = await res.json();
                 alert(`Error: ${errData.message}`);
@@ -4387,13 +4583,13 @@ document.addEventListener('submit', async (e) => {
         e.preventDefault();
         const licenceStart = document.getElementById('licence-start').value;
         const licenceEnd = document.getElementById('licence-end').value;
-        
+
         if (licenceStart && licenceEnd) {
             if (new Date(licenceEnd) < new Date(licenceStart)) {
                 return alert("La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.");
             }
         }
-        
+
         const selectedRadio = document.querySelector('input[name="licence_delegate_sel"]:checked');
         const delegatedTo = selectedRadio ? selectedRadio.value : null;
         const notes = document.getElementById('licence-note') ? document.getElementById('licence-note').value : '';
@@ -4418,7 +4614,7 @@ document.addEventListener('submit', async (e) => {
                 state.currentUser.licence_start = licenceStart ? new Date(licenceStart).toISOString() : null;
                 state.currentUser.licence_end = licenceEnd ? new Date(licenceEnd).toISOString() : null;
                 state.currentUser.delegated_to = delegatedTo || null;
-                
+
                 // Sincronizar en el listado local de usuarios
                 const localUser = state.db.users.find(u => u.id === state.currentUser.id);
                 if (localUser) {
@@ -4453,8 +4649,8 @@ document.addEventListener('submit', async (e) => {
         btn.innerHTML = '<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Guardando...';
 
         const isEditing = !!state.editingTemplate;
-        const url = isEditing 
-            ? `${API_BASE}/api/templates/update/${state.editingTemplate.id}` 
+        const url = isEditing
+            ? `${API_BASE}/api/templates/update/${state.editingTemplate.id}`
             : `${API_BASE}/api/templates/create`;
         const method = isEditing ? 'PUT' : 'POST';
 
@@ -4471,7 +4667,7 @@ document.addEventListener('submit', async (e) => {
             const data = await res.json();
             if (res.ok) {
                 alert(isEditing ? "Plantilla actualizada correctamente." : "Plantilla creada correctamente.");
-                
+
                 // Recargar plantillas llamando a la API de listado
                 fetch(`${API_BASE}/api/templates`, {
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
@@ -4538,6 +4734,18 @@ document.addEventListener('submit', async (e) => {
         const pass2 = document.getElementById('forgot-pass2').value;
 
         if (pass1 !== pass2) return alert("Las contraseñas no coinciden. Verifique e intente nuevamente.");
+
+        // Validar fortaleza de la contraseña en el cliente
+        const checks = {
+            length: pass1.length >= 8,
+            upper: /[A-Z]/.test(pass1),
+            lower: /[a-z]/.test(pass1),
+            number: /[0-9]/.test(pass1),
+            symbol: /[^A-Za-z0-9]/.test(pass1)
+        };
+        if (!Object.values(checks).every(Boolean)) {
+            return alert("La contraseña no cumple con los requisitos de fortaleza.");
+        }
 
         const btn = e.target.querySelector('button');
         const origHtml = btn.innerHTML;
@@ -4826,7 +5034,7 @@ document.addEventListener('click', async (e) => {
             }
 
             state.ui.notificationsOpen = false; // Cerramos el panel
-            
+
             if (itemId === 'licence') {
                 return renderApp(); // Se marca como leída y listo, sin navegación.
             }
@@ -4930,7 +5138,7 @@ document.addEventListener('click', async (e) => {
                         state.currentUser.licence_start = null;
                         state.currentUser.licence_end = null;
                         state.currentUser.delegated_to = null;
-                        
+
                         // Sincronizar localmente
                         const localUser = state.db.users.find(u => u.id === state.currentUser.id);
                         if (localUser) {
@@ -5044,16 +5252,16 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-modal-type'); let mState = { type, search: '', selectedId: null, selectionArr: [], note: '' };
             if (type === 'destinatarios') mState.selectionArr = [...state.selectedItem.recipients];
             if (type === 'editar_permisos_exp' || type === 'editar_permisos_doc') mState.selectionArr = [...state.selectedItem.authAreas, ...state.selectedItem.authUsers];
-            if (type === 'editar_usuario') { 
-                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id')); 
-                mState.editUId = u.id; 
-                mState.editUName = u.name; 
-                mState.editUEmail = u.email; 
-                mState.editUPass = ''; 
-                mState.editURole = u.role; 
+            if (type === 'editar_usuario') {
+                const u = state.db.users.find(x => x.id === actionBtn.getAttribute('data-id'));
+                mState.editUId = u.id;
+                mState.editUName = u.name;
+                mState.editUEmail = u.email;
+                mState.editUPass = '';
+                mState.editURole = u.role;
                 mState.editURoles = u.roles || [u.role];
-                mState.editUAreas = u.areas || [u.areaId]; 
-                mState.editU2FA = !!u.twoFactorEnabled; 
+                mState.editUAreas = u.areas || [u.areaId];
+                mState.editU2FA = !!u.twoFactorEnabled;
                 mState.editUStatus = u.status || 'active';
                 mState.editULicenceStart = u.licence_start || '';
                 mState.editULicenceEnd = u.licence_end || '';
@@ -5196,10 +5404,10 @@ document.addEventListener('click', async (e) => {
                     }
                 }
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
-                
+
                 const updatedUser = {
-                    name: m.editUName, 
-                    email: m.editUEmail, 
+                    name: m.editUName,
+                    email: m.editUEmail,
                     password: m.editUPass, // Si está vacío, el backend lo ignorará
                     areaId: m.editUAreas[0],
                     areas: m.editUAreas,
@@ -5221,17 +5429,17 @@ document.addEventListener('click', async (e) => {
 
                 showConfirm("¿Está seguro de aplicar estos cambios al usuario? Se enviará una notificación por correo al interesado si está configurado.", () => {
                     fetch(`${API_BASE}/api/users/update/${targetUserId}`, {
-                        method: 'PUT', 
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }, 
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` },
                         body: JSON.stringify(updatedUser)
                     }).then(async res => {
                         if (res.ok) {
                             const uIdx = state.db.users.findIndex(u => u.id === targetUserId);
-                            if (uIdx > -1) { 
-                                state.db.users[uIdx] = { 
-                                    ...state.db.users[uIdx], 
+                            if (uIdx > -1) {
+                                state.db.users[uIdx] = {
+                                    ...state.db.users[uIdx],
                                     ...updatedUser
-                                }; 
+                                };
                             }
 
                             const licenceRes = await fetch(`${API_BASE}/api/licences/admin-configure`, {
@@ -5251,9 +5459,9 @@ document.addEventListener('click', async (e) => {
                                 }
                                 alert("Usuario y Licencia actualizados correctamente.");
                             }
-                        } else { 
+                        } else {
                             const data = await res.json();
-                            alert(`Error al actualizar el usuario: ${data.message}`); 
+                            alert(`Error al actualizar el usuario: ${data.message}`);
                         }
                     });
                 });
@@ -5277,7 +5485,7 @@ document.addEventListener('click', async (e) => {
 
             if (m.type === 'revisar') {
                 if (!m.selectedId) return alert("Seleccione un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                
+
                 const executeRevisar = async () => {
                     item.currentOwnerId = m.selectedId; item.status = STATUS.BORRADOR;
 
@@ -5317,7 +5525,7 @@ document.addEventListener('click', async (e) => {
                     try {
                         const res = await fetch(`${API_BASE}/api/exps/${item.id}/pase`, {
                             method: 'POST',
-                            headers: { 
+                            headers: {
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
                             },
@@ -5385,7 +5593,7 @@ document.addEventListener('click', async (e) => {
 
             if (m.type === 'enviar_firmar') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un firmante."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                
+
                 const executeEnviarFirmar = async () => {
                     item.signatories = m.selectionArr; item.status = STATUS.FIRMANDOSE; item.currentOwnerId = item.signatories[0];
 
@@ -5413,7 +5621,7 @@ document.addEventListener('click', async (e) => {
 
             if (m.type === 'derivar_doc') {
                 if (m.selectionArr.length === 0) return alert("Seleccione al menos un destino."); if (!m.note.trim()) return alert("Ingrese un motivo.");
-                
+
                 const executeDerivarDoc = async () => {
                     item.owners = [...new Set([...(item.owners || []), ...m.selectionArr])];
                     const destNames = m.selectionArr.map(id => id.startsWith('a') ? `Area: ${getAreaName(id)}` : getUserName(id)).join(', ');
@@ -5747,6 +5955,22 @@ document.addEventListener('click', async (e) => {
             setState({ selectedItem: { ...item, type } });
         }
         return;
+    }
+});
+
+document.addEventListener('focusin', (e) => {
+    if (e.target.id === 'profile-password') {
+        const reqs = document.getElementById('profile-password-requirements');
+        if (reqs) reqs.classList.remove('hidden');
+    }
+});
+
+document.addEventListener('focusout', (e) => {
+    if (e.target.id === 'profile-password') {
+        const reqs = document.getElementById('profile-password-requirements');
+        if (reqs && e.target.value === '') {
+            reqs.classList.add('hidden');
+        }
     }
 });
 

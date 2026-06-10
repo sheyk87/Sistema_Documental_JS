@@ -32,11 +32,7 @@ const validateCreateUser = [
         .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres.')
         .matches(/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s.'-]+$/).withMessage('El nombre contiene caracteres no permitidos.'),
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato de email inválido.').normalizeEmail(),
-    body('password').trim().notEmpty().withMessage('La contraseña es requerida.')
-        .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
-        .matches(/[A-Z]/).withMessage('Debe contener al menos una mayúscula.')
-        .matches(/[a-z]/).withMessage('Debe contener al menos una minúscula.')
-        .matches(/[0-9]/).withMessage('Debe contener al menos un número.'),
+    body('password').trim().notEmpty().withMessage('La contraseña es requerida.'),
     body('areaId').trim().notEmpty().withMessage('El área es requerida.'),
     body('role').optional().isIn(['admin', 'user']).withMessage('Rol inválido.'),
     handleValidationErrors
@@ -48,11 +44,7 @@ const validateUpdateUser = [
     body('name').trim().notEmpty().withMessage('El nombre es requerido.')
         .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres.'),
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato de email inválido.').normalizeEmail(),
-    body('password').optional({ checkFalsy: true })
-        .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
-        .matches(/[A-Z]/).withMessage('Debe contener al menos una mayúscula.')
-        .matches(/[a-z]/).withMessage('Debe contener al menos una minúscula.')
-        .matches(/[0-9]/).withMessage('Debe contener al menos un número.'),
+    body('password').optional({ checkFalsy: true }),
     body('role').optional().isIn(['admin', 'user']).withMessage('Rol inválido.'),
     handleValidationErrors
 ];
@@ -68,10 +60,11 @@ const validateResetPassword = [
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato inválido.').normalizeEmail(),
     body('code').trim().notEmpty().withMessage('El código es requerido.').isLength({ min: 8, max: 8 }).withMessage('Código inválido.'),
     body('newPassword').trim().notEmpty().withMessage('La nueva contraseña es requerida.')
-        .isLength({ min: 8 }).withMessage('Mínimo 8 caracteres.')
-        .matches(/[A-Z]/).withMessage('Debe contener una mayúscula.')
-        .matches(/[a-z]/).withMessage('Debe contener una minúscula.')
-        .matches(/[0-9]/).withMessage('Debe contener un número.'),
+        .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
+        .matches(/[A-Z]/).withMessage('Debe contener al menos una letra mayúscula.')
+        .matches(/[a-z]/).withMessage('Debe contener al menos una letra minúscula.')
+        .matches(/[0-9]/).withMessage('Debe contener al menos un número.')
+        .matches(/[^A-Za-z0-9]/).withMessage('Debe contener al menos un símbolo o carácter especial.'),
     handleValidationErrors
 ];
 
@@ -107,9 +100,10 @@ const validateProfileUpdate = [
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato de email inválido.').normalizeEmail(),
     body('newPassword').optional({ checkFalsy: true })
         .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
-        .matches(/[A-Z]/).withMessage('Debe contener una mayúscula.')
-        .matches(/[a-z]/).withMessage('Debe contener una minúscula.')
-        .matches(/[0-9]/).withMessage('Debe contener un número.'),
+        .matches(/[A-Z]/).withMessage('Debe contener al menos una letra mayúscula.')
+        .matches(/[a-z]/).withMessage('Debe contener al menos una letra minúscula.')
+        .matches(/[0-9]/).withMessage('Debe contener al menos un número.')
+        .matches(/[^A-Za-z0-9]/).withMessage('Debe contener al menos un símbolo o carácter especial.'),
     handleValidationErrors
 ];
 

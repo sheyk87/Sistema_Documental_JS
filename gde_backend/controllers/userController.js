@@ -4,6 +4,7 @@ const emailService = require('../services/emailService');
 const { logAdminAction, logDataModification, logSecurityError } = require('../utils/logger');
 const { escapeHtml, sanitizeText } = require('../utils/sanitizer');
 const { invalidateInitialDataCache } = require('./systemController');
+const { isPasswordInHistory, addPasswordToHistory, checkAndIncrementResetLimit } = require('../utils/passwordSecurity');
 
 exports.createUser = async (req, res) => {
     const { id, name, email, password, areaId, role, areas, status, roles } = req.body;
@@ -14,7 +15,7 @@ exports.createUser = async (req, res) => {
         const hash = await bcrypt.hash(password, 12);
         const finalStatus = status || 'active';
         await connection.query(
-            `INSERT INTO users (id, name, email, password, area_id, role, areas, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (id, name, email, password, area_id, role, areas, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
             [id, name, email, hash, areaId, role || 'user', JSON.stringify(areas || [areaId]), finalStatus]
         );
 
@@ -65,7 +66,7 @@ exports.updateUser = async (req, res) => {
         if (password && password.trim() !== '') {
             const hash = await bcrypt.hash(password, 12);
             await connection.query(
-                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?${secretQuery} WHERE id = ?`,
+                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?, must_change_password = 1${secretQuery} WHERE id = ?`,
                 [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, id]
             );
         } else {
@@ -187,8 +188,8 @@ exports.bulkCreateUsers = async (req, res) => {
                 }
                 const hash = await bcrypt.hash(u.password, 12);
                 await connection.query(
-                    `INSERT INTO users (id, name, email, password, area_id, role, areas, status, two_factor_enabled, licence_start, licence_end, delegated_to) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO users (id, name, email, password, area_id, role, areas, status, two_factor_enabled, licence_start, licence_end, delegated_to, must_change_password) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
                     [
                         uid, u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray),
                         status, twoFactorEnabled, formattedStart, formattedEnd, delegatedTo
@@ -200,7 +201,7 @@ exports.bulkCreateUsers = async (req, res) => {
                 if (!isPasswordPlaceholder && u.password.length >= 8) {
                     const hash = await bcrypt.hash(u.password, 12);
                     await connection.query(
-                        `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, status = ?, two_factor_enabled = ?, licence_start = ?, licence_end = ?, delegated_to = ? WHERE id = ?`,
+                        `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, status = ?, two_factor_enabled = ?, licence_start = ?, licence_end = ?, delegated_to = ?, must_change_password = 1 WHERE id = ?`,
                         [
                             u.name, u.email, hash, u.areaId, role, JSON.stringify(areasArray),
                             status, twoFactorEnabled, formattedStart, formattedEnd, delegatedTo, uid
@@ -266,15 +267,35 @@ exports.updateProfile = async (req, res) => {
     const { email, newPassword, webNotifications, emailNotifications } = req.body;
     const userId = req.user.id;
 
+    const connection = await pool.getConnection();
     try {
+        await connection.beginTransaction();
+
         if (newPassword && newPassword.trim() !== '') {
+            // 1. Controlar límite diario de reseteos del usuario (máximo 5)
+            const allowed = await checkAndIncrementResetLimit(userId, connection);
+            if (!allowed) {
+                await connection.rollback();
+                return res.status(400).json({ message: 'Límite diario de reseteo de contraseña excedido (máximo 5 veces al día).' });
+            }
+
+            // 2. Controlar historial de últimas 10 contraseñas
+            const inHistory = await isPasswordInHistory(userId, newPassword, connection);
+            if (inHistory) {
+                await connection.rollback();
+                return res.status(400).json({ message: 'La contraseña ya ha sido utilizada recientemente (historial de últimas 10 contraseñas).' });
+            }
+
             const hash = await bcrypt.hash(newPassword, 12);
-            await pool.query(
-                'UPDATE users SET email = ?, password = ?, web_notifications = ?, email_notifications = ? WHERE id = ?',
+            await connection.query(
+                'UPDATE users SET email = ?, password = ?, web_notifications = ?, email_notifications = ?, must_change_password = 0 WHERE id = ?',
                 [email, hash, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, userId]
             );
 
-            // === NUEVO: Notificación de Cambio de Clave desde Perfil ===
+            // 3. Añadir al historial
+            await addPasswordToHistory(userId, hash, connection);
+
+            // === Notificación de Cambio de Clave desde Perfil ===
             if (process.env.EMAIL_ENABLED === 'true') {
                 const mailSubject = 'GDE - Cambio de Contraseña de Perfil';
                 const mailHtml = `
@@ -288,14 +309,19 @@ exports.updateProfile = async (req, res) => {
             }
         } else {
             // Actualización sin cambiar clave
-            await pool.query(
+            await connection.query(
                 'UPDATE users SET email = ?, web_notifications = ?, email_notifications = ? WHERE id = ?',
                 [email, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, userId]
             );
         }
+
+        await connection.commit();
         res.json({ message: 'Perfil actualizado exitosamente' });
     } catch (error) {
+        await connection.rollback();
         console.error(error);
         res.status(500).json({ message: 'Error al actualizar el perfil' });
+    } finally {
+        connection.release();
     }
 };

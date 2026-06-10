@@ -8,6 +8,7 @@ const qrcode = require('qrcode');
 const { logAuthEvent, logSecurityError, logDataModification } = require('../utils/logger');
 const { escapeHtml } = require('../utils/sanitizer');
 const redis = require('../config/redisClient');
+const { isPasswordInHistory, addPasswordToHistory, checkAndIncrementResetLimit } = require('../utils/passwordSecurity');
 
 // ============================================================================
 // MOTOR TOTP NATIVO (Cero dependencias) - Compatible con Google Authenticator
@@ -439,9 +440,16 @@ exports.validateResetCode = async (req, res) => {
 exports.resetPassword = async (req, res) => {
     const { email, code, newPassword } = req.body;
     if (!email || !code || !newPassword) return res.status(400).json({ message: 'Faltan datos' });
+    
+    const connection = await pool.getConnection();
     try {
-        const [rows] = await pool.query('SELECT id, email, reset_code, reset_expires FROM users WHERE email = ?', [email]);
-        if (rows.length === 0) return res.status(400).json({ message: 'Código inválido o expirado.' });
+        await connection.beginTransaction();
+
+        const [rows] = await connection.query('SELECT id, email, reset_code, reset_expires FROM users WHERE email = ?', [email]);
+        if (rows.length === 0) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Código inválido o expirado.' });
+        }
         const user = rows[0];
         
         // Comparación timing-safe
@@ -449,11 +457,40 @@ exports.resetPassword = async (req, res) => {
         const storedCode = (user.reset_code || '').padEnd(8, ' ');
         const isMatch = crypto.timingSafeEqual(Buffer.from(inputCode), Buffer.from(storedCode));
         
-        if (!user.reset_code || !isMatch) return res.status(400).json({ message: 'Código inválido o expirado.' });
-        if (new Date() > new Date(user.reset_expires)) return res.status(400).json({ message: 'Código inválido o expirado.' });
+        if (!user.reset_code || !isMatch) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Código inválido o expirado.' });
+        }
+        if (new Date() > new Date(user.reset_expires)) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Código inválido o expirado.' });
+        }
+
+        // 1. Controlar límite diario de reseteos del usuario (máximo 5)
+        const allowed = await checkAndIncrementResetLimit(user.id, connection);
+        if (!allowed) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'Límite diario de reseteo de contraseña excedido (máximo 5 veces al día).' });
+        }
+
+        // 2. Controlar historial de últimas 10 contraseñas
+        const inHistory = await isPasswordInHistory(user.id, newPassword, connection);
+        if (inHistory) {
+            await connection.rollback();
+            return res.status(400).json({ message: 'La contraseña ya ha sido utilizada recientemente (historial de últimas 10 contraseñas).' });
+        }
         
-        const hash = await bcrypt.hash(newPassword, 12); // Incrementado salt rounds a 12
-        await pool.query('UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE id = ?', [hash, user.id]);
+        const hash = await bcrypt.hash(newPassword, 12);
+        // Actualizamos contraseña, reseteamos flags de cambio de contraseña obligatoria y limpiamos códigos
+        await connection.query(
+            'UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL, must_change_password = 0 WHERE id = ?',
+            [hash, user.id]
+        );
+
+        // 3. Añadir al historial
+        await addPasswordToHistory(user.id, hash, connection);
+
+        await connection.commit();
 
         logAuthEvent('PASSWORD_RESET', { userId: user.id, ip: req.ip });
 
@@ -471,8 +508,11 @@ exports.resetPassword = async (req, res) => {
 
         res.json({ message: 'Contrasena actualizada' });
     } catch (error) {
+        await connection.rollback();
         logSecurityError(error, { context: 'resetPassword' });
         res.status(500).json({ message: 'Error interno' });
+    } finally {
+        connection.release();
     }
 };
 

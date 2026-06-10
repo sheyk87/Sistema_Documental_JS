@@ -23,6 +23,7 @@ async function setupFull() {
             'role_permissions',
             'permissions',
             'roles',
+            'password_history',
             'users',
             'areas',
             'document_types',
@@ -66,12 +67,27 @@ async function setupFull() {
                 delegated_to VARCHAR(50) DEFAULT NULL,
                 licence_start DATETIME DEFAULT NULL,
                 licence_end DATETIME DEFAULT NULL,
+                must_change_password TINYINT(1) DEFAULT 1,
+                password_resets_today INT DEFAULT 0,
+                last_password_reset_date DATE DEFAULT NULL,
                 FOREIGN KEY (area_id) REFERENCES areas(id),
                 CONSTRAINT fk_users_superior FOREIGN KEY (superior_id) REFERENCES users(id) ON DELETE SET NULL,
                 CONSTRAINT fk_users_delegated FOREIGN KEY (delegated_to) REFERENCES users(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         console.log('✅ Tabla "users" creada.');
+
+        // 2b. Crear tabla password_history
+        await pool.query(`
+            CREATE TABLE password_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+        console.log('✅ Tabla "password_history" creada.');
 
         // 3. Crear tablas de Roles y Permisos (RBAC) con descripciones para tooltips flotantes
         await pool.query(`
