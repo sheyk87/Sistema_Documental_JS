@@ -24,9 +24,9 @@ El análisis abarca la arquitectura de software, la lógica del negocio distribu
 | **Inicio con CUIT/CUIL, legajo o email** | **Implementado** | En [setup_full.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_backend/setup_full.js#L49) y la lógica de login, se unifica la autenticación mediante email corporativo, soportando además importaciones de campos extendidos de perfil. |
 | **Autenticación Multifactor (MFA/2FA)** | **Implementado** | Generación y verificación de **TOTP nativa** (compatible con Google Authenticator) en [authController.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_backend/controllers/authController.js#L203). Almacenamiento seguro de códigos de recuperación hasheados y notificación por email con detección de sistema operativo del agente. |
 | **Recuperación segura de contraseñas** | **Implementado** | Flujo robusto con generación de `reset_code` de 8 caracteres alfanuméricos y expiración a 15 min. La validación en backend utiliza `crypto.timingSafeEqual` para prevenir ataques de canal lateral (*timing attacks*). |
-| **Cambio obligatorio en primer ingreso** | **No Implementado** | No existe en BD (`users`) ni en `authController.js` una bandera (ej. `first_login` o `must_change_password`) que obligue al usuario a reestablecer sus credenciales en el primer acceso. |
-| **Bloqueo por intentos fallidos** | **No Implementado** | No se dispone de columnas en la tabla `users` para el conteo de bloqueos temporales por intentos fallidos (ej. `login_attempts`, `lock_until`), aunque se cuenta con rate limiting de solicitudes. |
-| **Cierre automático por inactividad** | **No Implementado** | El token JWT expira a las 10 horas, pero no existe lógica en la interfaz cliente ([app.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_frontend/app.js)) para forzar un logout tras inactividad corta (ej. 15 minutos sin eventos de mouse o teclado). |
+| **Cambio obligatorio en primer ingreso** | **Implementado** | Bandera `must_change_password` (default `1`) en la tabla `users`. El frontend (`app.js`) y el backend (`authMiddleware.js`) bloquean cualquier acción excepto el cambio de contraseña en `/me` y `/profile` (PUT) hasta que el usuario actualiza su clave cumpliendo los requisitos de fortaleza. |
+| **Bloqueo por intentos fallidos** | **Implementado** | Columnas `failed_login_attempts` y `lockout_until` en la tabla `users`. Tras 5 intentos fallidos de login consecutivos, la cuenta se bloquea por 5 minutos y se envía una notificación por correo electrónico. |
+| **Cierre automático por inactividad** | **Implementado** | Temporizador de inactividad (`inactivityTimer`) de 15 minutos en el frontend (`app.js`) que escucha eventos de teclado, cursor y gestos (`mousemove`, `keydown`, `click`, `scroll`, `touchstart`) y desloguea al usuario automáticamente revocando el token JWT. |
 | **Gestión y Cierre remoto de sesiones** | **Implementado** | Implementación de una **blacklist de tokens revocados en Redis** con TTL dinámico en [authController.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_backend/controllers/authController.js#L479) para el logout real y destrucción del JWT en servidor. |
 | **Integración LDAP / Directorio Activo** | **Implementado** | Módulo de autenticación en [ldapService.js](file:///home/jovillafane/Descargas/Sistema_Documental_JS/gde_backend/services/ldapService.js) sincronizado directamente en el pipeline de login. |
 
@@ -111,19 +111,16 @@ El despliegue está completamente dockerizado a través de [docker-compose.yml](
 
 ---
 
-## 🚨 3. Brechas / Gaps Pendientes (El 5% Restante)
+## 🚨 3. Brechas / Gaps Pendientes (El 1% Restante)
 
-Para alcanzar el 100% de cumplimiento estricto del pliego y robustecer la seguridad global bajo estándares OWASP Top 10, es recomendable subsanar los siguientes pequeños puntos en fases posteriores:
+Tras las recientes implementaciones de endurecimiento de accesos y ciclo de vida de sesión, casi la totalidad de requerimientos del pliego de licitación han sido completamente cubiertos. El único aspecto a considerar para una fase posterior es:
 
-1. **Gestión de Primer Ingreso**: Incorporar una bandera en `users` para forzar el cambio de contraseña al ingresar por primera vez.
-2. **Bloqueo por Intentos Fallidos**: Guardar el contador de intentos de acceso fallidos en la base de datos para suspender temporalmente cuentas tras una secuencia consecutiva de fallos de credenciales.
-3. **Control de Inactividad del Usuario**: Agregar un timer en el frontend de la SPA (`app.js`) que capture la falta de interacción del cursor/teclado y limpie automáticamente el token de sesión JWT del almacenamiento local tras un lapso determinado (ej. 15 minutos).
-4. **Certificados de Firma Individuales**: El sistema firma con el certificado oficial del organismo configurado a nivel de servidor. Si se requiere que cada agente firme con su propio certificado digital individual, se debe implementar una pasarela para la carga y descifrado de llaves PKCS#12 individuales por usuario.
+1. **Certificados de Firma Individuales**: El sistema firma actualmente con el certificado oficial del organismo configurado a nivel de servidor (firma desatendida institucional). Si se requiere que cada agente firme con su propio certificado digital individual, se debe implementar una pasarela para la carga y descifrado de llaves PKCS#12 individuales por usuario en el backend.
 
 ---
 
 ## 📋 Conclusión General
 
-El **Sistema GDE** analizado representa un desarrollo de software de alta calidad técnica. Cuenta con una arquitectura asíncrona de alto desempeño (BullMQ, Redis, Node Clustering), un modelo de datos relacional robusto (RBAC integrado), mecanismos transaccionales atómicos para la numeración oficial libre de colisiones, y sólidas políticas criptográficas (cifrado en reposo con AES-256 de adjuntos, firma digital PKCS#7 nativa y procesamiento en RAM temporal). 
+El **Sistema GDE** analizado representa un desarrollo de software de excelente calidad técnica y alto nivel de madurez. Cuenta con una arquitectura asíncrona de alto desempeño (BullMQ, Redis, Node Clustering), un modelo de datos relacional robusto (RBAC integrado), mecanismos transaccionales atómicos para la numeración oficial libre de colisiones, y sólidas políticas criptográficas (cifrado en reposo con AES-256 de adjuntos, firma digital PKCS#7 nativa y procesamiento en RAM temporal).
 
-El sistema cumple plenamente con los lineamientos clave requeridos en el pliego de especificaciones **SGDE.pdf**, restando únicamente implementar pequeñas mejoras de endurecimiento en el ciclo de vida de las sesiones y control de accesos iniciales.
+Con las últimas incorporaciones de cambio obligado de clave, bloqueo de login por intentos fallidos y cierre automático por inactividad de sesión, el sistema cumple con el **100% de los requerimientos mínimos de autenticación, control de accesos y seguridad** descritos en el pliego de especificaciones **SGDE.pdf** y los estándares de desarrollo seguro OWASP.
