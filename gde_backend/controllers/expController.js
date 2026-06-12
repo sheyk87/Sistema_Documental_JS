@@ -23,9 +23,9 @@ exports.createExpediente = async (req, res) => {
 
         const isPublicVal = isPublic === false ? 0 : 1;
         if (isPublicVal === 0) {
-            const hasCreateReserved = await checkUserHasPermission(req.user.id, 'doc_create_reserved');
+            const hasCreateReserved = await checkUserHasPermission(req.user.id, 'exp_create_reserved');
             if (!hasCreateReserved) {
-                return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear expedientes reservados.' });
+                return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear expedientes reservados (exp_create_reserved).' });
             }
         }
 

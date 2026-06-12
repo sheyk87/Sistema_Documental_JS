@@ -151,20 +151,31 @@ async function runMigration() {
         // 11. Cargar Permisos Básicos
         console.log('📥 Cargando permisos básicos...');
         await pool.query(`
-            INSERT IGNORE INTO permissions (id, name) VALUES 
-            ('doc_create', 'Crear Borrador de Documento'),
-            ('doc_read', 'Visualizar Detalles de Documento'),
-            ('doc_edit', 'Editar Borrador de Documento'),
-            ('doc_delete', 'Eliminar Borrador de Documento'),
-            ('doc_sign', 'Aplicar Firma a Documento'),
-            ('exp_create', 'Caratular / Iniciar Expediente'),
-            ('exp_read', 'Visualizar Expediente'),
-            ('exp_write', 'Editar Expediente y Vincular Fojas'),
-            ('exp_pase', 'Realizar Pase de Expediente'),
-            ('admin_users', 'Gestionar Usuarios'),
-            ('admin_areas', 'Gestionar Reparticiones / Áreas'),
-            ('admin_services', 'Configurar Conectividad de Servidores'),
-            ('audit_logs', 'Acceso a Logs de Auditoría')
+            INSERT IGNORE INTO permissions (id, name, description) VALUES 
+            ('doc_create', 'Crear Borrador de Documento', 'Crear Borrador de Documento: Permite iniciar y redactar borradores.'),
+            ('doc_read', 'Visualizar Detalles de Documento', 'Visualizar Detalles de Documento: Permite ver el contenido y metadatos de documentos.'),
+            ('doc_edit', 'Editar Borrador de Documento', 'Editar Borrador de Documento: Permite modificar borradores asignados.'),
+            ('doc_delete', 'Eliminar Borrador de Documento', 'Eliminar Borrador de Documento: Permite borrar borradores propios.'),
+            ('doc_sign', 'Aplicar Firma a Documento', 'Aplicar Firma a Documento: Permite aplicar firma electrónica a borradores.'),
+            ('exp_create', 'Caratular / Iniciar Expediente', 'Caratular / Iniciar Expediente: Permite iniciar un nuevo expediente.'),
+            ('exp_read', 'Visualizar Expediente', 'Visualizar Expediente: Permite consultar expedientes y sus fojas.'),
+            ('exp_write', 'Editar Expediente y Vincular Fojas', 'Editar Expediente y Vincular Fojas: Permite agregar fojas a expedientes.'),
+            ('exp_pase', 'Realizar Pase de Expediente', 'Realizar Pase de Expediente: Permite derivar expedientes a otros agentes/áreas.'),
+            ('admin_users', 'Gestionar Usuarios', 'Gestionar Usuarios: Permite crear, modificar, suspender y eliminar usuarios.'),
+            ('admin_areas', 'Gestionar Reparticiones / Áreas', 'Gestionar Reparticiones / Áreas: Permite configurar el organigrama de la institución.'),
+            ('admin_services', 'Configurar Conectividad de Servidores', 'Configurar Conectividad de Servidores: Permite configurar SMTP, LDAP y 2FA.'),
+            ('audit_logs', 'Acceso a Logs de Auditoría', 'Acceso a Logs de Auditoría: Permite ver la trazabilidad de acciones críticas en el sistema.'),
+            ('doc_create_reserved', 'Crear Documentos Reservados', 'Crear Documentos Reservados: Permite iniciar documentos en carácter de reservado.'),
+            ('doc_sign_reserved', 'Firmar Documentos Reservados', 'Firmar Documentos Reservados: Permite firmar documentos de carácter reservado, requiriendo validación 2FA.'),
+            ('doc_derive', 'Derivar Documento', 'Derivar Documento: Permite realizar el pase/derivación de un documento.'),
+            ('doc_archive', 'Archivar Documento', 'Archivar Documento: Permite archivar documentos firmados.'),
+            ('doc_annul', 'Anular Documento', 'Anular Documento: Permite anular documentos oficiales.'),
+            ('exp_archive', 'Archivar Expediente', 'Archivar Expediente: Permite archivar expedientes.'),
+            ('exp_annul', 'Anular Expediente', 'Anular Expediente: Permite anular expedientes.'),
+            ('admin_manage_roles', 'Gestionar Roles', 'Gestionar Roles: Permite crear, modificar y eliminar roles y sus permisos.'),
+            ('admin_manage_templates', 'Gestionar Plantillas', 'Gestionar Plantillas: Permite crear, modificar y eliminar plantillas de documentos.'),
+            ('admin_manage_doc_types', 'Gestionar Tipos de Documentos', 'Gestionar Tipos de Documentos: Permite crear, modificar y eliminar tipos de documentos.'),
+            ('exp_create_reserved', 'Crear Expedientes Reservados', 'Crear Expedientes Reservados: Permite iniciar expedientes en carácter de reservado.')
         `);
 
         // 12. Asociar Permisos a los Roles
@@ -177,7 +188,13 @@ async function runMigration() {
         }
 
         // El rol "user" recibe permisos estándares de operación
-        const userPerms = ['doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 'exp_create', 'exp_read', 'exp_write', 'exp_pase'];
+        const userPerms = [
+            'doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 
+            'exp_create', 'exp_read', 'exp_write', 'exp_pase', 
+            'doc_create_reserved', 'doc_sign_reserved', 'exp_create_reserved',
+            'doc_derive', 'doc_archive', 'doc_annul',
+            'exp_archive', 'exp_annul'
+        ];
         for (let permId of userPerms) {
             await pool.query('INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)', ['user', permId]);
         }

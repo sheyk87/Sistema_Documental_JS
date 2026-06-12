@@ -91,8 +91,13 @@ const checkDocumentAccess = (action) => {
             const recipients = typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []);
             const signatories = typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []);
 
-            // 3. Evaluar reglas según la acción solicitada
+            // 3. Evaluar reglas según la acción solicitada y el permiso granular correspondiente
             if (action === 'read') {
+                const hasReadPerm = await checkUserHasPermission(userId, 'doc_read');
+                if (!hasReadPerm) {
+                    return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Visualizar Detalles de Documento (doc_read).' });
+                }
+
                 const isAuditorOrAdmin = user.role === 'admin' || (await checkUserHasPermission(userId, 'audit_logs'));
 
                 // Si es un documento reservado, solo acceden:
@@ -136,6 +141,41 @@ const checkDocumentAccess = (action) => {
             }
 
             if (action === 'write') {
+                const { item } = req.body;
+                if (item) {
+                    // Validar transiciones de estado y derivaciones con permisos específicos
+                    if (item.status !== doc.status && item.status === 'Archivado') {
+                        const hasArchPerm = await checkUserHasPermission(userId, 'doc_archive');
+                        if (!hasArchPerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Archivar Documento (doc_archive).' });
+                        }
+                    }
+                    if (item.status !== doc.status && item.status === 'Anulado') {
+                        const hasAnnulPerm = await checkUserHasPermission(userId, 'doc_annul');
+                        if (!hasAnnulPerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Anular Documento (doc_annul).' });
+                        }
+                    }
+                    if (item.currentOwnerId !== doc.current_owner_id) {
+                        const hasDerivePerm = await checkUserHasPermission(userId, 'doc_derive');
+                        if (!hasDerivePerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Derivar Documento (doc_derive).' });
+                        }
+                    }
+                    if (item.content !== doc.content || item.subject !== doc.subject) {
+                        const hasEditPerm = await checkUserHasPermission(userId, 'doc_edit');
+                        if (!hasEditPerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Editar Borrador de Documento (doc_edit).' });
+                        }
+                    }
+                } else {
+                    // Si no viene el item en el cuerpo, asumimos edición directa de metadatos o adjuntos
+                    const hasEditPerm = await checkUserHasPermission(userId, 'doc_edit');
+                    if (!hasEditPerm) {
+                        return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Editar Borrador de Documento (doc_edit).' });
+                    }
+                }
+
                 // Caso A: Si el documento ya está Firmado, Archivado o Anulado (Circulación del documento)
                 if (['Firmado', 'Archivado', 'Anulado'].includes(doc.status)) {
                     // Validamos que NO se esté intentando alterar el asunto o el cuerpo (Inmutabilidad - OWASP A08)
@@ -168,6 +208,11 @@ const checkDocumentAccess = (action) => {
             }
 
             if (action === 'delete') {
+                const hasDeletePerm = await checkUserHasPermission(userId, 'doc_delete');
+                if (!hasDeletePerm) {
+                    return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Eliminar Borrador de Documento (doc_delete).' });
+                }
+
                 // Solo se pueden borrar documentos en Borrador o Rechazados
                 if (doc.status !== 'Borrador' && doc.status !== 'Rechazado') {
                     return res.status(403).json({ message: 'No se puede eliminar un documento en circulación oficial.' });
@@ -182,6 +227,11 @@ const checkDocumentAccess = (action) => {
             }
 
             if (action === 'sign') {
+                const hasSignPerm = await checkUserHasPermission(userId, 'doc_sign');
+                if (!hasSignPerm) {
+                    return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Aplicar Firma a Documento (doc_sign).' });
+                }
+
                 // Si el documento es reservado, el usuario debe poseer el permiso doc_sign_reserved
                 if (doc.is_public === 0) {
                     const hasSignReserved = await checkUserHasPermission(userId, 'doc_sign_reserved');
@@ -245,6 +295,11 @@ const checkExpedienteAccess = (action) => {
             const authUsers = typeof exp.auth_users === 'string' ? JSON.parse(exp.auth_users) : (exp.auth_users || []);
 
             if (action === 'read') {
+                const hasReadPerm = await checkUserHasPermission(userId, 'exp_read');
+                if (!hasReadPerm) {
+                    return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Visualizar Expediente (exp_read).' });
+                }
+
                 // Si el expediente es público, cualquiera lo puede ver
                 if (exp.is_public === 1) {
                     return next();
@@ -270,6 +325,38 @@ const checkExpedienteAccess = (action) => {
             }
 
             if (action === 'write') {
+                const { item } = req.body;
+                if (item) {
+                    // Validar transiciones de estado
+                    if (item.status !== exp.status && item.status === 'Archivado') {
+                        const hasArchPerm = await checkUserHasPermission(userId, 'exp_archive');
+                        if (!hasArchPerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Archivar Expediente (exp_archive).' });
+                        }
+                    }
+                    if (item.status !== exp.status && item.status === 'Anulado') {
+                        const hasAnnulPerm = await checkUserHasPermission(userId, 'exp_annul');
+                        if (!hasAnnulPerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Anular Expediente (exp_annul).' });
+                        }
+                    }
+                    
+                    // Validar si vincula fojas (linkedDocs o sealedDocs cambian)
+                    const oldDocs = typeof exp.linked_docs === 'string' ? JSON.parse(exp.linked_docs) : (exp.linked_docs || []);
+                    const newDocs = item.linkedDocs || [];
+                    if (newDocs.length !== oldDocs.length || newDocs.some(d => !oldDocs.includes(d))) {
+                        const hasWritePerm = await checkUserHasPermission(userId, 'exp_write');
+                        if (!hasWritePerm) {
+                            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Editar Expediente y Vincular Fojas (exp_write).' });
+                        }
+                    }
+                } else {
+                    const hasWritePerm = await checkUserHasPermission(userId, 'exp_write');
+                    if (!hasWritePerm) {
+                        return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Editar Expediente y Vincular Fojas (exp_write).' });
+                    }
+                }
+
                 // Solo el dueño actual (agente o área asignada) puede editar, vincular fojas o hacer pases
                 const isDirectOwner = exp.current_owner_id === userId;
                 const isAreaOwner = userAreas.includes(exp.current_owner_id);
@@ -279,6 +366,23 @@ const checkExpedienteAccess = (action) => {
                 }
 
                 return res.status(403).json({ message: 'Acceso denegado. No posee la tenencia (dueño actual) de este expediente en su bandeja de trabajo.' });
+            }
+
+            if (action === 'pase') {
+                const hasPasePerm = await checkUserHasPermission(userId, 'exp_pase');
+                if (!hasPasePerm) {
+                    return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Realizar Pase de Expediente (exp_pase).' });
+                }
+
+                // Solo el dueño actual (agente o área asignada) puede realizar un pase (ACL)
+                const isDirectOwner = exp.current_owner_id === userId;
+                const isAreaOwner = userAreas.includes(exp.current_owner_id);
+
+                if (isDirectOwner || isAreaOwner) {
+                    return next();
+                }
+
+                return res.status(403).json({ message: 'Acceso denegado. No posee la tenencia (dueño actual) de este expediente para realizar el pase.' });
             }
 
             res.status(400).json({ message: 'Acción de autorización de expediente no reconocida.' });

@@ -1341,13 +1341,19 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         </div>
     `;
 
+    const canDeriveDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_derive');
+    const canDeriveExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_pase');
+    const showDeriveBtn = (model === 'inboxDoc' && canDeriveDoc) || 
+                          (model === 'drafts' && canDeriveDoc) || 
+                          (model === 'inboxExp' && canDeriveExp);
+
     // === MOBILE: Render as cards ===
     if (isMobile()) {
         return `
             <div class="relative">
                 <div class="space-y-2 p-2">
                     ${paginatedItems.map(item => `
-                        <div class="mobile-card" data-id="${item.id}" data-type="${item.type}">
+                        <div class="mobile-card" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}">
                             <div class="card-header">
                                 <div class="card-subject">${getReadReceiptUI(item)}${item.subject}</div>
                                 <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${getBadgeColor(item.status)}">${item.status}</span>
@@ -1357,7 +1363,8 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                                 <span class="card-number">${item.number || 'Borrador'}</span>
                                 <span>${formatDateOnly(item.createdAt)}</span>
                             </div>
-                            ${showAcquireBtn ? `<div class="mt-2"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="w-full px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></div>` : ''}
+                            ${showAcquireBtn ? `<div class="mt-2"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="w-full px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></div>` : ''}
+                            ${showDeriveBtn ? `<div class="mt-2"><button data-action="quick-derive" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 flex items-center justify-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button></div>` : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -1371,10 +1378,10 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         <div class="overflow-x-auto relative">
             <div class="absolute top-2 right-4 z-10"><button data-action="export-csv" data-model="${model}" class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> CSV</button></div>
             <table class="w-full text-left border-collapse mt-8">
-                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${th('Acceso', 'acceso')} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${showAcquireBtn ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
+                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${th('Acceso', 'acceso')} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${(showAcquireBtn || showDeriveBtn) ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
                 <tbody class="divide-y divide-gray-100 text-sm">
                     ${paginatedItems.map(item => `
-                        <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type}">
+                        <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}">
                             <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
                             <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
                             <td class="p-4 font-medium text-gray-800">${getReadReceiptUI(item)}${item.subject}</td>
@@ -1383,7 +1390,8 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
                             <td class="p-4">${renderAccessBadge(item)}</td>
                             <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
                             ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${item.type === 'expediente' ? (item.linkedDocs?.length || 0) : '-'}</td>` : ''}
-                            ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
+                            ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
+                            ${showDeriveBtn ? `<td class="p-4"><button data-action="quick-derive" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors flex items-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button></td>` : ''}
                         </tr>
                     `).join('')}
                 </tbody>
@@ -2016,7 +2024,37 @@ function renderMainLayout() {
                     })()}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
-                    ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc. (${state.db.documentTypes?.length || 0})`, 'admin_doctypes')) : ''}
+                    ${(() => {
+                        const permissions = (state.currentUser && state.currentUser.permissions) || [];
+                        const hasAnyAdmin = permissions.includes('admin_users') ||
+                                            permissions.includes('admin_areas') ||
+                                            permissions.includes('admin_manage_roles') ||
+                                            permissions.includes('admin_services') ||
+                                            permissions.includes('admin_manage_templates') ||
+                                            permissions.includes('admin_manage_doc_types');
+                        if (!hasAnyAdmin) return '';
+
+                        let items = '';
+                        if (permissions.includes('admin_users')) {
+                            items += renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users');
+                        }
+                        if (permissions.includes('admin_areas')) {
+                            items += renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas');
+                        }
+                        if (permissions.includes('admin_manage_roles')) {
+                            items += renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles');
+                        }
+                        if (permissions.includes('admin_services')) {
+                            items += renderNavItem('server', 'Servicios', 'admin_services');
+                        }
+                        if (permissions.includes('admin_manage_templates')) {
+                            items += renderNavItem('file-text', 'Plantillas', 'admin_templates');
+                        }
+                        if (permissions.includes('admin_manage_doc_types')) {
+                            items += renderNavItem('file-cog', `Tipos Doc. (${state.db.documentTypes?.length || 0})`, 'admin_doctypes');
+                        }
+                        return renderMenuSection('admin', 'Administración', 'settings', items);
+                    })()}
                 </nav>
                 <div class="p-4 border-t border-slate-800">
                     <button data-action="logout" class="flex items-center ${sbo ? 'gap-2 justify-start' : 'justify-center'} text-slate-400 hover:text-white w-full transition-colors outline-none" title="Cerrar Sesión"><i data-lucide="log-out"></i> <span class="${sbo ? 'block' : 'hidden'}">Cerrar Sesión</span></button>
@@ -2107,7 +2145,37 @@ function renderMobileLayout() {
             })()}
             ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
             ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
-            ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('shield', `Roles`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc.`, 'admin_doctypes')) : ''}
+            ${(() => {
+                const permissions = (state.currentUser && state.currentUser.permissions) || [];
+                const hasAnyAdmin = permissions.includes('admin_users') ||
+                                    permissions.includes('admin_areas') ||
+                                    permissions.includes('admin_manage_roles') ||
+                                    permissions.includes('admin_services') ||
+                                    permissions.includes('admin_manage_templates') ||
+                                    permissions.includes('admin_manage_doc_types');
+                if (!hasAnyAdmin) return '';
+
+                let items = '';
+                if (permissions.includes('admin_users')) {
+                    items += renderNavItem('users', `Usuarios`, 'admin_users');
+                }
+                if (permissions.includes('admin_areas')) {
+                    items += renderNavItem('building', `Áreas`, 'admin_areas');
+                }
+                if (permissions.includes('admin_manage_roles')) {
+                    items += renderNavItem('shield', `Roles`, 'admin_roles');
+                }
+                if (permissions.includes('admin_services')) {
+                    items += renderNavItem('server', 'Servicios', 'admin_services');
+                }
+                if (permissions.includes('admin_manage_templates')) {
+                    items += renderNavItem('file-text', 'Plantillas', 'admin_templates');
+                }
+                if (permissions.includes('admin_manage_doc_types')) {
+                    items += renderNavItem('file-cog', `Tipos Doc.`, 'admin_doctypes');
+                }
+                return renderMenuSection('admin', 'Admin', 'settings', items);
+            })()}
         </nav>
         <div class="p-4 border-t border-slate-800">
             <button data-action="logout" class="flex items-center gap-2 text-slate-400 hover:text-white w-full transition-colors outline-none"><i data-lucide="log-out"></i> Cerrar Sesión</button>
@@ -2174,13 +2242,34 @@ function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
     
     // Proteger vistas según permisos
-    const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
-    const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+    const permissions = (state.currentUser && state.currentUser.permissions) || [];
+    const canCreateDoc = permissions.includes('doc_create');
+    const canCreateExp = permissions.includes('exp_create');
     
     if (state.currentView === 'create_doc' && !canCreateDoc) {
         state.currentView = 'inbox';
     }
     if (state.currentView === 'create_exp' && !canCreateExp) {
+        state.currentView = 'inbox';
+    }
+
+    // Proteger vistas administrativas
+    if (state.currentView === 'admin_users' && !permissions.includes('admin_users')) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'admin_areas' && !permissions.includes('admin_areas')) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'admin_roles' && !permissions.includes('admin_manage_roles')) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'admin_services' && !permissions.includes('admin_services')) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'admin_templates' && !permissions.includes('admin_manage_templates')) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'admin_doctypes' && !permissions.includes('admin_manage_doc_types')) {
         state.currentView = 'inbox';
     }
 
@@ -5220,6 +5309,18 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-type');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
 
+            if (type === 'documento') {
+                const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
+                if (!hasReadPerm) {
+                    return alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
+                }
+            } else if (type === 'expediente') {
+                const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
+                if (!hasReadPerm) {
+                    return alert("Acceso denegado. No posee el permiso: Visualizar Expediente.");
+                }
+            }
+
             if (item && type === 'expediente' && !canViewExpediente(item, state.currentUser)) return alert("Acceso denegado. Expediente reservado.");
             if (item && type === 'documento' && !canViewDocumento(item, state.currentUser)) return alert("Acceso denegado. Documento reservado.");
 
@@ -5230,6 +5331,21 @@ document.addEventListener('click', async (e) => {
                 if (type === 'documento') await ensureDocContent(item);
                 return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
             }
+        }
+
+        if (action === 'quick-derive') {
+            const type = actionBtn.getAttribute('data-type');
+            const itemId = actionBtn.getAttribute('data-id');
+            const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
+            if (item) {
+                await autoSaveDraft();
+                if (type === 'documento') await ensureDocContent(item);
+                const modalType = type === 'expediente' ? 'derivar_exp' : 'derivar_doc';
+                let mState = { type: modalType, search: '', selectedId: null, selectionArr: [], note: '' };
+                state.selectedItem = { ...item, type };
+                setState({ modal: mState });
+            }
+            return;
         }
 
         if (action === 'acquire-item') {
@@ -5371,7 +5487,14 @@ document.addEventListener('click', async (e) => {
             // Navegar al item
             const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
             if (item) {
-                if (itemType === 'documento') await ensureDocContent(item);
+                if (itemType === 'documento') {
+                    const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
+                    if (!hasReadPerm) return alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
+                    await ensureDocContent(item);
+                } else if (itemType === 'expediente') {
+                    const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
+                    if (!hasReadPerm) return alert("Acceso denegado. No posee el permiso: Visualizar Expediente.");
+                }
                 return setState({ selectedItem: { ...item, type: itemType } });
             }
             else { alert("El elemento ya no está disponible en tu área de trabajo."); return setState({}); }
@@ -6345,6 +6468,21 @@ document.addEventListener('click', async (e) => {
     const tr = e.target.closest('tr[data-id]') || e.target.closest('.mobile-card[data-id]');
     if (tr && !e.target.closest('[data-action]')) {
         const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
+
+        if (type === 'documento') {
+            const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
+            if (!hasReadPerm) {
+                alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
+                return;
+            }
+        } else if (type === 'expediente') {
+            const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
+            if (!hasReadPerm) {
+                alert("Acceso denegado. No posee el permiso: Visualizar Expediente.");
+                return;
+            }
+        }
+
         const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
         if (item) {
             checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ

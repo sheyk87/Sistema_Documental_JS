@@ -329,8 +329,17 @@ async function setupFull() {
             ['admin_areas', 'Gestionar Reparticiones / Áreas', 'Gestionar Reparticiones / Áreas: Permite configurar el organigrama de la institución.'],
             ['admin_services', 'Configurar Conectividad de Servidores', 'Configurar Conectividad de Servidores: Permite configurar SMTP, LDAP y 2FA.'],
             ['audit_logs', 'Acceso a Logs de Auditoría', 'Acceso a Logs de Auditoría: Permite ver la trazabilidad de acciones críticas en el sistema.'],
-            ['doc_create_reserved', 'Crear Documentación Reservada', 'Crear Documentación Reservada: Permite iniciar documentación y expedientes en carácter de reservado.'],
-            ['doc_sign_reserved', 'Firmar Documentación Reservada', 'Firmar Documentación Reservada: Permite firmar documentos de carácter reservado, requiriendo validación 2FA.']
+            ['doc_create_reserved', 'Crear Documentos Reservados', 'Crear Documentos Reservados: Permite iniciar documentos en carácter de reservado.'],
+            ['doc_sign_reserved', 'Firmar Documentos Reservados', 'Firmar Documentos Reservados: Permite firmar documentos de carácter reservado, requiriendo validación 2FA.'],
+            ['doc_derive', 'Derivar Documento', 'Derivar Documento: Permite realizar el pase/derivación de un documento.'],
+            ['doc_archive', 'Archivar Documento', 'Archivar Documento: Permite archivar documentos firmados.'],
+            ['doc_annul', 'Anular Documento', 'Anular Documento: Permite anular documentos oficiales.'],
+            ['exp_archive', 'Archivar Expediente', 'Archivar Expediente: Permite archivar expedientes.'],
+            ['exp_annul', 'Anular Expediente', 'Anular Expediente: Permite anular expedientes.'],
+            ['admin_manage_roles', 'Gestionar Roles', 'Gestionar Roles: Permite crear, modificar y eliminar roles y sus permisos.'],
+            ['admin_manage_templates', 'Gestionar Plantillas', 'Gestionar Plantillas: Permite crear, modificar y eliminar plantillas de documentos.'],
+            ['admin_manage_doc_types', 'Gestionar Tipos de Documentos', 'Gestionar Tipos de Documentos: Permite crear, modificar y eliminar tipos de documentos.'],
+            ['exp_create_reserved', 'Crear Expedientes Reservados', 'Crear Expedientes Reservados: Permite iniciar expedientes en carácter de reservado.']
         ];
 
         for (const [id, name, desc] of permsData) {
@@ -343,7 +352,13 @@ async function setupFull() {
         }
 
         // Vincular permisos estándar al usuario básico
-        const userPerms = ['doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 'exp_create', 'exp_read', 'exp_write', 'exp_pase', 'doc_create_reserved', 'doc_sign_reserved'];
+        const userPerms = [
+            'doc_create', 'doc_read', 'doc_edit', 'doc_delete', 'doc_sign', 
+            'exp_create', 'exp_read', 'exp_write', 'exp_pase', 
+            'doc_create_reserved', 'doc_sign_reserved', 'exp_create_reserved',
+            'doc_derive', 'doc_archive', 'doc_annul',
+            'exp_archive', 'exp_annul'
+        ];
         for (const permId of userPerms) {
             await pool.query('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', ['user', permId]);
         }

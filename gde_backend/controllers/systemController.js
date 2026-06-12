@@ -115,8 +115,10 @@ exports.getInitialData = async (req, res) => {
     }
 };
 
-exports.getSettings = (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado' });
+exports.getSettings = async (req, res) => {
+    const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+    const hasAdminServices = req.user.role === 'admin' || (await checkUserHasPermission(req.user.id, 'admin_services'));
+    if (!hasAdminServices) return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso admin_services.' });
     
     // Fase 5: Forzar recarga dinámica del archivo .env desde el disco (volumen montado)
     // Esto previene inconsistencia entre diferentes procesos del cluster Express/Docker.
@@ -147,8 +149,10 @@ exports.getSettings = (req, res) => {
     });
 };
 
-exports.updateSettings = (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Acceso denegado' });
+exports.updateSettings = async (req, res) => {
+    const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+    const hasAdminServices = req.user.role === 'admin' || (await checkUserHasPermission(req.user.id, 'admin_services'));
+    if (!hasAdminServices) return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso admin_services.' });
     
     const updates = req.body;
     const envPath = path.join(__dirname, '../.env');
