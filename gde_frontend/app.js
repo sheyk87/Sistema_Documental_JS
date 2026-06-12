@@ -2005,7 +2005,15 @@ function renderMainLayout() {
                 ` : ''}
                 <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden ${!sbo ? 'px-3 pt-6' : ''}">
                     ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
-                    ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
+                    ${(() => {
+                        const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
+                        const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+                        if (!canCreateDoc && !canCreateExp) return '';
+                        let navItems = '';
+                        if (canCreateDoc) navItems += renderNavItem('file-plus', 'Crear Documento', 'create_doc');
+                        if (canCreateExp) navItems += renderNavItem('folder-plus', 'Crear Expediente', 'create_exp');
+                        return renderMenuSection('nuevo', 'Nuevo', 'plus-circle', navItems);
+                    })()}
                     ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
                     ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración de Perfil', 'user_settings'))}
                     ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Administración', 'settings', renderNavItem('users', `Usuarios (${state.db.users.length})`, 'admin_users') + renderNavItem('building', `Áreas (${state.db.areas.length})`, 'admin_areas') + renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc. (${state.db.documentTypes?.length || 0})`, 'admin_doctypes')) : ''}
@@ -2088,7 +2096,15 @@ function renderMobileLayout() {
         </div>
         <nav class="flex-1 p-2 overflow-y-auto">
             ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
-            ${renderMenuSection('nuevo', 'Nuevo', 'plus-circle', renderNavItem('file-plus', 'Crear Documento', 'create_doc') + renderNavItem('folder-plus', 'Crear Expediente', 'create_exp'))}
+            ${(() => {
+                const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
+                const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+                if (!canCreateDoc && !canCreateExp) return '';
+                let navItems = '';
+                if (canCreateDoc) navItems += renderNavItem('file-plus', 'Crear Documento', 'create_doc');
+                if (canCreateExp) navItems += renderNavItem('folder-plus', 'Crear Expediente', 'create_exp');
+                return renderMenuSection('nuevo', 'Nuevo', 'plus-circle', navItems);
+            })()}
             ${renderMenuSection('consultas', 'Consultas', 'search', renderNavItem('search', 'Buscador', 'search') + renderNavItem('archive', 'Archivo Central', 'archive') + renderNavItem('ban', 'Anulados', 'anulados') + renderNavItem('pie-chart', 'Estadísticas', 'stats'))}
             ${renderMenuSection('cuenta', 'Mi Cuenta', 'user', renderNavItem('settings', 'Configuración', 'user_settings'))}
             ${(state.currentUser.role === 'admin' || (state.currentUser.roles && state.currentUser.roles.includes('admin'))) ? renderMenuSection('admin', 'Admin', 'settings', renderNavItem('users', `Usuarios`, 'admin_users') + renderNavItem('building', `Áreas`, 'admin_areas') + renderNavItem('shield', `Roles`, 'admin_roles') + renderNavItem('server', 'Servicios', 'admin_services') + renderNavItem('file-text', 'Plantillas', 'admin_templates') + renderNavItem('file-cog', `Tipos Doc.`, 'admin_doctypes')) : ''}
@@ -2156,6 +2172,18 @@ function renderNavItem(icon, label, view) {
 
 function getViewContent() {
     if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
+    
+    // Proteger vistas según permisos
+    const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
+    const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+    
+    if (state.currentView === 'create_doc' && !canCreateDoc) {
+        state.currentView = 'inbox';
+    }
+    if (state.currentView === 'create_exp' && !canCreateExp) {
+        state.currentView = 'inbox';
+    }
+
     switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
 }
 
@@ -3403,9 +3431,19 @@ function renderSearcher() {
 
 function renderCreateDocument() {
     const term = state.searchTerms.docTypeCreate.toLowerCase();
-    const filterOpts = (arr) => arr.filter(t => t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term));
-    const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
     const canCreateReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create_reserved');
+    const filterOpts = (arr) => arr.filter(t => {
+        const matchesTerm = t.toLowerCase().includes(term) || getDocCode(t).toLowerCase().includes(term);
+        if (!matchesTerm) return false;
+        
+        // Si el tipo es reservado por defecto y el usuario NO tiene permiso para crear reservados, lo excluimos
+        const matchedType = state.db.documentTypes.find(dt => dt.name === t);
+        if (matchedType && (matchedType.is_reserved === 1 || matchedType.is_reserved === true) && !canCreateReserved) {
+            return false;
+        }
+        return true;
+    });
+    const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
 
     return `<div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div class="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 class="font-semibold text-gray-800 text-lg flex items-center gap-2"><i data-lucide="file-plus" class="w-5 h-5"></i> Nuevo Documento</h3></div><form id="form-create-doc" class="p-6 space-y-6"><div class="grid grid-cols-2 gap-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Documento</label><input type="text" data-search-model="docTypeCreate" placeholder="Buscar tipo o código (ej: ME)..." value="${state.searchTerms.docTypeCreate}" class="w-full px-3 py-2 border rounded-lg outline-none mb-2" autofocus /><select id="create-doc-type" class="w-full px-3 py-2 border rounded-lg outline-none" size="6" required>${excl.length ? `<optgroup label="Con Destinatario (Único)">${excl.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${mult.length ? `<optgroup label="Con Destinatario (Múltiple)">${mult.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}${sin.length ? `<optgroup label="Sin Destinatario">${sin.map(t => `<option value="${t}">${t} (${getDocCode(t)})</option>`).join('')}</optgroup>` : ''}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Asunto Inicial</label><input required type="text" id="create-doc-subject" class="w-full px-3 py-2 border rounded-lg outline-none" /></div></div><div><label class="block text-sm font-medium text-gray-700 mb-1">Cuerpo del Documento</label><textarea id="create-doc-content" rows="6" class="w-full px-3 py-2 border rounded-lg outline-none font-serif text-gray-700"></textarea></div>
     ${canCreateReserved ? `
@@ -3507,6 +3545,8 @@ function renderDocumentDetail() {
     const isHidden = isHiddenFromInbox(doc, state.currentUser);
     const canSignReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_sign_reserved');
     const showSignButton = doc.isPublic || canSignReserved;
+    const matchedType = state.db.documentTypes.find(dt => dt.name === doc.docType || dt.code === doc.docType);
+    const allowsAttachments = !matchedType || matchedType.allows_attachments === 1 || matchedType.allows_attachments === true;
 
     let promotorHTML = '';
     if (isConDestinatario && doc.signedBy && doc.signedBy.length > 0) {
@@ -3536,6 +3576,8 @@ function renderDocumentDetail() {
                             <h4 class="font-bold text-gray-600 mb-4">REFERENCIAS DEL DOCUMENTO</h4>
                             ${vinculados.length > 0 ? `<div class="mb-4"><strong>Vinculado en Expedientes:</strong><ul class="list-disc pl-5 mt-1 text-purple-700">${vinculados.map(e => `<li class="cursor-pointer hover:underline" data-action="view-item" data-id="${e.id}" data-type="expediente">${e.number} - ${e.subject}</li>`).join('')}</ul></div>` : ''}
                             <div class="mb-4"><div class="flex justify-between items-center"><strong>Documentos Relacionados:</strong>${canEdit ? `<button data-action="open-modal" data-modal-type="relacionar_doc" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 flex items-center gap-1"><i data-lucide="link" class="w-3 h-3"></i> Relacionar Doc</button>` : ''}</div>${relacionados.length > 0 ? `<ul class="list-disc pl-5 mt-1 text-blue-700">${relacionados.map(d => `<li class="flex items-center"><span class="cursor-pointer hover:underline flex-1" data-action="view-item" data-id="${d.id}" data-type="documento">${d.number} - ${d.subject}</span> ${canEdit ? `<button data-action="doc-unrelate" data-id="${d.id}" class="text-red-500 hover:text-red-700 font-bold ml-2" title="Quitar Relación"><i data-lucide="unlink" class="w-3 h-3"></i></button>` : ''}</li>`).join('')}</ul>` : '<p class="text-xs text-gray-500 mt-1">Sin relaciones.</p>'}</div>
+                            
+                            ${allowsAttachments ? `
                             <h4 class="font-bold text-gray-600 mb-4 mt-8 border-t pt-4">ARCHIVOS ADJUNTOS</h4>
                             <div class="mb-4">
                                 ${canEdit ? `
@@ -3561,6 +3603,7 @@ function renderDocumentDetail() {
                                     `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
                                 </ul>
                             </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
@@ -4256,9 +4299,28 @@ document.addEventListener('change', (e) => {
     if (e.target.hasAttribute('data-stats-filter')) { state.statsOpts[e.target.getAttribute('data-stats-filter')] = e.target.value; renderApp(); }
     if (e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'set-timeline-range') { state.statsOpts.timelineRange = parseInt(e.target.value); fetchDashboardData(); return; }
     if (e.target.id === 'create-doc-type') {
-        const isConDest = DOC_TYPES.CON_DEST_MULT.includes(e.target.value) || DOC_TYPES.CON_DEST_EXCL.includes(e.target.value);
+        const selectedTypeName = e.target.value;
+        const isConDest = DOC_TYPES.CON_DEST_MULT.includes(selectedTypeName) || DOC_TYPES.CON_DEST_EXCL.includes(selectedTypeName);
         const destC = document.getElementById('dest-container');
         if (destC) destC.style.display = isConDest ? 'block' : 'none';
+
+        // Check if the selected document type is reserved by default
+        const matchedType = state.db.documentTypes.find(dt => dt.name === selectedTypeName);
+        const isReservedByDefault = matchedType && (matchedType.is_reserved === 1 || matchedType.is_reserved === true);
+        const isPublicCheckbox = document.getElementById('create-doc-public');
+        const privateAuthBox = document.getElementById('private-doc-auth-box');
+
+        if (isPublicCheckbox) {
+            if (isReservedByDefault) {
+                isPublicCheckbox.checked = false;
+                isPublicCheckbox.disabled = true;
+                if (privateAuthBox) privateAuthBox.classList.remove('hidden');
+            } else {
+                isPublicCheckbox.checked = true;
+                isPublicCheckbox.disabled = false;
+                if (privateAuthBox) privateAuthBox.classList.add('hidden');
+            }
+        }
 
         // NUEVO: Precarga dinámica de plantilla
         const docCode = getDocCode(e.target.value);
@@ -5481,7 +5543,18 @@ document.addEventListener('click', async (e) => {
             showConfirm('¿Eliminar usuario?', () => {
                 fetch(`${API_BASE}/api/users/delete/${id}`, {
                     method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
-                }).then(res => { if (res.ok) { state.db.users = state.db.users.filter(u => u.id !== id); setState({}); } });
+                }).then(async res => {
+                    if (res.ok) {
+                        state.db.users = state.db.users.filter(u => u.id !== id);
+                        setState({});
+                    } else {
+                        const data = await res.json();
+                        alert(data.message || 'Error al eliminar el usuario.');
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    alert('Error de conexión al intentar eliminar el usuario.');
+                });
             });
             return;
         }
@@ -5579,8 +5652,12 @@ document.addEventListener('click', async (e) => {
                 mState.editUName = u.name;
                 mState.editUEmail = u.email;
                 mState.editUPass = '';
-                mState.editURole = u.role;
-                mState.editURoles = u.roles || [u.role];
+                const validRoleIds = (state.db.roles || []).map(r => r.id);
+                mState.editURoles = (u.roles || [u.role]).filter(rId => validRoleIds.includes(rId));
+                if (mState.editURoles.length === 0) {
+                    mState.editURoles = ['user'];
+                }
+                mState.editURole = mState.editURoles[0] || 'user';
                 mState.editUAreas = u.areas || [u.areaId];
                 mState.editU2FA = !!u.twoFactorEnabled;
                 mState.editUStatus = u.status || 'active';

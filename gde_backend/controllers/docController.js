@@ -29,14 +29,29 @@ exports.createDocument = async (req, res) => {
     // Ya no usamos el createdAt del frontend
     const { id, docType, subject, content, creatorId, currentOwnerId, owners, status, recipients, areaId, isPublic, authAreas, authUsers } = req.body;
     try {
+        const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+        
+        // 1. Validar permiso general para crear borradores de documentos (doc_create)
+        const hasCreatePermission = await checkUserHasPermission(req.user.id, 'doc_create');
+        if (!hasCreatePermission) {
+            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Crear Borrador de Documento (doc_create).' });
+        }
+
         const serverTime = getArgTime(); // Hora blindada
         // OWASP A03: Sanitizar contenido HTML y texto plano
         const safeSubject = sanitizeText(subject);
         const safeContent = sanitizeHtml(content);
 
+        // 2. Validar tipos de documentos reservados por defecto
+        const [dtRows] = await pool.query('SELECT is_reserved FROM document_types WHERE code = ? OR name = ?', [docType, docType]);
+        const isReservedByDefault = dtRows.length > 0 && (dtRows[0].is_reserved === 1 || dtRows[0].is_reserved === true);
+
         const isPublicVal = isPublic === false ? 0 : 1;
+        if (isReservedByDefault && isPublicVal !== 0) {
+            return res.status(400).json({ message: 'Este tipo de documento está reservado por defecto y no puede ser público.' });
+        }
+
         if (isPublicVal === 0) {
-            const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
             const hasCreateReserved = await checkUserHasPermission(req.user.id, 'doc_create_reserved');
             if (!hasCreateReserved) {
                 return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear documentación reservada.' });
@@ -242,6 +257,20 @@ exports.uploadAttachment = async (req, res) => {
         const userId = req.user.id; 
 
         if (!file) return res.status(400).json({ message: 'No se subió ningún archivo' });
+
+        const [docRows] = await pool.query('SELECT doc_type FROM documents WHERE id = ?', [id]);
+        if (docRows.length === 0) {
+            if (file) { try { await fsPromises.unlink(file.path); } catch (e) {} }
+            return res.status(404).json({ message: 'Documento no encontrado' });
+        }
+        const docType = docRows[0].doc_type;
+
+        // Validar si el tipo de documento permite adjuntos
+        const [dtRows] = await pool.query('SELECT allows_attachments FROM document_types WHERE code = ? OR name = ?', [docType, docType]);
+        if (dtRows.length > 0 && (dtRows[0].allows_attachments === 0 || dtRows[0].allows_attachments === false)) {
+            if (file) { try { await fsPromises.unlink(file.path); } catch (e) {} }
+            return res.status(400).json({ message: 'Este tipo de documento no admite archivos adjuntos.' });
+        }
 
         // 1. Configuración Criptográfica
         const iv = crypto.randomBytes(16); // Vector de inicialización único por archivo

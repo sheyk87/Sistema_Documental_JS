@@ -145,6 +145,11 @@ exports.deleteUser = async (req, res) => {
         res.json({ message: 'Usuario eliminado' });
     } catch (error) {
         console.error(error);
+        if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+            return res.status(400).json({
+                message: 'No se puede eliminar el usuario porque tiene documentos, expedientes o registros históricos asociados en el sistema. Considere cambiar el estado del usuario a "Inactivo" o "Suspendido".'
+            });
+        }
         res.status(500).json({ message: 'Error al eliminar usuario' });
     }
 };

@@ -160,6 +160,17 @@ exports.deleteRole = async (req, res) => {
     }
 
     try {
+        // Verificar si hay usuarios asociados a este rol (ya sea como rol principal o en roles secundarios)
+        const [usersWithRole] = await pool.query(
+            'SELECT id FROM users WHERE role = ? UNION SELECT user_id FROM user_roles WHERE role_id = ?',
+            [id, id]
+        );
+        if (usersWithRole.length > 0) {
+            return res.status(400).json({
+                message: 'No se puede eliminar el rol porque está asignado a uno o más usuarios. Por favor, reasigne a los usuarios antes de eliminar el rol.'
+            });
+        }
+
         const [result] = await pool.query('DELETE FROM roles WHERE id = ?', [id]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'El rol especificado no existe.' });

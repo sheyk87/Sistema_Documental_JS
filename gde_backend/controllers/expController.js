@@ -13,9 +13,16 @@ exports.createExpediente = async (req, res) => {
     const { id, subject, creatorId, currentOwnerId, status, isPublic, authAreas, authUsers, areaId } = req.body;
 
     try {
+        const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
+        
+        // Validar permiso general para caratular expedientes (exp_create)
+        const hasCreatePermission = await checkUserHasPermission(req.user.id, 'exp_create');
+        if (!hasCreatePermission) {
+            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Caratular / Iniciar Expediente (exp_create).' });
+        }
+
         const isPublicVal = isPublic === false ? 0 : 1;
         if (isPublicVal === 0) {
-            const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
             const hasCreateReserved = await checkUserHasPermission(req.user.id, 'doc_create_reserved');
             if (!hasCreateReserved) {
                 return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear expedientes reservados.' });
