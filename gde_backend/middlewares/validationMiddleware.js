@@ -1,6 +1,7 @@
 // middlewares/validationMiddleware.js
 // Validación de entrada para prevenir inyección (OWASP A03, A07)
 const { body, param, validationResult } = require('express-validator');
+const pool = require('../config/db');
 
 // Helper: procesa errores de validación
 const handleValidationErrors = (req, res, next) => {
@@ -34,7 +35,25 @@ const validateCreateUser = [
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato de email inválido.').normalizeEmail(),
     body('password').trim().notEmpty().withMessage('La contraseña es requerida.'),
     body('areaId').trim().notEmpty().withMessage('El área es requerida.'),
-    body('role').optional().isIn(['admin', 'user']).withMessage('Rol inválido.'),
+    body('role').optional().custom(async (value) => {
+        if (!value) return true;
+        const [rows] = await pool.query('SELECT id FROM roles WHERE id = ?', [value]);
+        if (rows.length === 0) {
+            throw new Error('Rol inválido.');
+        }
+        return true;
+    }),
+    body('roles').optional().isArray().withMessage('Formato de roles inválido.')
+        .custom(async (rolesArray) => {
+            if (!Array.isArray(rolesArray)) return true;
+            for (const rId of rolesArray) {
+                const [rows] = await pool.query('SELECT id FROM roles WHERE id = ?', [rId]);
+                if (rows.length === 0) {
+                    throw new Error(`El rol '${rId}' no existe en el sistema.`);
+                }
+            }
+            return true;
+        }),
     handleValidationErrors
 ];
 
@@ -45,7 +64,25 @@ const validateUpdateUser = [
         .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres.'),
     body('email').trim().notEmpty().withMessage('El email es requerido.').isEmail().withMessage('Formato de email inválido.').normalizeEmail(),
     body('password').optional({ checkFalsy: true }),
-    body('role').optional().isIn(['admin', 'user']).withMessage('Rol inválido.'),
+    body('role').optional().custom(async (value) => {
+        if (!value) return true;
+        const [rows] = await pool.query('SELECT id FROM roles WHERE id = ?', [value]);
+        if (rows.length === 0) {
+            throw new Error('Rol inválido.');
+        }
+        return true;
+    }),
+    body('roles').optional().isArray().withMessage('Formato de roles inválido.')
+        .custom(async (rolesArray) => {
+            if (!Array.isArray(rolesArray)) return true;
+            for (const rId of rolesArray) {
+                const [rows] = await pool.query('SELECT id FROM roles WHERE id = ?', [rId]);
+                if (rows.length === 0) {
+                    throw new Error(`El rol '${rId}' no existe en el sistema.`);
+                }
+            }
+            return true;
+        }),
     handleValidationErrors
 ];
 

@@ -1,9 +1,14 @@
 Features:
+
+En los documentos que están configurados como que No Admite Adjuntos, no debe aparecer la opción de "ARCHIVOS ADJUNTOS" cuando se está editando.
+Los documentos marcados como "Reservados por defecto", no deben poder marcarse como "Documento Público" cuando se está creando, esto sirve también para que los permisos granulares de usuarios funcionen como corresponde, así, si un usuario no tiene el permiso de "Crear Documentación Reservada", no pueda crear esos tipos de documentos
+También si el usuario posee un rol que no tiene el permiso de "Crear Borrador de Documento" o "Caratular / Iniciar Expediente", no le debe permitir crear documentos/expedientes.
+
 Usuarios:
-Configuración de superior, el usuario debe poder designar a 1 usuario como su superior, entonces ese usuario que es superior, debe tener un menu de Supervisados, allí podrá ver la lista de usuarios que lo designaron como superior, al ingresar, puede ver los documentos y expedientes que tiene ese usuario en su bandeja de entrada, y debe tener la posibilidad de seleccionar esos documentos/expedientes y derivarlo a otra persona o asignarselos así mismo.
+Configuración de superior, el usuario debe poder designar a 1 usuario como su superior, entonces ese usuario que es superior, debe tener un menu de Supervisados, allí podrá ver la lista de usuarios que lo designaron como superior, al ingresar, puede ver los documentos (NO BORRADORES) y expedientes que tiene ese usuario en su bandeja de entrada, y debe tener la posibilidad de seleccionar esos documentos/expedientes y derivarlo a otra persona o asignarselos así mismo.
 Esta funcionalidad sirve para que si un usuario recibe documentos/expedientes, y no está disponible para tramitarlo, el usuario que es supervisor pueda ver su bandeja de entrada y redirigir los documentos/expedientes y no quede la documentación atrasada
 Al designar un usuario como superior, se deben notificar mediante campanita y envio de correos, tanto al usuario que designo, como al designado.
-Un usuario Admin también debe poder realizar la designación de superior en el ABM de usuarios (y también la notificación por campanita y correo)
+Un usuario Admin también debe poder realizar la designación de superior en el ABM de usuarios (y también reciben la notificación por campanita y correo)
 
 En el ABM de usuarios, el admin debe poder configurar que tipos de documentos puede crear cada usuario, o si puede crear expedientes.
 Con esta funcionalidad, se logrará que haya usuarios que solo puedan crear expedientes y no documentos, o usuarios que puedan crear ciertos tipos de documentos pero no expedientes, o usuarios que puedan crear ambos. 

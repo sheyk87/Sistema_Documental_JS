@@ -112,6 +112,9 @@ async function runMigration() {
         const [columns] = await pool.query('SHOW COLUMNS FROM users');
         const columnNames = columns.map(c => c.Field);
 
+        // Asegurar que la columna 'role' permita roles dinámicos (VARCHAR(50)) en lugar de ENUM
+        await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(50) DEFAULT 'user'");
+
         if (!columnNames.includes('status')) {
             await pool.query("ALTER TABLE users ADD COLUMN status ENUM('active', 'inactive', 'suspended') DEFAULT 'active'");
             console.log('✅ Columna "status" añadida a la tabla "users".');

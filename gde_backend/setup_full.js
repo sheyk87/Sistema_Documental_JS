@@ -54,7 +54,7 @@ async function setupFull() {
                 password VARCHAR(255) NOT NULL,
                 area_id VARCHAR(50) NOT NULL,
                 areas JSON,
-                role ENUM('admin', 'user') DEFAULT 'user',
+                role VARCHAR(50) DEFAULT 'user',
                 web_notifications BOOLEAN DEFAULT TRUE,
                 email_notifications BOOLEAN DEFAULT TRUE,
                 reset_code VARCHAR(8) DEFAULT NULL, 
