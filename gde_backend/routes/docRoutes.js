@@ -77,8 +77,8 @@ router.post('/assign-number/:id', authMiddleware, checkDocumentAccess('write'), 
 router.put('/:id/read', authMiddleware, checkDocumentAccess('read'), docController.markAsRead);
 
 // RUTAS PARA ADJUNTOS con validación de filename
-router.post('/:id/attach', authMiddleware, checkDocumentAccess('write'), upload.single('file'), docController.uploadAttachment);
-router.delete('/:id/attach/:filename', authMiddleware, checkDocumentAccess('write'), validateFilename, docController.deleteAttachment);
+router.post('/:id/attach', authMiddleware, checkDocumentAccess('attach'), upload.single('file'), docController.uploadAttachment);
+router.delete('/:id/attach/:filename', authMiddleware, checkDocumentAccess('attach'), validateFilename, docController.deleteAttachment);
 
 // RUTA PARA ELIMINAR EL DOCUMENTO COMPLETO
 router.delete('/delete/:id', authMiddleware, checkDocumentAccess('delete'), docController.deleteDocument);

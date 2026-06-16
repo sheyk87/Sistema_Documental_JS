@@ -210,6 +210,8 @@ exports.login = async (req, res) => {
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
         user.twoFactorEnabled = user.two_factor_enabled === 1;
+        user.superiorId = user.superior_id;
+        user.allowed_doc_types = typeof user.allowed_doc_types === 'string' ? JSON.parse(user.allowed_doc_types) : (user.allowed_doc_types || null);
         user.permissions = await getUserPermissions(user.id);
         const [rRows] = await pool.query('SELECT role_id FROM user_roles WHERE user_id = ?', [user.id]);
         user.roles = rRows.map(r => r.role_id);
@@ -355,6 +357,8 @@ exports.verify2FA = async (req, res) => {
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
         user.twoFactorEnabled = 1;
+        user.superiorId = user.superior_id;
+        user.allowed_doc_types = typeof user.allowed_doc_types === 'string' ? JSON.parse(user.allowed_doc_types) : (user.allowed_doc_types || null);
         user.permissions = await getUserPermissions(user.id);
         const [rRows] = await pool.query('SELECT role_id FROM user_roles WHERE user_id = ?', [user.id]);
         user.roles = rRows.map(r => r.role_id);

@@ -15,7 +15,7 @@ uploads/
 logs/
 
 # Desarrollo y documentación
-tests/
+# tests/
 docs/
 *.md
 .git

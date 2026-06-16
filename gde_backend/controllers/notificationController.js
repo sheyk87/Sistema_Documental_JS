@@ -35,7 +35,18 @@ async function sendNotificationInternal({ userIds, senderId, action, message, it
     usersConfigs.forEach(u => {
         // 1 para MySQL significa TRUE (Activado)
         if (u.web_notifications !== 0) {
-            webValues.push([u.id, senderId || 'system', itemId, itemType, action, message]);
+            let finalSender = senderId;
+            if (!finalSender || finalSender === 'system') {
+                finalSender = 'u1';
+            }
+            webValues.push([
+                u.id, 
+                finalSender, 
+                itemId || 'system', 
+                itemType || 'documento', 
+                action, 
+                message
+            ]);
         }
         if (u.email_notifications !== 0) {
             emailRecipients.push(u);

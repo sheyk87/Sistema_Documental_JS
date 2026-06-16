@@ -9,5 +9,6 @@ router.post('/create', authMiddleware, expController.createExpediente);
 router.get('/all', authMiddleware, expController.getAllExpedientes);
 router.put('/update/:id', authMiddleware, checkExpedienteAccess('write'), expController.updateExpediente);
 router.post('/:id/pase', authMiddleware, checkExpedienteAccess('pase'), expController.makePase);
+router.get('/:id/download-check', authMiddleware, checkExpedienteAccess('download'), (req, res) => res.json({ ok: true }));
 
 module.exports = router;

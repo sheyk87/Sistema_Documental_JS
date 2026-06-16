@@ -7,16 +7,20 @@ const { invalidateInitialDataCache } = require('./systemController');
 const { isPasswordInHistory, addPasswordToHistory, checkAndIncrementResetLimit } = require('../utils/passwordSecurity');
 
 exports.createUser = async (req, res) => {
-    const { id, name, email, password, areaId, role, areas, status, roles } = req.body;
+    const { id, name, email, password, areaId, role, areas, status, roles, superiorId, canCreateExpedientes, allowedDocTypes } = req.body;
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
         const hash = await bcrypt.hash(password, 12);
         const finalStatus = status || 'active';
+        const finalSuperiorId = superiorId || null;
+        const finalCanCreateExp = canCreateExpedientes !== undefined ? canCreateExpedientes : 1;
+        const finalAllowedDocTypes = allowedDocTypes ? JSON.stringify(allowedDocTypes) : null;
+
         await connection.query(
-            `INSERT INTO users (id, name, email, password, area_id, role, areas, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-            [id, name, email, hash, areaId, role || 'user', JSON.stringify(areas || [areaId]), finalStatus]
+            `INSERT INTO users (id, name, email, password, area_id, role, areas, status, must_change_password, superior_id, can_create_expedientes, allowed_doc_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+            [id, name, email, hash, areaId, role || 'user', JSON.stringify(areas || [areaId]), finalStatus, finalSuperiorId, finalCanCreateExp, finalAllowedDocTypes]
         );
 
         // Asignar roles en la tabla asociativa user_roles
@@ -28,7 +32,33 @@ exports.createUser = async (req, res) => {
             );
         }
 
+        let superiorName = '';
+        if (finalSuperiorId) {
+            const [supRows] = await connection.query('SELECT name FROM users WHERE id = ?', [finalSuperiorId]);
+            superiorName = supRows[0]?.name || finalSuperiorId;
+        }
+
         await connection.commit();
+
+        // Si se asigna superior de entrada, enviar notificaciones (fuera de la transacción)
+        if (finalSuperiorId) {
+            const { sendNotificationInternal } = require('./notificationController');
+            // Notificar al subordinado
+            await sendNotificationInternal({
+                userIds: [id],
+                senderId: req.user?.id || 'system',
+                action: 'superior_designado',
+                message: `El administrador ha designado a ${superiorName} como tu superior jerárquico.`
+            });
+
+            // Notificar al superior
+            await sendNotificationInternal({
+                userIds: [finalSuperiorId],
+                senderId: req.user?.id || 'system',
+                action: 'subordinado_designado',
+                message: `El administrador ha designado que supervises a ${name}.`
+            });
+        }
         logAdminAction('USER_CREATED', { userId: id, by: req.user?.id });
         await invalidateInitialDataCache(); // Fase 3: Limpiar cache Redis
         res.status(201).json({ message: 'Usuario creado exitosamente' });
@@ -43,7 +73,7 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, email, password, areaId, role, areas, twoFactorEnabled, status, roles } = req.body;
+    const { name, email, password, areaId, role, areas, twoFactorEnabled, status, roles, superiorId, canCreateExpedientes, allowedDocTypes } = req.body;
     
     const connection = await pool.getConnection();
     try {
@@ -61,18 +91,21 @@ exports.updateUser = async (req, res) => {
 
         const secretQuery = is2FAEnabled === 0 ? ", two_factor_secret = NULL, two_factor_recovery_codes = NULL" : "";
         const finalStatus = status || old.status;
+        const finalSuperiorId = superiorId || null;
+        const finalCanCreateExp = canCreateExpedientes !== undefined ? canCreateExpedientes : 1;
+        const finalAllowedDocTypes = allowedDocTypes ? JSON.stringify(allowedDocTypes) : null;
 
         // 2. Ejecutar la actualización en BD
         if (password && password.trim() !== '') {
             const hash = await bcrypt.hash(password, 12);
             await connection.query(
-                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?, must_change_password = 1${secretQuery} WHERE id = ?`,
-                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, id]
+                `UPDATE users SET name = ?, email = ?, password = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?, superior_id = ?, can_create_expedientes = ?, allowed_doc_types = ?, must_change_password = 1${secretQuery} WHERE id = ?`,
+                [name, email, hash, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, finalSuperiorId, finalCanCreateExp, finalAllowedDocTypes, id]
             );
         } else {
             await connection.query(
-                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?${secretQuery} WHERE id = ?`,
-                [name, email, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, id]
+                `UPDATE users SET name = ?, email = ?, area_id = ?, role = ?, areas = ?, two_factor_enabled = ?, status = ?, superior_id = ?, can_create_expedientes = ?, allowed_doc_types = ?${secretQuery} WHERE id = ?`,
+                [name, email, areaId, role, JSON.stringify(areas || [areaId]), is2FAEnabled, finalStatus, finalSuperiorId, finalCanCreateExp, finalAllowedDocTypes, id]
             );
         }
 
@@ -87,7 +120,36 @@ exports.updateUser = async (req, res) => {
             }
         }
 
+        let superiorName = '';
+        if (old.superior_id !== finalSuperiorId && finalSuperiorId) {
+            const [supRows] = await connection.query('SELECT name FROM users WHERE id = ?', [finalSuperiorId]);
+            superiorName = supRows[0]?.name || finalSuperiorId;
+        }
+
         await connection.commit();
+
+        // Notificación de superior si ha cambiado (fuera de la transacción)
+        if (old.superior_id !== finalSuperiorId) {
+            const { sendNotificationInternal } = require('./notificationController');
+            
+            if (finalSuperiorId) {
+                // Notificar al subordinado
+                await sendNotificationInternal({
+                    userIds: [id],
+                    senderId: req.user?.id || 'system',
+                    action: 'superior_designado',
+                    message: `El administrador ha designado a ${superiorName} como tu superior jerárquico.`
+                });
+
+                // Notificar al superior
+                await sendNotificationInternal({
+                    userIds: [finalSuperiorId],
+                    senderId: req.user?.id || 'system',
+                    action: 'subordinado_designado',
+                    message: `El administrador ha designado que supervises a ${name || old.name}.`
+                });
+            }
+        }
 
         // 3. Notificaciones Dinámicas por Correo
         if (process.env.EMAIL_ENABLED === 'true') {
@@ -108,7 +170,7 @@ exports.updateUser = async (req, res) => {
                         <ul style="color: #334155; line-height: 1.6;">${changes.join('')}</ul>
                         <p style="color: #64748b; font-size: 12px; margin-top: 20px;">Si considera que esto es un error, por favor contacte a su administrador de sistemas.</p>
                     </div>`;
-                emailService.sendMail(email, mailSubject, 'Perfil Actualizado', mailHtml); // Se envía al correo nuevo
+                emailService.sendMail(email || old.email, mailSubject, 'Perfil Actualizado', mailHtml); // Se envía al correo nuevo
             }
 
             // Alerta de seguridad severa si le quitan el 2FA
@@ -120,7 +182,7 @@ exports.updateUser = async (req, res) => {
                         <p style="color: #7f1d1d;">Sus codigos de recuperacion y su vinculacion con la aplicacion autenticadora han sido eliminados del servidor.</p>
                         <p style="color: #991b1b; font-size: 13px; margin-top: 20px;">Si usted no solicito esta accion a la administracion, su cuenta esta operando con seguridad reducida.</p>
                     </div>`;
-                emailService.sendMail(email, 'GDE - ALERTA: Seguridad 2FA Desactivada', 'Seguridad Reducida', alertHtml);
+                emailService.sendMail(email || old.email, 'GDE - ALERTA: Seguridad 2FA Desactivada', 'Security Alert', alertHtml);
             }
         }
 
@@ -257,6 +319,8 @@ exports.getMe = async (req, res) => {
         // Parseamos las áreas igual que en el login
         user.areas = typeof user.areas === 'string' ? JSON.parse(user.areas) : (user.areas || [user.area_id]);
         user.areaId = user.area_id; 
+        user.superiorId = user.superior_id;
+        user.allowed_doc_types = typeof user.allowed_doc_types === 'string' ? JSON.parse(user.allowed_doc_types) : (user.allowed_doc_types || null);
 
         const { getUserPermissions } = require('../middlewares/roleMiddleware');
         user.permissions = await getUserPermissions(user.id);
@@ -271,12 +335,22 @@ exports.getMe = async (req, res) => {
 };
 
 exports.updateProfile = async (req, res) => {
-    const { email, newPassword, webNotifications, emailNotifications } = req.body;
+    const { email, newPassword, webNotifications, emailNotifications, superiorId } = req.body;
     const userId = req.user.id;
 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+
+        // Obtener datos del usuario antes del update
+        const [oldRows] = await connection.query('SELECT name, superior_id FROM users WHERE id = ?', [userId]);
+        const oldUser = oldRows[0];
+        if (!oldUser) {
+            await connection.rollback();
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        const finalSuperiorId = superiorId || null;
 
         if (newPassword && newPassword.trim() !== '') {
             // 1. Controlar límite diario de reseteos del usuario (máximo 5)
@@ -295,8 +369,8 @@ exports.updateProfile = async (req, res) => {
 
             const hash = await bcrypt.hash(newPassword, 12);
             await connection.query(
-                'UPDATE users SET email = ?, password = ?, web_notifications = ?, email_notifications = ?, must_change_password = 0 WHERE id = ?',
-                [email, hash, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, userId]
+                'UPDATE users SET email = ?, password = ?, web_notifications = ?, email_notifications = ?, superior_id = ?, must_change_password = 0 WHERE id = ?',
+                [email, hash, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, finalSuperiorId, userId]
             );
 
             // 3. Añadir al historial
@@ -317,12 +391,42 @@ exports.updateProfile = async (req, res) => {
         } else {
             // Actualización sin cambiar clave
             await connection.query(
-                'UPDATE users SET email = ?, web_notifications = ?, email_notifications = ? WHERE id = ?',
-                [email, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, userId]
+                'UPDATE users SET email = ?, web_notifications = ?, email_notifications = ?, superior_id = ? WHERE id = ?',
+                [email, webNotifications ? 1 : 0, emailNotifications ? 1 : 0, finalSuperiorId, userId]
             );
         }
 
+        let superiorName = '';
+        if (oldUser.superior_id !== finalSuperiorId && finalSuperiorId) {
+            const [supRows] = await connection.query('SELECT name FROM users WHERE id = ?', [finalSuperiorId]);
+            superiorName = supRows[0]?.name || finalSuperiorId;
+        }
+
         await connection.commit();
+
+        // Notificación de superior si ha cambiado (fuera de la transacción)
+        if (oldUser.superior_id !== finalSuperiorId) {
+            const { sendNotificationInternal } = require('./notificationController');
+
+            if (finalSuperiorId) {
+                // Notificar al subordinado (él mismo)
+                await sendNotificationInternal({
+                    userIds: [userId],
+                    senderId: 'system',
+                    action: 'superior_designado',
+                    message: `Has designado a ${superiorName} como tu superior jerárquico.`
+                });
+
+                // Notificar al superior
+                await sendNotificationInternal({
+                    userIds: [finalSuperiorId],
+                    senderId: 'system',
+                    action: 'subordinado_designado',
+                    message: `${oldUser.name} te ha designado como su superior jerárquico.`
+                });
+            }
+        }
+
         res.json({ message: 'Perfil actualizado exitosamente' });
     } catch (error) {
         await connection.rollback();

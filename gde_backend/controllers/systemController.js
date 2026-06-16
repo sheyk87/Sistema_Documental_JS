@@ -71,7 +71,7 @@ exports.getInitialData = async (req, res) => {
 
         // --- CACHE MISS: Consultar MySQL y cachear ---
         const [areas] = await pool.query('SELECT id, name FROM areas');
-        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status, licence_start, licence_end, delegated_to FROM users');
+        const [usersRows] = await pool.query('SELECT id, name, email, area_id AS areaId, role, areas, two_factor_enabled, status, licence_start, licence_end, delegated_to, superior_id, can_create_expedientes, allowed_doc_types FROM users');
         const [rolesRows] = await pool.query('SELECT id, name, description FROM roles');
         const [mappings] = await pool.query('SELECT role_id, permission_id FROM role_permissions');
         const [userRolesMappings] = await pool.query('SELECT user_id, role_id FROM user_roles');
@@ -86,6 +86,9 @@ exports.getInitialData = async (req, res) => {
                 licence_start: u.licence_start,
                 licence_end: u.licence_end,
                 delegated_to: u.delegated_to,
+                superiorId: u.superior_id,
+                can_create_expedientes: u.can_create_expedientes,
+                allowed_doc_types: typeof u.allowed_doc_types === 'string' ? JSON.parse(u.allowed_doc_types) : (u.allowed_doc_types || null),
                 roles: uRoles.length > 0 ? uRoles : [u.role || 'user']
             };
         });

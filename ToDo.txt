@@ -1,14 +1,4 @@
 Features:
-
-Usuarios:
-Configuración de superior, el usuario debe poder designar a 1 usuario como su superior, entonces ese usuario que es superior, debe tener un menu de Supervisados, allí podrá ver la lista de usuarios que lo designaron como superior, al ingresar, puede ver los documentos (NO BORRADORES) y expedientes que tiene ese usuario en su bandeja de entrada, y debe tener la posibilidad de seleccionar esos documentos/expedientes y derivarlo a otra persona o asignarselos así mismo.
-Esta funcionalidad sirve para que si un usuario recibe documentos/expedientes, y no está disponible para tramitarlo, el usuario que es supervisor pueda ver su bandeja de entrada y redirigir los documentos/expedientes y no quede la documentación atrasada
-Al designar un usuario como superior, se deben notificar mediante campanita y envio de correos, tanto al usuario que designo, como al designado.
-Un usuario Admin también debe poder realizar la designación de superior en el ABM de usuarios (y también reciben la notificación por campanita y correo)
-
-En el ABM de usuarios, el admin debe poder configurar que tipos de documentos puede crear cada usuario, o si puede crear expedientes.
-Con esta funcionalidad, se logrará que haya usuarios que solo puedan crear expedientes y no documentos, o usuarios que puedan crear ciertos tipos de documentos pero no expedientes, o usuarios que puedan crear ambos. 
-
 - Aplicación mobile (con uso de biometría)
 - Certificados de Firma Individuales: El sistema firma con el certificado oficial del organismo configurado a nivel de servidor. Si se requiere que cada agente firme con su propio certificado digital individual, se debe implementar una pasarela para la carga y descifrado de llaves PKCS#12 individuales por usuario.
 - IA para que pueda hacer un resumen de entre todos los documentos de que se tratan

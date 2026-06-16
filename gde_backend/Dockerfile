@@ -23,6 +23,7 @@ COPY services/ ./services/
 COPY utils/ ./utils/
 COPY workers/ ./workers/
 COPY migrations/ ./migrations/
+COPY tests/ ./tests/
 COPY setup_full.js ./
 COPY reset_db.js ./
 

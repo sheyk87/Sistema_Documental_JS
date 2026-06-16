@@ -37,6 +37,17 @@ exports.createDocument = async (req, res) => {
             return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Crear Borrador de Documento (doc_create).' });
         }
 
+        // Validar si el tipo de documento está permitido para este usuario
+        const [userRestrictions] = await pool.query('SELECT allowed_doc_types FROM users WHERE id = ?', [req.user.id]);
+        if (userRestrictions.length > 0) {
+            const allowedDocTypes = typeof userRestrictions[0].allowed_doc_types === 'string'
+                ? JSON.parse(userRestrictions[0].allowed_doc_types)
+                : userRestrictions[0].allowed_doc_types;
+            if (Array.isArray(allowedDocTypes) && !allowedDocTypes.includes(docType)) {
+                return res.status(403).json({ message: `Acceso denegado. No tiene permisos para crear documentos de tipo "${docType}".` });
+            }
+        }
+
         const serverTime = getArgTime(); // Hora blindada
         // OWASP A03: Sanitizar contenido HTML y texto plano
         const safeSubject = sanitizeText(subject);
@@ -116,6 +127,9 @@ exports.getAllDocuments = async (req, res) => {
 
         let filteredDocs = docs;
         if (!isAuditorOrAdmin) {
+            const [subordinatesRows] = await pool.query('SELECT id FROM users WHERE superior_id = ?', [userId]);
+            const subordinateIds = subordinatesRows.map(s => s.id);
+
             filteredDocs = docs.filter(doc => {
                 if (doc.is_public !== 0) return true;
                 
@@ -126,8 +140,9 @@ exports.getAllDocuments = async (req, res) => {
                 const isAreaOwner = userAreas.includes(doc.current_owner_id);
                 const isUserAuth = authUsers.includes(userId);
                 const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+                const isOwnedBySubordinate = subordinateIds.includes(doc.current_owner_id);
                 
-                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth;
+                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth || isOwnedBySubordinate;
             });
         }
         

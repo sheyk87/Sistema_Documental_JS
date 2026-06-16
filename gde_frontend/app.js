@@ -54,9 +54,11 @@ const CHART_COLORS = {
 let state = {
     db: { areas: INITIAL_AREAS, users: INITIAL_USERS, documents: [], expedientes: [], counters: {}, roles: [], permissions: [] },
     currentUser: null, currentView: 'inbox', selectedItem: null,
+    selectedSubordinateId: null,
+    supervisadosSelection: [],
 
     // Añadido 'batchSign: ''' al final
-    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '' },
+    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '', supervisados: '' },
 
     sort: {
         inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
@@ -64,7 +66,8 @@ let state = {
         drafts: { field: 'date', order: 'desc' }, search: { field: 'date', order: 'desc' },
         archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' },
-        batchSign: { field: 'date', order: 'desc' } // <-- NUEVO
+        batchSign: { field: 'date', order: 'desc' },
+        supervisadoDoc: { field: 'date', order: 'desc' }, supervisadoExp: { field: 'date', order: 'desc' }
     },
 
     pagination: {
@@ -73,7 +76,8 @@ let state = {
         drafts: { page: 1, limit: 10 }, search: { page: 1, limit: 10 },
         archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 },
-        batchSign: { page: 1, limit: 10 } // <-- NUEVO
+        batchSign: { page: 1, limit: 10 },
+        supervisadoDoc: { page: 1, limit: 10 }, supervisadoExp: { page: 1, limit: 10 }
     },
 
     batchSelection: [],
@@ -252,6 +256,71 @@ const getDocCode = (type) => {
     const map = { 'Memo': 'ME', 'Nota': 'NO', 'Informe': 'IF', 'Acta': 'ACTA', 'Resolucion': 'RESOL', 'Disposicion': 'DISP', 'Actuacion': 'ACTU', 'expediente': 'EX', 'Dictamen': 'DICT', 'Sanción': 'SANC', 'Acuerdo de confidencialidad': 'CONF', 'Factura': 'FACT', 'Presupuesto': 'PRESUP', 'Balance': 'BAL', 'Informes Técnico': 'IFT', 'Evaluación': 'EVAL', 'Manual de procedimientos': 'MPROC', 'Código de conducta': 'CCOND', 'Política Interna': 'POL', 'Contrato': 'CONT', 'Solicitud': 'SOLI', 'Solicitud de Compra': 'SC', 'Solicitud de Gasto': 'GASTO', 'Orden de Compra': 'OC', 'Carta': 'CAR', 'Notificación': 'NOTI', 'Circular': 'CIRC' };
     return map[type] || type.toUpperCase().substring(0, 4);
 };
+
+function filterSuperiorSelect(term, selectId, excludedUserId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const cleanTerm = term.toLowerCase();
+    const currentValue = select.value;
+    const users = state.db.users.filter(x => 
+        x.status === 'active' && 
+        (excludedUserId ? x.id !== excludedUserId : true) &&
+        (x.name.toLowerCase().includes(cleanTerm) || getAreaName(x.areaId).toLowerCase().includes(cleanTerm))
+    );
+    let html = `<option value="">-- Sin Superior --</option>`;
+    html += users.map(x => `<option value="${x.id}" ${currentValue === x.id ? 'selected' : ''}>${x.name} (${getAreaName(x.areaId)})</option>`).join('');
+    select.innerHTML = html;
+}
+window.filterSuperiorSelect = filterSuperiorSelect;
+
+function handleCreateAreaCheckChange(checkbox) {
+    if (!checkbox.checked) {
+        const primaryRadio = document.querySelector(`input[name="create_u_primary_area"][value="${checkbox.value}"]`);
+        if (primaryRadio && primaryRadio.checked) {
+            primaryRadio.checked = false;
+        }
+    }
+}
+window.handleCreateAreaCheckChange = handleCreateAreaCheckChange;
+
+function handleCreatePrimaryRadioChange(areaId) {
+    const checkbox = document.querySelector(`input[name="create_u_areas"][value="${areaId}"]`);
+    if (checkbox) {
+        checkbox.checked = true;
+    }
+}
+window.handleCreatePrimaryRadioChange = handleCreatePrimaryRadioChange;
+
+function handleEditAreaCheckChange(checkbox) {
+    const areaId = checkbox.value;
+    if (checkbox.checked) {
+        if (!state.modal.editUAreas.includes(areaId)) {
+            state.modal.editUAreas.push(areaId);
+        }
+    } else {
+        state.modal.editUAreas = state.modal.editUAreas.filter(id => id !== areaId);
+        if (state.modal.editUAreaId === areaId) {
+            state.modal.editUAreaId = '';
+            const radio = document.querySelector(`input[name="edit_u_primary_area"][value="${areaId}"]`);
+            if (radio) radio.checked = false;
+        }
+    }
+}
+window.handleEditAreaCheckChange = handleEditAreaCheckChange;
+
+function handleEditPrimaryRadioChange(areaId) {
+    state.modal.editUAreaId = areaId;
+    const checkbox = document.querySelector(`input[data-edit-u-area-cb][value="${areaId}"]`);
+    if (checkbox) {
+        if (!checkbox.checked) {
+            checkbox.checked = true;
+            if (!state.modal.editUAreas.includes(areaId)) {
+                state.modal.editUAreas.push(areaId);
+            }
+        }
+    }
+}
+window.handleEditPrimaryRadioChange = handleEditPrimaryRadioChange;
 
 
 
@@ -1046,6 +1115,24 @@ async function downloadFullExpediente(expId) {
     const exp = state.db.expedientes.find(e => e.id === expId);
     if (!exp) return;
 
+    const canDownloadExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_download' : 'exp_download_reserved');
+    if (!canDownloadExp) {
+        return alert("Acceso denegado. No posee el permiso para descargar este expediente.");
+    }
+
+    try {
+        const checkRes = await fetch(`${API_BASE}/api/exps/${expId}/download-check`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        });
+        if (!checkRes.ok) {
+            const err = await checkRes.json();
+            return alert(`Acceso denegado: ${err.message || 'No posee permisos para descargar este expediente.'}`);
+        }
+    } catch (e) {
+        console.error(e);
+        return alert("Error al verificar permisos de descarga en el servidor.");
+    }
+
     const zip = new JSZip();
 
     let historyText = `=== HISTORIAL DEL EXPEDIENTE ===\nNÚMERO: ${exp.number}\nASUNTO: ${exp.subject}\nCREADO: ${formatDateOnly(exp.createdAt)}\n\n`;
@@ -1341,32 +1428,73 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         </div>
     `;
 
-    const canDeriveDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_derive');
-    const canDeriveExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_pase');
-    const showDeriveBtn = (model === 'inboxDoc' && canDeriveDoc) || 
-                          (model === 'drafts' && canDeriveDoc) || 
-                          (model === 'inboxExp' && canDeriveExp);
+    const hasAnyDocPerm = state.currentUser.permissions && (
+        state.currentUser.permissions.includes('doc_derive') ||
+        state.currentUser.permissions.includes('doc_derive_reserved') ||
+        state.currentUser.permissions.includes('doc_archive') ||
+        state.currentUser.permissions.includes('doc_archive_reserved') ||
+        state.currentUser.permissions.includes('doc_annul') ||
+        state.currentUser.permissions.includes('doc_annul_reserved')
+    );
+    const hasAnyExpPerm = state.currentUser.permissions && (
+        state.currentUser.permissions.includes('exp_pase') ||
+        state.currentUser.permissions.includes('exp_derive_reserved') ||
+        state.currentUser.permissions.includes('exp_archive') ||
+        state.currentUser.permissions.includes('exp_archive_reserved') ||
+        state.currentUser.permissions.includes('exp_annul') ||
+        state.currentUser.permissions.includes('exp_annul_reserved')
+    );
+
+    const isInboxOrDraft = ['inboxDoc', 'inboxExp', 'drafts'].includes(model);
+    const showQuickActionsCol = isInboxOrDraft && (hasAnyDocPerm || hasAnyExpPerm);
 
     // === MOBILE: Render as cards ===
     if (isMobile()) {
         return `
             <div class="relative">
                 <div class="space-y-2 p-2">
-                    ${paginatedItems.map(item => `
-                        <div class="mobile-card" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}">
-                            <div class="card-header">
-                                <div class="card-subject">${getReadReceiptUI(item)}${item.subject}</div>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${getBadgeColor(item.status)}">${item.status}</span>
+                    ${paginatedItems.map(item => {
+                        const itemType = item.type || (isExpList ? 'expediente' : 'documento');
+                        const isDoc = itemType === 'documento';
+                        
+                        let hasDerive = false;
+                        let hasArchive = false;
+                        let hasAnnul = false;
+                        
+                        if (isInboxOrDraft) {
+                            if (isDoc) {
+                                hasDerive = state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_derive' : 'doc_derive_reserved');
+                                hasArchive = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_archive' : 'doc_archive_reserved')) && item.status === 'Firmado';
+                                hasAnnul = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_annul' : 'doc_annul_reserved')) && ['Firmado', 'Archivado'].includes(item.status);
+                            } else {
+                                hasDerive = state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_pase' : 'exp_derive_reserved');
+                                hasArchive = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_archive' : 'exp_archive_reserved')) && ['iniciado', 'En Tramite'].includes(item.status);
+                                hasAnnul = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_annul' : 'exp_annul_reserved')) && ['iniciado', 'En Tramite'].includes(item.status);
+                            }
+                        }
+
+                        return `
+                            <div class="mobile-card" data-id="${item.id}" data-type="${itemType}">
+                                <div class="card-header">
+                                    <div class="card-subject">${getReadReceiptUI(item)}${item.subject}</div>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${getBadgeColor(item.status)}">${item.status}</span>
+                                </div>
+                                <div class="card-meta">
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${itemType === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span>
+                                    <span class="card-number">${item.number || 'Borrador'}</span>
+                                    <span>${formatDateOnly(item.createdAt)}</span>
+                                </div>
+                                ${showAcquireBtn ? `<div class="mt-2"><button data-action="acquire-item" data-id="${item.id}" data-type="${itemType}" class="w-full px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></div>` : ''}
+                                ${(hasDerive || hasArchive || hasAnnul) ? `
+                                    <div class="mt-2 flex flex-wrap gap-2">
+                                        ${hasDerive ? `<button data-action="quick-derive" data-id="${item.id}" data-type="${itemType}" class="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 flex items-center justify-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button>` : ''}
+                                        ${hasArchive ? `<button data-action="quick-archive" data-id="${item.id}" data-type="${itemType}" class="flex-1 px-3 py-2 bg-stone-100 text-stone-700 rounded-lg text-xs font-medium hover:bg-stone-200 flex items-center justify-center gap-1"><i data-lucide="archive" class="w-3 h-3"></i> Archivar</button>` : ''}
+                                        ${hasAnnul ? `<button data-action="quick-annul" data-id="${item.id}" data-type="${itemType}" class="flex-1 px-3 py-2 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 flex items-center justify-center gap-1"><i data-lucide="ban" class="w-3 h-3"></i> Anular</button>` : ''}
+                                    </div>
+                                ` : ''}
                             </div>
-                            <div class="card-meta">
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span>
-                                <span class="card-number">${item.number || 'Borrador'}</span>
-                                <span>${formatDateOnly(item.createdAt)}</span>
-                            </div>
-                            ${showAcquireBtn ? `<div class="mt-2"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="w-full px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></div>` : ''}
-                            ${showDeriveBtn ? `<div class="mt-2"><button data-action="quick-derive" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 flex items-center justify-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button></div>` : ''}
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
                 ${paginationControls}
             </div>
@@ -1378,22 +1506,51 @@ function renderTable(items, model, emptyMsg, isExpList = false, showAcquireBtn =
         <div class="overflow-x-auto relative">
             <div class="absolute top-2 right-4 z-10"><button data-action="export-csv" data-model="${model}" class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded hover:bg-slate-300 font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> CSV</button></div>
             <table class="w-full text-left border-collapse mt-8">
-                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${th('Acceso', 'acceso')} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${(showAcquireBtn || showDeriveBtn) ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
+                <thead><tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">${th('ID/Número', 'number')} ${th('Tipo', 'type')} ${th('Asunto', 'subject')} ${th('Estado', 'status')} ${th('Enviado Por', 'sender')} ${th('Acceso', 'acceso')} ${th('Fecha', 'date')} ${isExpList ? th('Fojas', 'fojas') : ''} ${(showAcquireBtn || showQuickActionsCol) ? `<th class="p-4 font-medium border-b border-gray-200">Acción</th>` : ''}</tr></thead>
                 <tbody class="divide-y divide-gray-100 text-sm">
-                    ${paginatedItems.map(item => `
-                        <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}">
-                            <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
-                            <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${item.type === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
-                            <td class="p-4 font-medium text-gray-800">${getReadReceiptUI(item)}${item.subject}</td>
-                            <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
-                            <td class="p-4 text-gray-700">${getSender(item)}</td>
-                            <td class="p-4">${renderAccessBadge(item)}</td>
-                            <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
-                            ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${item.type === 'expediente' ? (item.linkedDocs?.length || 0) : '-'}</td>` : ''}
-                            ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
-                            ${showDeriveBtn ? `<td class="p-4"><button data-action="quick-derive" data-id="${item.id}" data-type="${item.type || (isExpList ? 'expediente' : 'documento')}" class="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors flex items-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button></td>` : ''}
-                        </tr>
-                    `).join('')}
+                    ${paginatedItems.map(item => {
+                        const itemType = item.type || (isExpList ? 'expediente' : 'documento');
+                        const isDoc = itemType === 'documento';
+                        
+                        let hasDerive = false;
+                        let hasArchive = false;
+                        let hasAnnul = false;
+                        
+                        if (isInboxOrDraft) {
+                            if (isDoc) {
+                                hasDerive = state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_derive' : 'doc_derive_reserved');
+                                hasArchive = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_archive' : 'doc_archive_reserved')) && item.status === 'Firmado';
+                                hasAnnul = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'doc_annul' : 'doc_annul_reserved')) && ['Firmado', 'Archivado'].includes(item.status);
+                            } else {
+                                hasDerive = state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_pase' : 'exp_derive_reserved');
+                                hasArchive = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_archive' : 'exp_archive_reserved')) && ['iniciado', 'En Tramite'].includes(item.status);
+                                hasAnnul = (state.currentUser.permissions && state.currentUser.permissions.includes(item.isPublic ? 'exp_annul' : 'exp_annul_reserved')) && ['iniciado', 'En Tramite'].includes(item.status);
+                            }
+                        }
+
+                        return `
+                            <tr class="hover:bg-blue-50/50 transition-colors group cursor-pointer" data-id="${item.id}" data-type="${itemType}">
+                                <td class="p-4 font-mono text-xs text-gray-600">${item.number || 'S/N (Borrador)'}</td>
+                                <td class="p-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${getTypeColorClass(item.docType || item.type)}"><i data-lucide="${itemType === 'expediente' ? 'folder-open' : 'file-text'}" class="w-3 h-3"></i> ${item.docType || 'Expediente'}</span></td>
+                                <td class="p-4 font-medium text-gray-800">${getReadReceiptUI(item)}${item.subject}</td>
+                                <td class="p-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium border ${getBadgeColor(item.status)}">${item.status}</span></td>
+                                <td class="p-4 text-gray-700">${getSender(item)}</td>
+                                <td class="p-4">${renderAccessBadge(item)}</td>
+                                <td class="p-4 text-gray-500">${formatDateOnly(item.createdAt)}</td>
+                                ${isExpList ? `<td class="p-4 text-gray-600 font-bold">${itemType === 'expediente' ? (item.linkedDocs?.length || 0) : '-'}</td>` : ''}
+                                ${showAcquireBtn ? `<td class="p-4"><button data-action="acquire-item" data-id="${item.id}" data-type="${itemType}" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Adquirir</button></td>` : ''}
+                                ${showQuickActionsCol ? `
+                                    <td class="p-4">
+                                        <div class="flex items-center gap-1.5">
+                                            ${hasDerive ? `<button data-action="quick-derive" data-id="${item.id}" data-type="${itemType}" class="px-2.5 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors inline-flex items-center gap-1"><i data-lucide="share" class="w-3 h-3"></i> Derivar</button>` : ''}
+                                            ${hasArchive ? `<button data-action="quick-archive" data-id="${item.id}" data-type="${itemType}" class="px-2.5 py-1 bg-stone-100 text-stone-700 rounded text-xs font-medium hover:bg-stone-200 transition-colors inline-flex items-center gap-1"><i data-lucide="archive" class="w-3 h-3"></i> Archivar</button>` : ''}
+                                            ${hasAnnul ? `<button data-action="quick-annul" data-id="${item.id}" data-type="${itemType}" class="px-2.5 py-1 bg-red-100 text-red-700 rounded text-xs font-medium hover:bg-red-200 transition-colors inline-flex items-center gap-1"><i data-lucide="ban" class="w-3 h-3"></i> Anular</button>` : ''}
+                                        </div>
+                                    </td>
+                                ` : ''}
+                            </tr>
+                        `;
+                    }).join('')}
                 </tbody>
             </table>
             ${paginationControls}
@@ -2012,10 +2169,15 @@ function renderMainLayout() {
                     </div>
                 ` : ''}
                 <nav class="flex-1 p-2 overflow-y-auto overflow-x-hidden ${!sbo ? 'px-3 pt-6' : ''}">
-                    ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+                    ${(() => {
+                        const hasSubordinates = state.db.users && state.db.users.some(u => u.superiorId === state.currentUser.id && u.status === 'active');
+                        let items = renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts');
+                        if (hasSubordinates) items += renderNavItem('users', 'Supervisados', 'supervisados');
+                        return renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', items);
+                    })()}
                     ${(() => {
                         const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
-                        const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+                        const canCreateExp = state.currentUser.permissions && (state.currentUser.permissions.includes('exp_create') || state.currentUser.permissions.includes('exp_create_reserved'));
                         if (!canCreateDoc && !canCreateExp) return '';
                         let navItems = '';
                         if (canCreateDoc) navItems += renderNavItem('file-plus', 'Crear Documento', 'create_doc');
@@ -2133,10 +2295,15 @@ function renderMobileLayout() {
             ` : `<p class="text-xs text-slate-500 truncate mt-1">${getAreaName(state.currentUser.areaId)}</p>`}
         </div>
         <nav class="flex-1 p-2 overflow-y-auto">
-            ${renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts'))}
+            ${(() => {
+                const hasSubordinates = state.db.users && state.db.users.some(u => u.superiorId === state.currentUser.id && u.status === 'active');
+                let items = renderNavItem('send', 'Bandeja de Entrada', 'inbox') + renderNavItem('pen-tool', 'Firma Masiva', 'batch_sign') + renderNavItem('file-text', 'Mis Borradores', 'drafts');
+                if (hasSubordinates) items += renderNavItem('users', 'Supervisados', 'supervisados');
+                return renderMenuSection('trabajo', 'Mi Trabajo', 'briefcase', items);
+            })()}
             ${(() => {
                 const canCreateDoc = state.currentUser.permissions && state.currentUser.permissions.includes('doc_create');
-                const canCreateExp = state.currentUser.permissions && state.currentUser.permissions.includes('exp_create');
+                const canCreateExp = state.currentUser.permissions && (state.currentUser.permissions.includes('exp_create') || state.currentUser.permissions.includes('exp_create_reserved'));
                 if (!canCreateDoc && !canCreateExp) return '';
                 let navItems = '';
                 if (canCreateDoc) navItems += renderNavItem('file-plus', 'Crear Documento', 'create_doc');
@@ -2239,17 +2406,23 @@ function renderNavItem(icon, label, view) {
 }
 
 function getViewContent() {
-    if (state.selectedItem) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
+    if (state.selectedItem && (!state.modal || !state.modal.isQuickAction)) return state.selectedItem.type === 'expediente' ? renderExpedienteDetail() : renderDocumentDetail();
     
     // Proteger vistas según permisos
     const permissions = (state.currentUser && state.currentUser.permissions) || [];
     const canCreateDoc = permissions.includes('doc_create');
-    const canCreateExp = permissions.includes('exp_create');
+    const canCreateExp = permissions.includes('exp_create') || permissions.includes('exp_create_reserved');
     
     if (state.currentView === 'create_doc' && !canCreateDoc) {
         state.currentView = 'inbox';
     }
     if (state.currentView === 'create_exp' && !canCreateExp) {
+        state.currentView = 'inbox';
+    }
+
+    // Proteger vista de Supervisados
+    const hasSubordinates = state.db.users && state.db.users.some(u => u.superiorId === state.currentUser.id && u.status === 'active');
+    if (state.currentView === 'supervisados' && !hasSubordinates) {
         state.currentView = 'inbox';
     }
 
@@ -2273,7 +2446,7 @@ function getViewContent() {
         state.currentView = 'inbox';
     }
 
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); case 'supervisados': return state.selectedSubordinateId ? renderSupervisadoInbox(state.selectedSubordinateId) : renderSupervisados(); default: return renderInbox(); }
 }
 
 function renderPasswordRequirementsHTML() {
@@ -2465,10 +2638,20 @@ function renderAdminUsers() {
                 
                 <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
                     <div class="flex-1">
-                        <label class="block text-xs font-bold text-gray-600 mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Ctrl+Click para seleccionar varias)</span></label>
-                        <select id="admin-u-area" multiple class="w-full h-24 px-3 py-2 border rounded outline-none text-sm bg-white" required>
-                            ${state.db.areas.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
-                        </select>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Seleccione y asigne la Principal)</span></label>
+                        <input type="text" data-local-search="create-u-areas" placeholder="Buscar área..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                        <div id="create-u-areas-list" class="max-h-36 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                            ${state.db.areas.map(a => `
+                                <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                    <input type="checkbox" name="create_u_areas" value="${a.id}" class="w-4 h-4 rounded text-blue-600" onchange="handleCreateAreaCheckChange(this)" />
+                                    <span class="dest-text font-semibold text-slate-700 truncate" style="max-width: 140px;" title="${a.name}">${a.name}</span>
+                                    <label class="ml-auto flex items-center gap-1 text-[10px] text-gray-500 bg-white px-1.5 py-0.5 border rounded hover:bg-blue-50 cursor-pointer" onclick="event.stopPropagation()">
+                                        <input type="radio" name="create_u_primary_area" value="${a.id}" class="w-3 h-3 text-blue-600" onchange="handleCreatePrimaryRadioChange(this.value)" />
+                                        <span>Principal</span>
+                                    </label>
+                                </label>
+                            `).join('')}
+                        </div>
                     </div>
                     
                     <div class="flex-[2] bg-white p-3 rounded border">
@@ -2485,6 +2668,42 @@ function renderAdminUsers() {
                                             <div class="absolute top-full right-2 border-4 border-transparent border-t-slate-900"></div>
                                         </div>
                                     </div>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documento Habilitados <span class="text-gray-400 font-normal">(Vacío para todos)</span></label>
+                        <input type="text" data-local-search="create-u-doctypes" placeholder="Buscar tipo documento..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                        <div id="create-u-doctypes-list" class="max-h-32 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                            ${(state.db.documentTypes || []).map(dt => `
+                                <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                    <input type="checkbox" name="create_u_doctypes" value="${dt.code}" class="w-4 h-4 rounded text-blue-600" />
+                                    <span class="dest-text font-semibold text-slate-700 truncate" title="${dt.name}">${dt.name} (${dt.code})</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Superior Jerárquico</label>
+                        <input type="text" 
+                               data-local-search="create-u-superior" 
+                               placeholder="Buscar superior por nombre o área..." 
+                               class="w-full px-3 py-2 border rounded-lg outline-none text-xs mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+                        
+                        <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="create-u-superior-container">
+                            <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
+                                <input type="radio" name="create_u_superior_sel" value="" checked class="w-4 h-4 text-indigo-600" />
+                                <span>-- Sin Superior --</span>
+                            </label>
+                            ${state.db.users.filter(x => x.status === 'active').map(x => `
+                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item" data-name="${x.name} ${getAreaName(x.areaId)}">
+                                    <input type="radio" name="create_u_superior_sel" value="${x.id}" class="w-4 h-4 text-indigo-600" />
+                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
                                 </label>
                             `).join('')}
                         </div>
@@ -2880,34 +3099,76 @@ function renderAdminAreas() {
 }
 
 function renderAdminRoles() {
-    const categories = [
+    const generalCategories = [
         {
             title: 'Gestión de Documentos',
             icon: 'file-text',
-            permissionIds: ['doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign']
+            permissionIds: [
+                'doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign',
+                'doc_derive', 'doc_archive', 'doc_annul',
+                'doc_attach', 'doc_send_sign', 'doc_unarchive'
+            ]
         },
         {
             title: 'Gestión de Expedientes',
             icon: 'folder-open',
-            permissionIds: ['exp_read', 'exp_create', 'exp_write', 'exp_pase']
+            permissionIds: [
+                'exp_read', 'exp_create', 'exp_write', 'exp_pase',
+                'exp_archive', 'exp_annul', 'exp_unarchive',
+                'exp_download'
+            ]
         },
         {
             title: 'Administración y Trazabilidad',
             icon: 'settings',
-            permissionIds: ['admin_users', 'admin_areas', 'admin_services', 'audit_logs']
+            permissionIds: [
+                'admin_users', 'admin_areas', 'admin_services', 'audit_logs',
+                'admin_manage_roles', 'admin_manage_templates', 'admin_manage_doc_types'
+            ]
+        }
+    ];
+
+    const reservedCategories = [
+        {
+            title: 'Documentos Reservados',
+            icon: 'shield',
+            permissionIds: [
+                'doc_create_reserved',
+                'doc_edit_reserved',
+                'doc_delete_reserved',
+                'doc_read_reserved',
+                'doc_sign_reserved',
+                'doc_derive_reserved',
+                'doc_archive_reserved',
+                'doc_unarchive_reserved',
+                'doc_annul_reserved',
+                'doc_change_reserved_perms',
+                'doc_attach_reserved',
+                'doc_send_sign_reserved'
+            ]
         },
         {
-            title: 'Clasificación de Seguridad',
-            icon: 'shield',
-            permissionIds: ['doc_create_reserved', 'doc_sign_reserved']
+            title: 'Expedientes Reservados',
+            icon: 'shield-alert',
+            permissionIds: [
+                'exp_create_reserved',
+                'exp_read_reserved',
+                'exp_edit_reserved',
+                'exp_derive_reserved',
+                'exp_archive_reserved',
+                'exp_unarchive_reserved',
+                'exp_annul_reserved',
+                'exp_change_reserved_perms',
+                'exp_download_reserved'
+            ]
         }
     ];
 
     const allPerms = state.db.permissions || [];
-    const groupedIds = categories.reduce((acc, cat) => acc.concat(cat.permissionIds), []);
+    const groupedIds = [...generalCategories, ...reservedCategories].reduce((acc, cat) => acc.concat(cat.permissionIds), []);
     const otherPerms = allPerms.filter(p => !groupedIds.includes(p.id));
     if (otherPerms.length > 0) {
-        categories.push({
+        generalCategories.push({
             title: 'Otros Permisos',
             icon: 'key',
             permissionIds: otherPerms.map(p => p.id)
@@ -2936,21 +3197,25 @@ function renderAdminRoles() {
                     <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm" open>
                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
                             <span class="flex items-center gap-1.5">
-                                <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Selección de Permisos Granulares
+                                <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Permisos Generales
                             </span>
                             <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
                         </summary>
                         <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 border-t border-slate-200">
-                            ${categories.map(cat => {
-        const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
-        if (catPerms.length === 0) return '';
-        return `
+                            ${generalCategories.map(cat => {
+                                const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                                if (catPerms.length === 0) return '';
+                                return `
                                     <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
                                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                             <span class="flex items-center gap-1.5">
                                                 <i data-lucide="${cat.icon}" class="w-4 h-4 text-blue-600"></i> ${cat.title}
                                             </span>
-                                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                            <div class="flex items-center gap-2 font-normal" onclick="event.stopPropagation()">
+                                                <span class="text-[10px] text-gray-500 normal-case">Seleccionar Todo</span>
+                                                <input type="checkbox" class="select-all-category rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4" />
+                                                <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                            </div>
                                         </summary>
                                         <div class="space-y-2 mt-3">
                                             ${catPerms.map(p => `
@@ -2968,7 +3233,50 @@ function renderAdminRoles() {
                                         </div>
                                     </details>
                                 `;
-    }).join('')}
+                            }).join('')}
+                        </div>
+                    </details>
+
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4" open>
+                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                            <span class="flex items-center gap-1.5">
+                                <i data-lucide="shield-alert" class="w-4 h-4 text-slate-600"></i> Clasificación de Seguridad (Reservados)
+                            </span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                        </summary>
+                        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 border-t border-slate-200">
+                            ${reservedCategories.map(cat => {
+                                const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                                if (catPerms.length === 0) return '';
+                                return `
+                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
+                                            <span class="flex items-center gap-1.5">
+                                                <i data-lucide="${cat.icon}" class="w-4 h-4 text-blue-600"></i> ${cat.title}
+                                            </span>
+                                            <div class="flex items-center gap-2 font-normal" onclick="event.stopPropagation()">
+                                                <span class="text-[10px] text-gray-500 normal-case">Seleccionar Todo</span>
+                                                <input type="checkbox" class="select-all-category rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4" />
+                                                <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                            </div>
+                                        </summary>
+                                        <div class="space-y-2 mt-3">
+                                            ${catPerms.map(p => `
+                                                <div class="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                                                    <div class="flex flex-col pr-4">
+                                                        <span class="text-xs font-bold text-slate-800">${p.name}</span>
+                                                        <span class="text-[10px] text-gray-500 max-w-xs leading-tight mt-0.5">${p.description || ''}</span>
+                                                    </div>
+                                                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                        <input type="checkbox" name="permissions" value="${p.id}" class="sr-only peer">
+                                                        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                                    </label>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </details>
+                                `;
+                            }).join('')}
                         </div>
                     </details>
 
@@ -3128,6 +3436,26 @@ function renderUserSettings() {
                                 <input type="password" id="profile-password" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" />
                                 <div id="profile-password-requirements" class="hidden">
                                     ${renderPasswordRequirementsHTML()}
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Superior Jerárquico</label>
+                                <input type="text" 
+                                       data-local-search="profile-superior" 
+                                       placeholder="Buscar superior por nombre o área..." 
+                                       class="w-full px-3 py-2 border rounded-lg outline-none text-sm mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+                                
+                                <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="profile-superior-container">
+                                    <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
+                                        <input type="radio" name="profile_superior_sel" value="" ${!u.superiorId ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                        <span>-- Sin Superior --</span>
+                                    </label>
+                                    ${state.db.users.filter(x => x.id !== u.id && x.status === 'active').map(x => `
+                                        <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item" data-name="${x.name} ${getAreaName(x.areaId)}">
+                                            <input type="radio" name="profile_superior_sel" value="${x.id}" ${u.superiorId === x.id ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                            <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
+                                        </label>
+                                    `).join('')}
                                 </div>
                             </div>
                         </div>
@@ -3367,6 +3695,286 @@ function renderInbox() {
     return `<div class="space-y-6"><div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200"><i data-lucide="search" class="text-gray-400 mr-2"></i><input type="text" data-search-model="inbox" placeholder="Filtrar bandejas (por número, asunto, remitente, etc)..." value="${term}" class="w-full outline-none text-sm" autofocus /></div><div class="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden"><button data-action="toggle-menu" data-menu="inboxPersonal" class="w-full px-6 py-4 border-b border-blue-200 bg-blue-50 hover:bg-blue-100 flex justify-between items-center transition-colors outline-none"><h3 class="font-semibold text-blue-900 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Mis Trámites (${myDocs.length + myExps.length})</h3><i data-lucide="${isOpenP ? 'chevron-down' : 'chevron-right'}" class="text-blue-900"></i></button><div class="${isOpenP ? 'block' : 'hidden'} p-4 space-y-6"><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos - Bandeja Personal</h4>${renderTable(myDocs, 'inboxDoc', 'No tienes documentos pendientes.')}</div><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes - Bandeja Personal</h4>${renderTable(myExps, 'inboxExp', 'No tienes expedientes asignados a ti.', true)}</div></div></div><div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"><button data-action="toggle-menu" data-menu="inboxArea" class="w-full px-6 py-4 border-b border-slate-200 bg-slate-100 hover:bg-slate-200 flex justify-between items-center transition-colors outline-none"><h3 class="font-semibold text-slate-800 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> Trámites de mi Área (${areaDocs.length + areaExps.length})</h3><i data-lucide="${isOpenA ? 'chevron-down' : 'chevron-right'}" class="text-slate-800"></i></button><div class="${isOpenA ? 'block' : 'hidden'} p-4 space-y-6"><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4"></i> Documentos del Área</h4>${renderTable(areaDocs, 'areaDoc', 'No hay documentos pendientes de adquirir en el área.', false, true)}</div><div><h4 class="font-bold text-gray-700 mb-2 flex items-center gap-2"><i data-lucide="folder-open" class="w-4 h-4"></i> Expedientes del Área</h4>${renderTable(areaExps, 'areaExp', 'No hay expedientes pendientes de adquirir en el área.', true, true)}</div></div></div></div>`;
 }
 
+function renderSupervisados() {
+    const subordinates = state.db.users.filter(u => u.superiorId === state.currentUser.id && u.status === 'active');
+    
+    return `
+        <div class="space-y-6 max-w-6xl mx-auto">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2 mb-2">
+                    <i data-lucide="users" class="w-5 h-5 text-indigo-600"></i> Agentes Supervisados bajo mi cargo
+                </h3>
+                <p class="text-sm text-gray-600">
+                    Como superior jerárquico, usted puede visualizar la bandeja de entrada de sus subordinados, autoasignarse sus trámites pendientes o derivarlos a otros agentes/áreas para agilizar el flujo de trabajo del organismo.
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h4 class="font-semibold text-gray-700">Listado de Personal Supervisado</h4>
+                </div>
+                
+                ${subordinates.length === 0 ? `
+                    <div class="p-8 text-center text-gray-500 text-sm">No tiene agentes asignados bajo su supervisión.</div>
+                ` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b">
+                                    <th class="p-4">Nombre</th>
+                                    <th class="p-4">Área</th>
+                                    <th class="p-4">Email</th>
+                                    <th class="p-4 text-center">Docs. Pendientes</th>
+                                    <th class="p-4 text-center">Exps. Pendientes</th>
+                                    <th class="p-4 text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${subordinates.map(u => {
+                                    const subDocs = state.db.documents.filter(d => {
+                                        if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR].includes(d.status)) return false;
+                                        if ([STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) {
+                                            return d.currentOwnerId === u.id;
+                                        }
+                                        return d.owners?.includes(u.id);
+                                    });
+                                    const subExps = state.db.expedientes.filter(e => {
+                                        if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status)) return false;
+                                        return e.currentOwnerId === u.id;
+                                    });
+
+                                    return `
+                                        <tr class="hover:bg-slate-50 transition-colors">
+                                            <td class="p-4 font-semibold text-gray-800">${u.name}</td>
+                                            <td class="p-4 text-gray-700">${getAreaName(u.areaId)}</td>
+                                            <td class="p-4 text-gray-500">${u.email}</td>
+                                            <td class="p-4 text-center"><span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">${subDocs.length}</span></td>
+                                            <td class="p-4 text-center"><span class="bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 rounded">${subExps.length}</span></td>
+                                            <td class="p-4 text-center">
+                                                <button data-action="view-subordinate" data-id="${u.id}" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold shadow-sm flex items-center gap-1 mx-auto transition-colors">
+                                                    <i data-lucide="eye" class="w-3.5 h-3.5"></i> Ver Bandeja
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
+}
+
+function renderSupervisadoInbox(subordinadoId) {
+    const sub = state.db.users.find(u => u.id === subordinadoId);
+    if (!sub) return `<div class="p-8 text-center text-red-600">Subordinado no encontrado.</div>`;
+
+    const term = state.searchTerms.supervisados.toLowerCase();
+
+    const subDocs = state.db.documents.filter(d => {
+        if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO, STATUS.BORRADOR].includes(d.status)) return false;
+        if ([STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(d.status)) {
+            return d.currentOwnerId === subordinadoId;
+        }
+        return d.owners?.includes(subordinadoId);
+    }).filter(d => filterItem(d, term));
+
+    const subExps = state.db.expedientes.filter(e => {
+        if ([STATUS.ELIMINADO, STATUS.ARCHIVADO, STATUS.ANULADO].includes(e.status)) return false;
+        return e.currentOwnerId === subordinadoId;
+    }).filter(e => filterItem(e, term));
+
+    // Paginación y Sort
+    const sortedDocs = sortItems(subDocs, 'supervisadoDoc');
+    const pagInfoDoc = state.pagination.supervisadoDoc || { page: 1, limit: 10 };
+    const limitDoc = parseInt(pagInfoDoc.limit);
+    const totalDocs = sortedDocs.length;
+    const totalPagesDoc = Math.ceil(totalDocs / limitDoc) || 1;
+    let pageDoc = pagInfoDoc.page;
+    if (pageDoc > totalPagesDoc) pageDoc = Math.max(totalPagesDoc, 1);
+    state.pagination.supervisadoDoc.page = pageDoc;
+    const startIdxDoc = (pageDoc - 1) * limitDoc;
+    const paginatedDocs = sortedDocs.slice(startIdxDoc, startIdxDoc + limitDoc);
+
+    const sortedExps = sortItems(subExps, 'supervisadoExp');
+    const pagInfoExp = state.pagination.supervisadoExp || { page: 1, limit: 10 };
+    const limitExp = parseInt(pagInfoExp.limit);
+    const totalExps = sortedExps.length;
+    const totalPagesExp = Math.ceil(totalExps / limitExp) || 1;
+    let pageExp = pagInfoExp.page;
+    if (pageExp > totalPagesExp) pageExp = Math.max(totalPagesExp, 1);
+    state.pagination.supervisadoExp.page = pageExp;
+    const startIdxExp = (pageExp - 1) * limitExp;
+    const paginatedExps = sortedExps.slice(startIdxExp, startIdxExp + limitExp);
+
+    // Controles de Paginación Documentos
+    const docPaginationControls = `
+        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
+            <div class="flex items-center gap-4">
+                <p class="text-sm text-gray-700">Mostrando <span class="font-medium">${totalDocs > 0 ? startIdxDoc + 1 : 0}</span> a <span class="font-medium">${Math.min(startIdxDoc + limitDoc, totalDocs)}</span> de <span class="font-medium">${totalDocs}</span></p>
+                <select data-action="change-limit" data-model="supervisadoDoc" class="border-gray-300 rounded-md text-sm py-1 px-2 outline-none border cursor-pointer hover:bg-gray-50">
+                    ${[10, 25, 50, 100].map(l => `<option value="${l}" ${limitDoc === l ? 'selected' : ''}>${l} / pág</option>`).join('')}
+                </select>
+            </div>
+            <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm">
+                <button data-action="prev-page" data-model="supervisadoDoc" ${pageDoc === 1 ? 'disabled' : ''} class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${pageDoc === 1 ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-inset ring-gray-300">Pág ${pageDoc} de ${totalPagesDoc}</span>
+                <button data-action="next-page" data-model="supervisadoDoc" ${pageDoc === totalPagesDoc ? 'disabled' : ''} class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${pageDoc === totalPagesDoc ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+            </nav>
+        </div>
+    `;
+
+    // Controles de Paginación Expedientes
+    const expPaginationControls = `
+        <div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
+            <div class="flex items-center gap-4">
+                <p class="text-sm text-gray-700">Mostrando <span class="font-medium">${totalExps > 0 ? startIdxExp + 1 : 0}</span> a <span class="font-medium">${Math.min(startIdxExp + limitExp, totalExps)}</span> de <span class="font-medium">${totalExps}</span></p>
+                <select data-action="change-limit" data-model="supervisadoExp" class="border-gray-300 rounded-md text-sm py-1 px-2 outline-none border cursor-pointer hover:bg-gray-50">
+                    ${[10, 25, 50, 100].map(l => `<option value="${l}" ${limitExp === l ? 'selected' : ''}>${l} / pág</option>`).join('')}
+                </select>
+            </div>
+            <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm">
+                <button data-action="prev-page" data-model="supervisadoExp" ${pageExp === 1 ? 'disabled' : ''} class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${pageExp === 1 ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-inset ring-gray-300">Pág ${pageExp} de ${totalPagesExp}</span>
+                <button data-action="next-page" data-model="supervisadoExp" ${pageExp === totalPagesExp ? 'disabled' : ''} class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 outline-none ${pageExp === totalPagesExp ? 'opacity-50 cursor-not-allowed' : ''}"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+            </nav>
+        </div>
+    `;
+
+    // Barra flotante de acciones masivas
+    const floatingBar = state.supervisadosSelection.length > 0 ? `
+        <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-lg mb-6 flex justify-between items-center animate-fade-in-up">
+            <div class="flex items-center gap-3">
+                <span class="bg-indigo-800 text-indigo-100 font-bold px-3 py-1 rounded-full">${state.supervisadosSelection.length}</span>
+                <span class="font-medium">Trámites seleccionados del supervisado</span>
+            </div>
+            <div class="flex gap-3">
+                <button data-action="supervisados-asignarme" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded text-sm font-bold shadow-sm flex items-center gap-2 transition-colors"><i data-lucide="download" class="w-4 h-4"></i> Asignarme seleccionados</button>
+                <button data-action="supervisados-derivar" class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded text-sm font-bold shadow-sm flex items-center gap-2 transition-colors"><i data-lucide="share" class="w-4 h-4"></i> Derivar seleccionados</button>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div class="space-y-6 max-w-6xl mx-auto">
+            ${floatingBar}
+            <div class="flex justify-between items-center">
+                <button data-action="back-to-supervisados" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border">
+                    <i data-lucide="chevron-left" class="w-4 h-4"></i> Volver a Supervisados
+                </button>
+                <h3 class="font-bold text-gray-800 text-lg">Bandeja de: <span class="text-indigo-600">${sub.name}</span></h3>
+            </div>
+
+            <div class="flex bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                <i data-lucide="search" class="text-gray-400 mr-2 mt-1 shrink-0"></i>
+                <input type="text" data-search-model="supervisados" placeholder="Filtrar bandeja del subordinado..." value="${state.searchTerms.supervisados}" class="w-full outline-none text-sm" autofocus />
+            </div>
+
+            <!-- Tabla de Documentos -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <h4 class="font-semibold text-gray-700 flex items-center gap-2"><i data-lucide="file-text" class="w-5 h-5 text-blue-500"></i> Documentos (${subDocs.length})</h4>
+                </div>
+                
+                ${subDocs.length === 0 ? `
+                    <div class="p-8 text-center text-gray-500 text-sm">No hay documentos pendientes en su bandeja.</div>
+                ` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b">
+                                    <th class="p-4 w-10">
+                                        <input type="checkbox" data-action="toggle-supervisado-docs-all" ${paginatedDocs.every(d => state.supervisadosSelection.includes(`documento:${d.id}`)) && paginatedDocs.length > 0 ? 'checked' : ''} class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                    </th>
+                                    <th class="p-4">Número / Tipo</th>
+                                    <th class="p-4">Asunto</th>
+                                    <th class="p-4">Creador</th>
+                                    <th class="p-4">Estado</th>
+                                    <th class="p-4 text-center">Ver</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${paginatedDocs.map(item => `
+                                    <tr class="hover:bg-blue-50/20 transition-colors ${state.supervisadosSelection.includes(`documento:${item.id}`) ? 'bg-blue-50/30' : ''}">
+                                        <td class="p-4">
+                                            <input type="checkbox" data-action="toggle-supervisado-item" data-type="documento" value="${item.id}" ${state.supervisadosSelection.includes(`documento:${item.id}`) ? 'checked' : ''} data-supervisado-doc-checkbox class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                        </td>
+                                        <td class="p-4">
+                                            <span class="block font-semibold text-gray-800">${item.number || 'Borrador'}</span>
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium ${getTypeColorClass(item.docType)}">${item.docType}</span>
+                                        </td>
+                                        <td class="p-4 text-gray-700 font-medium">${item.subject}</td>
+                                        <td class="p-4 text-gray-500">${getUserName(item.creatorId)}</td>
+                                        <td class="p-4">
+                                            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${item.status === 'Firmado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${item.status}</span>
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            <button data-action="view-item" data-id="${item.id}" data-type="documento" class="text-blue-600 hover:text-blue-800 p-1 bg-blue-50 rounded" title="Ver Detalle"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${docPaginationControls}
+                `}
+            </div>
+
+            <!-- Tabla de Expedientes -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <h4 class="font-semibold text-gray-700 flex items-center gap-2"><i data-lucide="folder-open" class="w-5 h-5 text-purple-500"></i> Expedientes (${subExps.length})</h4>
+                </div>
+                
+                ${subExps.length === 0 ? `
+                    <div class="p-8 text-center text-gray-500 text-sm">No hay expedientes asignados en su bandeja.</div>
+                ` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b">
+                                    <th class="p-4 w-10">
+                                        <input type="checkbox" data-action="toggle-supervisado-exps-all" ${paginatedExps.every(e => state.supervisadosSelection.includes(`expediente:${e.id}`)) && paginatedExps.length > 0 ? 'checked' : ''} class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                    </th>
+                                    <th class="p-4">Número / Código</th>
+                                    <th class="p-4">Asunto / Carátula</th>
+                                    <th class="p-4">Iniciador</th>
+                                    <th class="p-4">Estado</th>
+                                    <th class="p-4 text-center">Ver</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${paginatedExps.map(item => `
+                                    <tr class="hover:bg-blue-50/20 transition-colors ${state.supervisadosSelection.includes(`expediente:${item.id}`) ? 'bg-blue-50/30' : ''}">
+                                        <td class="p-4">
+                                            <input type="checkbox" data-action="toggle-supervisado-item" data-type="expediente" value="${item.id}" ${state.supervisadosSelection.includes(`expediente:${item.id}`) ? 'checked' : ''} data-supervisado-exp-checkbox class="w-4 h-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                        </td>
+                                        <td class="p-4">
+                                            <span class="block font-semibold text-gray-800">${item.number}</span>
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium ${item.isPublic ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${item.isPublic ? 'Público' : 'Reservado'}</span>
+                                        </td>
+                                        <td class="p-4 text-gray-700 font-medium">${item.subject}</td>
+                                        <td class="p-4 text-gray-500">${getUserName(item.creatorId)}</td>
+                                        <td class="p-4">
+                                            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">${item.status}</span>
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            <button data-action="view-item" data-id="${item.id}" data-type="expediente" class="text-blue-600 hover:text-blue-800 p-1 bg-blue-50 rounded" title="Ver Detalle"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${expPaginationControls}
+                `}
+            </div>
+        </div>
+    `;
+}
+
 // VISTA: Firma Masiva
 function renderBatchSign() {
     const term = state.searchTerms.batchSign;
@@ -3530,6 +4138,14 @@ function renderCreateDocument() {
         if (matchedType && (matchedType.is_reserved === 1 || matchedType.is_reserved === true) && !canCreateReserved) {
             return false;
         }
+
+        // Restricción por allowed_doc_types
+        if (state.currentUser.allowed_doc_types && Array.isArray(state.currentUser.allowed_doc_types)) {
+            const code = getDocCode(t);
+            if (!state.currentUser.allowed_doc_types.includes(code)) {
+                return false;
+            }
+        }
         return true;
     });
     const excl = filterOpts(DOC_TYPES.CON_DEST_EXCL); const mult = filterOpts(DOC_TYPES.CON_DEST_MULT); const sin = filterOpts(DOC_TYPES.SIN_DEST);
@@ -3632,8 +4248,21 @@ function renderDocumentDetail() {
     // Variables de estado
     const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
     const isHidden = isHiddenFromInbox(doc, state.currentUser);
+    
+    // Validar permisos granulares para botones específicos
+    const canSign = state.currentUser.permissions && state.currentUser.permissions.includes('doc_sign');
     const canSignReserved = state.currentUser.permissions && state.currentUser.permissions.includes('doc_sign_reserved');
-    const showSignButton = doc.isPublic || canSignReserved;
+    const showSignButton = doc.isPublic ? canSign : canSignReserved;
+
+    const canDerive = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_derive' : 'doc_derive_reserved');
+    const canArchive = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_archive' : 'doc_archive_reserved');
+    const canAnnul = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_annul' : 'doc_annul_reserved');
+    const canDelete = state.currentUser.permissions && state.currentUser.permissions.includes('doc_delete');
+    const canChangePerms = state.currentUser.permissions && state.currentUser.permissions.includes('doc_change_reserved_perms');
+    const canAttach = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_attach' : 'doc_attach_reserved');
+    const canSendSign = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_send_sign' : 'doc_send_sign_reserved');
+    const canUnarchiveDoc = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_unarchive' : 'doc_unarchive_reserved');
+
     const matchedType = state.db.documentTypes.find(dt => dt.name === doc.docType || dt.code === doc.docType);
     const allowsAttachments = !matchedType || matchedType.allows_attachments === 1 || matchedType.allows_attachments === true;
 
@@ -3669,7 +4298,7 @@ function renderDocumentDetail() {
                             ${allowsAttachments ? `
                             <h4 class="font-bold text-gray-600 mb-4 mt-8 border-t pt-4">ARCHIVOS ADJUNTOS</h4>
                             <div class="mb-4">
-                                ${canEdit ? `
+                                ${canEdit && canAttach ? `
                                     <div class="flex items-center gap-2 mb-4 bg-white p-3 rounded border">
                                         <input type="file" id="file-upload-input" class="text-sm flex-1 cursor-pointer file:mr-4 file:py-1.5 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                                         <button data-action="upload-file" class="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><i data-lucide="upload" class="w-4 h-4"></i> Subir</button>
@@ -3685,7 +4314,7 @@ function renderDocumentDetail() {
                                             ${!(isSignedOrArchived || doc.status === STATUS.ANULADO) ? `
                                                 <div class="flex items-center gap-2">
                                                     <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 text-sm outline-none"><i data-lucide="download" class="w-4 h-4"></i></button>
-                                                    ${canEdit ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                                                    ${canEdit && canAttach ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
                                                 </div>
                                             ` : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 font-bold uppercase tracking-wide">Embebido en PDF</span>'}
                                         </li>
@@ -3706,22 +4335,29 @@ function renderDocumentDetail() {
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                     <h3 class="font-semibold text-gray-800 mb-4 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Acciones</h3>
                     <div class="space-y-2">
-                        ${!doc.isPublic && isOwner ? `<button data-action="open-modal" data-modal-type="editar_permisos_doc" class="w-full py-2 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2 mb-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
-                        ${isBorradorOrRechazado ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}${showSignButton ? `<button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>` : ''}<button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button><button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button><button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>` : ''}
-                        ${isMyTurnToSign ? `${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}${showSignButton ? `<button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button>` : ''}<button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>` : ''}
-                        ${isSignedOrArchived ? `
-                        <button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>
-                        
-                        ${doc.status === STATUS.FIRMADO ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Central (Global)</button>` : ''}
-                        
-                        ${doc.status !== STATUS.ARCHIVADO && doc.status !== STATUS.ANULADO ? `
-                            ${isHidden ?
-                        `<button data-action="item-restaurar" class="w-full py-2 bg-emerald-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Restaurar a mi Bandeja</button>` :
-                        `<button data-action="item-ocultar" class="w-full py-2 bg-gray-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye-off" class="w-4 h-4"></i> Quitar de mi Bandeja</button>`
-                    }
+                        ${!doc.isPublic && isOwner && canChangePerms ? `<button data-action="open-modal" data-modal-type="editar_permisos_doc" class="w-full py-2 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2 mb-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
+                        ${isBorradorOrRechazado ? `
+                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Destinatarios</button>` : ''}
+                            ${showSignButton ? `<button data-action="doc-sign-direct" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4"></i> Firmar Yo Mismo</button>` : ''}
+                            ${canSendSign ? `<button data-action="open-modal" data-modal-type="enviar_firmar" class="w-full py-2 bg-blue-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> Enviar a Firmar</button><button data-action="open-modal" data-modal-type="revisar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Enviar a Revisar</button>` : ''}
+                            ${canDelete ? `<button data-action="doc-delete" class="w-full py-2 bg-red-100 text-red-700 border border-red-200 rounded text-sm font-medium mt-4 flex items-center justify-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Borrador</button>` : ''}
                         ` : ''}
-
-                        <button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>
+                        ${isMyTurnToSign ? `
+                            ${isConDestinatario ? `<button data-action="open-modal" data-modal-type="destinatarios" class="w-full py-2 bg-purple-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="users" class="w-4 h-4"></i> Actualizar Destinatarios</button>` : ''}
+                            ${showSignButton ? `<button data-action="doc-sign-pending" class="w-full py-2 bg-emerald-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Aplicar mi Firma</button>` : ''}
+                            ${canDerive ? `<button data-action="open-modal" data-modal-type="rechazar_doc" class="w-full py-2 bg-red-500 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="x-circle" class="w-4 h-4"></i> Rechazar / Devolver</button>` : ''}
+                        ` : ''}
+                        ${isSignedOrArchived ? `
+                            ${canDerive ? `<button data-action="open-modal" data-modal-type="derivar_doc" class="w-full py-2 bg-indigo-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Documento</button>` : ''}
+                            ${doc.status === STATUS.FIRMADO && canArchive ? `<button data-action="open-modal" data-modal-type="archivar_doc" class="w-full py-2 bg-stone-600 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar Central (Global)</button>` : ''}
+                            ${doc.status === STATUS.ARCHIVADO && canUnarchiveDoc ? `<button data-action="doc-desarchivar" class="w-full py-2 bg-amber-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="package-open" class="w-4 h-4"></i> Desarchivar Documento</button>` : ''}
+                            ${doc.status !== STATUS.ARCHIVADO && doc.status !== STATUS.ANULADO ? `
+                                ${isHidden ?
+                                    `<button data-action="item-restaurar" class="w-full py-2 bg-emerald-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye" class="w-4 h-4"></i> Restaurar a mi Bandeja</button>` :
+                                    `<button data-action="item-ocultar" class="w-full py-2 bg-gray-500 text-white rounded text-sm font-medium mb-2 flex items-center justify-center gap-2"><i data-lucide="eye-off" class="w-4 h-4"></i> Quitar de mi Bandeja</button>`
+                                }
+                            ` : ''}
+                            ${canAnnul ? `<button data-action="open-modal" data-modal-type="anular_doc" class="w-full py-2 bg-slate-800 text-white rounded text-sm font-medium flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Documento</button>` : ''}
                         ` : ''}
                     </div>
                 </div>
@@ -3739,19 +4375,28 @@ function renderExpedienteDetail() {
     const term = state.searchTerms.expDetail.toLowerCase();
     const linkedDocsList = exp.linkedDocs.map(did => state.db.documents.find(d => d.id === did)).filter(Boolean).filter(d => (d.number || '').toLowerCase().includes(term) || d.subject.toLowerCase().includes(term));
 
+    // Validar permisos granulares para expedientes
+    const canEditExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_write' : 'exp_edit_reserved');
+    const canDeriveExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_pase' : 'exp_derive_reserved');
+    const canArchiveExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_archive' : 'exp_archive_reserved');
+    const canAnnulExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_annul' : 'exp_annul_reserved');
+    const canUnarchiveExp = exp.isPublic ? true : (state.currentUser.permissions && state.currentUser.permissions.includes('exp_unarchive_reserved'));
+    const canChangeExpPerms = state.currentUser.permissions && state.currentUser.permissions.includes('exp_change_reserved_perms');
+    const canDownloadExp = state.currentUser.permissions && state.currentUser.permissions.includes(exp.isPublic ? 'exp_download' : 'exp_download_reserved');
+
     return `
         <div class="max-w-5xl mx-auto ${isMobile() ? 'h-auto' : 'h-[calc(100vh-8rem)]'} flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-200 bg-purple-50 flex ${isMobile() ? 'flex-col gap-4' : 'justify-between'} items-center shrink-0">
                 <div class="flex items-center gap-4"><div class="p-3 bg-white rounded-lg shadow-sm text-purple-600"><i data-lucide="folder-open" class="w-8 h-8"></i></div><div><h2 class="text-2xl font-bold">${exp.number}</h2><p class="text-gray-600 font-medium">${exp.subject}</p></div></div>
                 <div class="flex items-center gap-4">
                     ${!exp.isPublic ? '<span class="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800 flex items-center gap-1"><i data-lucide="shield" class="w-3.5 h-3.5"></i> RESERVADO</span>' : ''}${isArchived ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-stone-100 text-stone-700">SELLADO / ARCHIVADO</span>' : ''}${isAnulado ? '<span class="px-3 py-1 rounded-full text-sm font-medium border bg-red-100 text-red-700">ANULADO</span>' : ''}<span class="px-3 py-1 rounded-full text-sm font-medium border bg-white">${exp.status}</span>
-                    <button data-action="download-exp-zip" data-id="${exp.id}" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 flex items-center gap-2 font-bold shadow-sm"><i data-lucide="package" class="w-4 h-4"></i> Exportar ZIP</button>
+                    ${canDownloadExp ? `<button data-action="download-exp-zip" data-id="${exp.id}" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 flex items-center gap-2 font-bold shadow-sm"><i data-lucide="package" class="w-4 h-4"></i> Exportar ZIP</button>` : ''}
                     <button data-action="close-detail" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
                 </div>
             </div>
             <div class="flex-1 flex overflow-hidden">
                 <div class="flex-1 flex flex-col p-6 bg-gray-50 border-r border-gray-200 overflow-hidden">
-                    <div class="flex justify-between items-center mb-4 shrink-0"><h3 class="font-semibold text-lg">Fojas (${exp.linkedDocs.length})</h3>${isOwnerUser && isActive ? `<button data-action="open-modal" data-modal-type="vincular_doc" class="px-3 py-1.5 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 flex items-center gap-1"><i data-lucide="link" class="w-4 h-4"></i> Vincular Documentos</button>` : ''}</div>
+                    <div class="flex justify-between items-center mb-4 shrink-0"><h3 class="font-semibold text-lg">Fojas (${exp.linkedDocs.length})</h3>${isOwnerUser && isActive && canEditExp ? `<button data-action="open-modal" data-modal-type="vincular_doc" class="px-3 py-1.5 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 flex items-center gap-1"><i data-lucide="link" class="w-4 h-4"></i> Vincular Documentos</button>` : ''}</div>
                     <input type="text" data-search-model="expDetail" placeholder="Buscar foja vinculada..." value="${state.searchTerms.expDetail}" class="w-full px-3 py-2 border rounded-lg text-sm mb-4 outline-none" />
                     <div class="space-y-3 overflow-y-auto flex-1 pr-2">
                         ${linkedDocsList.length === 0 ? '<div class="text-center p-8 bg-white border border-dashed text-gray-400 text-sm rounded-lg">No hay fojas que coincidan con la búsqueda.</div>' : linkedDocsList.map((d) => {
@@ -3760,7 +4405,7 @@ function renderExpedienteDetail() {
                             <div class="bg-white p-4 rounded-lg border shadow-sm flex items-center justify-between group">
                                 <div class="flex items-center gap-4"><div class="font-bold text-slate-500">${originalIndex}</div><div><p class="font-medium text-blue-700">${d.number}</p><p class="text-sm text-gray-600">${d.subject}</p></div></div>
                                 <div class="flex gap-2">
-                                    ${isOwnerUser && isActive && !isSealed ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><i data-lucide="unlink" class="w-3 h-3"></i> Desvincular</button>` : ''}
+                                    ${isOwnerUser && isActive && !isSealed && canEditExp ? `<button data-action="exp-unlink" data-id="${d.id}" class="px-3 py-1.5 bg-red-50 text-red-600 text-xs rounded border border-red-200 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"><i data-lucide="unlink" class="w-3 h-3"></i> Desvincular</button>` : ''}
                                     ${isSealed ? `<span class="px-3 py-1.5 text-xs text-gray-400 bg-gray-100 rounded border">Sellada</span>` : ''}
                                     <button data-action="download-doc-zip" data-id="${d.id}" class="px-2 py-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs rounded border" title="Descargar Foja"><i data-lucide="download" class="w-3 h-3"></i></button>
                                     <button data-action="view-item" data-id="${d.id}" data-type="documento" class="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs rounded border flex items-center gap-1"><i data-lucide="eye" class="w-3 h-3"></i> Ver</button>
@@ -3774,10 +4419,11 @@ function renderExpedienteDetail() {
                     <p class="text-sm mb-6"><span class="text-gray-500 block text-xs">Ubicación Actual</span> <span class="font-medium">${getUserName(exp.currentOwnerId) !== 'Desconocido' ? getUserName(exp.currentOwnerId) : getAreaName(exp.currentOwnerId)}</span></p>
                     ${isOwnerUser && !isAnulado ? `
                         <div class="space-y-2 mb-8">
-                            ${!exp.isPublic ? `<button data-action="open-modal" data-modal-type="editar_permisos_exp" class="w-full py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
-                            <button data-action="open-modal" data-modal-type="derivar_exp" class="w-full py-1.5 bg-indigo-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Expediente</button>
-                            ${isActive ? `<button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar (Sellar Fojas)</button><button data-action="open-modal" data-modal-type="anular_exp" class="w-full py-1.5 bg-slate-800 text-white text-sm rounded border mt-4 flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Expediente</button>` : ''}
-                            ${isArchived ? `<button data-action="exp-desarchivar" class="w-full py-1.5 bg-amber-500 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="package-open" class="w-4 h-4"></i> Desarchivar Expediente</button>` : ''}
+                            ${!exp.isPublic && canChangeExpPerms ? `<button data-action="open-modal" data-modal-type="editar_permisos_exp" class="w-full py-1.5 bg-yellow-50 text-yellow-700 text-sm rounded border border-yellow-200 flex items-center justify-center gap-2"><i data-lucide="shield" class="w-4 h-4"></i> Editar Permisos</button>` : ''}
+                            ${canDeriveExp ? `<button data-action="open-modal" data-modal-type="derivar_exp" class="w-full py-1.5 bg-indigo-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="share" class="w-4 h-4"></i> Derivar Expediente</button>` : ''}
+                            ${isActive && canArchiveExp ? `<button data-action="open-modal" data-modal-type="archivar_exp" class="w-full py-1.5 bg-stone-600 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="archive" class="w-4 h-4"></i> Archivar (Sellar Fojas)</button>` : ''}
+                            ${isActive && canAnnulExp ? `<button data-action="open-modal" data-modal-type="anular_exp" class="w-full py-1.5 bg-slate-800 text-white text-sm rounded border mt-4 flex items-center justify-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Anular Expediente</button>` : ''}
+                            ${isArchived && canUnarchiveExp ? `<button data-action="exp-desarchivar" class="w-full py-1.5 bg-amber-500 text-white text-sm rounded border flex items-center justify-center gap-2"><i data-lucide="package-open" class="w-4 h-4"></i> Desarchivar Expediente</button>` : ''}
                         </div>
                     ` : ''}
                     <h4 class="font-semibold mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Línea de Tiempo de Pases</h4>
@@ -3880,34 +4526,76 @@ function renderModalOverlay() {
 
     if (m.type === 'editar_rol') {
         title = 'Editar Rol';
-        const categories = [
+        const generalCategories = [
             {
                 title: 'Gestión de Documentos',
                 icon: 'file-text',
-                permissionIds: ['doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign']
+                permissionIds: [
+                    'doc_read', 'doc_create', 'doc_edit', 'doc_delete', 'doc_sign',
+                    'doc_derive', 'doc_archive', 'doc_annul',
+                    'doc_attach', 'doc_send_sign', 'doc_unarchive'
+                ]
             },
             {
                 title: 'Gestión de Expedientes',
                 icon: 'folder-open',
-                permissionIds: ['exp_read', 'exp_create', 'exp_write', 'exp_pase']
+                permissionIds: [
+                    'exp_read', 'exp_create', 'exp_write', 'exp_pase',
+                    'exp_archive', 'exp_annul', 'exp_unarchive',
+                    'exp_download'
+                ]
             },
             {
                 title: 'Administración y Trazabilidad',
                 icon: 'settings',
-                permissionIds: ['admin_users', 'admin_areas', 'admin_services', 'audit_logs']
+                permissionIds: [
+                    'admin_users', 'admin_areas', 'admin_services', 'audit_logs',
+                    'admin_manage_roles', 'admin_manage_templates', 'admin_manage_doc_types'
+                ]
+            }
+        ];
+
+        const reservedCategories = [
+            {
+                title: 'Documentos Reservados',
+                icon: 'shield',
+                permissionIds: [
+                    'doc_create_reserved',
+                    'doc_edit_reserved',
+                    'doc_delete_reserved',
+                    'doc_read_reserved',
+                    'doc_sign_reserved',
+                    'doc_derive_reserved',
+                    'doc_archive_reserved',
+                    'doc_unarchive_reserved',
+                    'doc_annul_reserved',
+                    'doc_change_reserved_perms',
+                    'doc_attach_reserved',
+                    'doc_send_sign_reserved'
+                ]
             },
             {
-                title: 'Clasificación de Seguridad',
-                icon: 'shield',
-                permissionIds: ['doc_create_reserved', 'doc_sign_reserved']
+                title: 'Expedientes Reservados',
+                icon: 'shield-alert',
+                permissionIds: [
+                    'exp_create_reserved',
+                    'exp_read_reserved',
+                    'exp_edit_reserved',
+                    'exp_derive_reserved',
+                    'exp_archive_reserved',
+                    'exp_unarchive_reserved',
+                    'exp_annul_reserved',
+                    'exp_change_reserved_perms',
+                    'exp_download_reserved'
+                ]
             }
         ];
 
         const allPerms = state.db.permissions || [];
-        const groupedIds = categories.reduce((acc, cat) => acc.concat(cat.permissionIds), []);
+        const groupedIds = [...generalCategories, ...reservedCategories].reduce((acc, cat) => acc.concat(cat.permissionIds), []);
         const otherPerms = allPerms.filter(p => !groupedIds.includes(p.id));
         if (otherPerms.length > 0) {
-            categories.push({
+            generalCategories.push({
                 title: 'Otros Permisos',
                 icon: 'key',
                 permissionIds: otherPerms.map(p => p.id)
@@ -3928,26 +4616,31 @@ function renderModalOverlay() {
                 <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm" open>
                     <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
                         <span class="flex items-center gap-1.5">
-                            <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Selección de Permisos Granulares
+                            <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Permisos Generales
                         </span>
                         <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
                     </summary>
                     <div class="p-4 grid grid-cols-1 gap-4 bg-slate-50/50 border-t border-slate-200">
-                        ${categories.map(cat => {
-            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
-            if (catPerms.length === 0) return '';
-            return `
+                        ${generalCategories.map(cat => {
+                            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                            if (catPerms.length === 0) return '';
+                            const allChecked = catPerms.length > 0 && catPerms.every(p => m.editRPermissions.includes(p.id));
+                            return `
                                 <details class="group/cat bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
                                     <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                         <span class="flex items-center gap-1.5">
                                             <i data-lucide="${cat.icon}" class="w-3.5 h-3.5 text-blue-600"></i> ${cat.title}
                                         </span>
-                                        <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                        <div class="flex items-center gap-2 font-normal" onclick="event.stopPropagation()">
+                                            <span class="text-[10px] text-gray-500 normal-case">Seleccionar Todo</span>
+                                            <input type="checkbox" ${allChecked ? 'checked' : ''} class="select-all-category rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5" />
+                                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                        </div>
                                     </summary>
                                     <div class="space-y-1.5 mt-3">
                                         ${catPerms.map(p => {
-                const isChecked = m.editRPermissions.includes(p.id);
-                return `
+                                            const isChecked = m.editRPermissions.includes(p.id);
+                                            return `
                                                 <div class="flex items-center justify-between p-2 hover:bg-slate-100/50 bg-white rounded border border-slate-100 transition-colors">
                                                     <div class="flex flex-col pr-2">
                                                         <span class="text-[10px] font-bold text-slate-800">${p.name}</span>
@@ -3959,11 +4652,58 @@ function renderModalOverlay() {
                                                     </label>
                                                 </div>
                                             `;
-            }).join('')}
+                                        }).join('')}
                                     </div>
                                 </details>
                             `;
-        }).join('')}
+                        }).join('')}
+                    </div>
+                </details>
+
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-3" open>
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="shield-alert" class="w-4 h-4 text-slate-600"></i> Clasificación de Seguridad (Reservados)
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-4 grid grid-cols-1 gap-4 bg-slate-50/50 border-t border-slate-200">
+                        ${reservedCategories.map(cat => {
+                            const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
+                            if (catPerms.length === 0) return '';
+                            const allChecked = catPerms.length > 0 && catPerms.every(p => m.editRPermissions.includes(p.id));
+                            return `
+                                <details class="group/cat bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
+                                        <span class="flex items-center gap-1.5">
+                                            <i data-lucide="${cat.icon}" class="w-3.5 h-3.5 text-blue-600"></i> ${cat.title}
+                                        </span>
+                                        <div class="flex items-center gap-2 font-normal" onclick="event.stopPropagation()">
+                                            <span class="text-[10px] text-gray-500 normal-case">Seleccionar Todo</span>
+                                            <input type="checkbox" ${allChecked ? 'checked' : ''} class="select-all-category rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5" />
+                                            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600 transition-transform duration-200 group-open/cat:rotate-180"></i>
+                                        </div>
+                                    </summary>
+                                    <div class="space-y-1.5 mt-3">
+                                        ${catPerms.map(p => {
+                                            const isChecked = m.editRPermissions.includes(p.id);
+                                            return `
+                                                <div class="flex items-center justify-between p-2 hover:bg-slate-100/50 bg-white rounded border border-slate-100 transition-colors">
+                                                    <div class="flex flex-col pr-2">
+                                                        <span class="text-[10px] font-bold text-slate-800">${p.name}</span>
+                                                        <span class="text-[8px] text-gray-500 leading-tight mt-0.5">${p.description || ''}</span>
+                                                    </div>
+                                                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                        <input type="checkbox" value="${p.id}" ${isChecked ? 'checked' : ''} data-modal-toggle="editRPermissions" class="sr-only peer">
+                                                        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                                    </label>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </details>
+                            `;
+                        }).join('')}
                     </div>
                 </details>
             </div>
@@ -4006,10 +4746,57 @@ function renderModalOverlay() {
                 </div>
                 ` : ''}
 
-                <div><label class="text-xs font-bold text-gray-600">Áreas Asignadas</label>
-                    <select data-modal-input="editUAreas" multiple class="w-full p-2 border rounded text-sm outline-none h-20">
-                        ${state.db.areas.map(a => `<option value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'selected' : ''}>${a.name}</option>`).join('')}
-                    </select>
+                <div>
+                    <label class="text-xs font-bold text-gray-600 block mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Seleccione y asigne la Principal)</span></label>
+                    <input type="text" data-local-search="edit-u-areas" placeholder="Buscar área..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                    <div id="edit-u-areas-list" class="max-h-36 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                        ${state.db.areas.map(a => `
+                            <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                <input type="checkbox" data-edit-u-area-cb value="${a.id}" ${(m.editUAreas || []).includes(a.id) ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600" onchange="handleEditAreaCheckChange(this)" />
+                                <span class="dest-text font-semibold text-slate-700 truncate" style="max-width: 140px;" title="${a.name}">${a.name}</span>
+                                <label class="ml-auto flex items-center gap-1 text-[10px] text-gray-500 bg-white px-1.5 py-0.5 border rounded hover:bg-blue-50 cursor-pointer" onclick="event.stopPropagation()">
+                                    <input type="radio" name="edit_u_primary_area" value="${a.id}" ${m.editUAreaId === a.id ? 'checked' : ''} class="w-3 h-3 text-blue-600" onchange="handleEditPrimaryRadioChange(this.value)" />
+                                    <span>Principal</span>
+                                </label>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 border rounded p-2">
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-500 block mb-1">Superior Jerárquico</label>
+                        <input type="text" 
+                               data-local-search="edit-u-superior" 
+                               placeholder="Buscar superior..." 
+                               class="w-full px-2 py-1 border rounded text-[11px] outline-none mb-1 bg-white border-gray-200" />
+                        
+                        <div class="border rounded max-h-24 overflow-y-auto bg-white p-1.5 space-y-1 relative" id="edit-u-superior-container">
+                            <label class="flex items-center gap-1.5 p-1 hover:bg-slate-50 cursor-pointer rounded text-[10px] font-bold text-slate-500">
+                                <input type="radio" name="edit_u_superior_sel" value="" ${!m.editUSuperiorId ? 'checked' : ''} data-modal-input="editUSuperiorId" class="w-3.5 h-3.5 text-indigo-600" />
+                                <span>-- Sin Superior --</span>
+                            </label>
+                            ${state.db.users.filter(x => x.id !== m.editUId && x.status === 'active').map(x => `
+                                <label class="flex items-center gap-1.5 p-1 hover:bg-slate-50 cursor-pointer rounded text-[10px] border border-transparent dest-item" data-name="${x.name} ${getAreaName(x.areaId)}">
+                                    <input type="radio" name="edit_u_superior_sel" value="${x.id}" ${m.editUSuperiorId === x.id ? 'checked' : ''} data-modal-input="editUSuperiorId" class="w-3.5 h-3.5 text-indigo-600" />
+                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[9px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold text-gray-600 block mb-1">Tipos Documento Habilitados <span class="text-gray-400 font-normal">(Vacío para todos)</span></label>
+                    <input type="text" data-local-search="edit-u-doctypes" placeholder="Buscar tipo documento..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                    <div id="edit-u-doctypes-list" class="max-h-32 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                        ${(state.db.documentTypes || []).map(dt => `
+                            <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                <input type="checkbox" data-modal-toggle="editUAllowedDocTypes" value="${dt.code}" ${(m.editUAllowedDocTypes || []).includes(dt.code) ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600" />
+                                <span class="dest-text font-semibold text-slate-700 truncate" title="${dt.name}">${dt.name} (${dt.code})</span>
+                            </label>
+                        `).join('')}
+                    </div>
                 </div>
 
                 <div>
@@ -4095,6 +4882,16 @@ function renderModalOverlay() {
             <input type="text" data-modal-input="search" placeholder="Buscar..." value="${m.search}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
             <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">${list.map(u => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="checkbox" value="${u.id}" ${m.selectionArr.includes(u.id) ? 'checked' : ''} data-modal-toggle="selectionArr" /> ${u.name}</label>`).join('')}</div>
             ${m.type !== 'destinatarios' ? `<textarea data-modal-input="note" placeholder="Nota (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note}</textarea>` : ''}
+        `;
+    }
+    else if (m.type === 'supervisados_derivar') {
+        title = 'Derivar Trámites Seleccionados';
+        content = `
+            <input type="text" data-modal-input="search" placeholder="Buscar destino único..." value="${m.search || ''}" class="w-full p-2 mb-2 border rounded text-sm outline-none" autofocus />
+            <div class="border rounded mb-4 max-h-40 overflow-y-auto bg-gray-50 p-1">
+                ${mixedList.map(i => `<label class="flex items-center gap-2 p-2 hover:bg-white cursor-pointer text-sm border-b last:border-0"><input type="radio" name="modal_selection" value="${i.id}" ${m.selectedId === i.id ? 'checked' : ''} data-modal-input="selectedId" /> ${i.name}</label>`).join('')}
+            </div>
+            <textarea data-modal-input="note" placeholder="Nota de transferencia (requerida)..." class="w-full p-2 border rounded text-sm outline-none mb-4" rows="3">${m.note || ''}</textarea>
         `;
     }
     else if (m.type === 'editar_permisos_exp' || m.type === 'editar_permisos_doc') {
@@ -4359,6 +5156,20 @@ document.addEventListener('input', (e) => {
             items = document.querySelectorAll('#create-exp-auth-list .dest-item');
         } else if (searchType === 'create-doc-auth') {
             items = document.querySelectorAll('#create-doc-auth-list .dest-item');
+        } else if (searchType === 'create-u-areas') {
+            items = document.querySelectorAll('#create-u-areas-list .dest-item');
+        } else if (searchType === 'create-u-doctypes') {
+            items = document.querySelectorAll('#create-u-doctypes-list .dest-item');
+        } else if (searchType === 'edit-u-areas') {
+            items = document.querySelectorAll('#edit-u-areas-list .dest-item');
+        } else if (searchType === 'edit-u-doctypes') {
+            items = document.querySelectorAll('#edit-u-doctypes-list .dest-item');
+        } else if (searchType === 'profile-superior') {
+            items = document.querySelectorAll('#profile-superior-container .dest-item');
+        } else if (searchType === 'create-u-superior') {
+            items = document.querySelectorAll('#create-u-superior-container .dest-item');
+        } else if (searchType === 'edit-u-superior') {
+            items = document.querySelectorAll('#edit-u-superior-container .dest-item');
         } else {
             items = document.querySelectorAll('.dest-item');
         }
@@ -4373,6 +5184,40 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('select-all-category')) {
+        const isChecked = e.target.checked;
+        const details = e.target.closest('details');
+        const checkboxes = details.querySelectorAll('input[type="checkbox"]:not(.select-all-category)');
+        checkboxes.forEach(cb => {
+            if (cb.checked !== isChecked) {
+                cb.checked = isChecked;
+                if (cb.hasAttribute('data-modal-toggle')) {
+                    const key = cb.getAttribute('data-modal-toggle');
+                    const val = cb.value;
+                    if (isChecked) {
+                        if (!state.modal[key].includes(val)) {
+                            state.modal[key].push(val);
+                        }
+                    } else {
+                        state.modal[key] = state.modal[key].filter(v => v !== val);
+                    }
+                }
+            }
+        });
+    }
+
+    if (e.target.name === 'permissions' || e.target.getAttribute('data-modal-toggle') === 'editRPermissions') {
+        const details = e.target.closest('details');
+        if (details) {
+            const selectAllCheck = details.querySelector('.select-all-category');
+            if (selectAllCheck) {
+                const checkboxes = details.querySelectorAll('input[type="checkbox"]:not(.select-all-category)');
+                const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                selectAllCheck.checked = allChecked;
+            }
+        }
+    }
+
     if (e.target.hasAttribute('data-modal-toggle')) { const key = e.target.getAttribute('data-modal-toggle'); const val = e.target.value; if (e.target.checked) state.modal[key].push(val); else state.modal[key] = state.modal[key].filter(v => v !== val); }
     if (e.target.hasAttribute('data-modal-input')) {
         if (e.target.multiple) {
@@ -4726,7 +5571,8 @@ document.addEventListener('submit', async (e) => {
             email: document.getElementById('profile-email').value,
             newPassword: newPassword,
             webNotifications: document.getElementById('profile-web-notif').checked,
-            emailNotifications: document.getElementById('profile-email-notif').checked
+            emailNotifications: document.getElementById('profile-email-notif').checked,
+            superiorId: document.querySelector('input[name="profile_superior_sel"]:checked')?.value || null
         };
 
         const btn = e.target.querySelector('button[type="submit"]');
@@ -4744,6 +5590,14 @@ document.addEventListener('submit', async (e) => {
                 state.currentUser.email = payload.email;
                 state.currentUser.web_notifications = payload.webNotifications ? 1 : 0;
                 state.currentUser.email_notifications = payload.emailNotifications ? 1 : 0;
+                state.currentUser.superiorId = payload.superiorId;
+
+                // Actualizar también en la lista local de usuarios
+                const uIdx = state.db.users.findIndex(x => x.id === state.currentUser.id);
+                if (uIdx > -1) {
+                    state.db.users[uIdx].email = payload.email;
+                    state.db.users[uIdx].superiorId = payload.superiorId;
+                }
 
                 document.getElementById('profile-password').value = ''; // Vaciamos el input del password
                 const reqs = document.getElementById('profile-password-requirements');
@@ -4900,19 +5754,31 @@ document.addEventListener('submit', async (e) => {
     }
     else if (e.target.id === 'form-admin-user') {
         e.preventDefault();
-        const selectedAreas = Array.from(document.getElementById('admin-u-area').selectedOptions).map(o => o.value);
+        const selectedAreas = Array.from(document.querySelectorAll('input[name="create_u_areas"]:checked')).map(el => el.value);
+        const primaryArea = document.querySelector('input[name="create_u_primary_area"]:checked')?.value || selectedAreas[0] || null;
+        if (selectedAreas.length === 0) {
+            return alert("Debe seleccionar al menos un área asignada.");
+        }
+        if (!primaryArea) {
+            return alert("Debe seleccionar un área principal para el usuario.");
+        }
         const selectedRoles = Array.from(document.querySelectorAll('input[name="create_u_roles"]:checked')).map(el => el.value);
+        const allowedDocTypes = Array.from(document.querySelectorAll('input[name="create_u_doctypes"]:checked')).map(el => el.value);
+        const superiorId = document.querySelector('input[name="create_u_superior_sel"]:checked')?.value || null;
         const status = document.getElementById('admin-u-status').value;
         const newUser = {
             id: `u${Date.now()}`,
             name: document.getElementById('admin-u-name').value,
             email: document.getElementById('admin-u-email').value,
-            areaId: selectedAreas[0], // La primera que seleccione será su área principal
-            areas: selectedAreas,     // Array con todas sus áreas
-            role: selectedRoles[0] || 'user', // Rol primario para compatibilidad
+            areaId: primaryArea,
+            areas: selectedAreas,
+            role: selectedRoles[0] || 'user',
             roles: selectedRoles,
             status: status,
-            password: document.getElementById('admin-u-pass').value
+            password: document.getElementById('admin-u-pass').value,
+            superiorId: superiorId,
+            canCreateExpedientes: 1,
+            allowedDocTypes: allowedDocTypes.length > 0 ? allowedDocTypes : null
         };
         fetch(`${API_BASE}/api/users/create`, {
             method: 'POST',
@@ -4921,6 +5787,9 @@ document.addEventListener('submit', async (e) => {
         }).then(async res => {
             if (res.ok) {
                 newUser.twoFactorEnabled = false;
+                newUser.superiorId = newUser.superiorId;
+                newUser.can_create_expedientes = 1;
+                newUser.allowed_doc_types = newUser.allowedDocTypes;
                 state.db.users.push(newUser);
                 alert("Usuario creado correctamente.");
                 setState({});
@@ -5309,10 +6178,15 @@ document.addEventListener('click', async (e) => {
             const type = actionBtn.getAttribute('data-type');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === actionBtn.getAttribute('data-id'));
 
-            if (type === 'documento') {
-                const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
-                if (!hasReadPerm) {
-                    return alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
+            if (type === 'documento' && item) {
+                const isDraft = ['Borrador', 'Rechazado'].includes(item.status);
+                const requiredPerm = isDraft ? (item.isPublic ? 'doc_edit' : 'doc_edit_reserved') : (item.isPublic ? 'doc_read' : 'doc_read_reserved');
+                const hasPerm = state.currentUser.permissions && state.currentUser.permissions.includes(requiredPerm);
+                if (!hasPerm) {
+                    const permDesc = isDraft
+                        ? (item.isPublic ? "Editar Borrador de Documento (doc_edit)" : "Editar Borradores Reservados (doc_edit_reserved)")
+                        : (item.isPublic ? "Visualizar Detalles de Documento (doc_read)" : "Visualizar Documentos Reservados Firmados (doc_read_reserved)");
+                    return alert(`Acceso denegado. No posee el permiso: ${permDesc}.`);
                 }
             } else if (type === 'expediente') {
                 const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
@@ -5333,15 +6207,24 @@ document.addEventListener('click', async (e) => {
             }
         }
 
-        if (action === 'quick-derive') {
+        if (action === 'quick-derive' || action === 'quick-archive' || action === 'quick-annul') {
             const type = actionBtn.getAttribute('data-type');
             const itemId = actionBtn.getAttribute('data-id');
             const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
             if (item) {
                 await autoSaveDraft();
                 if (type === 'documento') await ensureDocContent(item);
-                const modalType = type === 'expediente' ? 'derivar_exp' : 'derivar_doc';
-                let mState = { type: modalType, search: '', selectedId: null, selectionArr: [], note: '' };
+                
+                let modalType = '';
+                if (action === 'quick-derive') {
+                    modalType = type === 'expediente' ? 'derivar_exp' : 'derivar_doc';
+                } else if (action === 'quick-archive') {
+                    modalType = type === 'expediente' ? 'archivar_exp' : 'archivar_doc';
+                } else if (action === 'quick-annul') {
+                    modalType = type === 'expediente' ? 'anular_exp' : 'anular_doc';
+                }
+                
+                let mState = { type: modalType, search: '', selectedId: null, selectionArr: [], note: '', isQuickAction: true };
                 state.selectedItem = { ...item, type };
                 setState({ modal: mState });
             }
@@ -5461,6 +6344,113 @@ document.addEventListener('click', async (e) => {
             return renderApp();
         }
 
+        if (action === 'view-subordinate') {
+            state.selectedSubordinateId = actionBtn.getAttribute('data-id');
+            state.supervisadosSelection = [];
+            state.searchTerms.supervisados = '';
+            return renderApp();
+        }
+
+        if (action === 'back-to-supervisados') {
+            state.selectedSubordinateId = null;
+            state.supervisadosSelection = [];
+            state.searchTerms.supervisados = '';
+            return renderApp();
+        }
+
+        if (action === 'toggle-supervisado-docs-all') {
+            const checkboxes = document.querySelectorAll('input[data-supervisado-doc-checkbox]');
+            const checked = actionBtn.checked;
+            checkboxes.forEach(cb => {
+                cb.checked = checked;
+                const val = `documento:${cb.value}`;
+                if (checked) {
+                    if (!state.supervisadosSelection.includes(val)) state.supervisadosSelection.push(val);
+                } else {
+                    state.supervisadosSelection = state.supervisadosSelection.filter(x => x !== val);
+                }
+            });
+            return renderApp();
+        }
+
+        if (action === 'toggle-supervisado-exps-all') {
+            const checkboxes = document.querySelectorAll('input[data-supervisado-exp-checkbox]');
+            const checked = actionBtn.checked;
+            checkboxes.forEach(cb => {
+                cb.checked = checked;
+                const val = `expediente:${cb.value}`;
+                if (checked) {
+                    if (!state.supervisadosSelection.includes(val)) state.supervisadosSelection.push(val);
+                } else {
+                    state.supervisadosSelection = state.supervisadosSelection.filter(x => x !== val);
+                }
+            });
+            return renderApp();
+        }
+
+        if (action === 'toggle-supervisado-item') {
+            const id = actionBtn.value;
+            const type = actionBtn.getAttribute('data-type');
+            const val = `${type}:${id}`;
+            if (actionBtn.checked) {
+                if (!state.supervisadosSelection.includes(val)) state.supervisadosSelection.push(val);
+            } else {
+                state.supervisadosSelection = state.supervisadosSelection.filter(x => x !== val);
+            }
+            return renderApp();
+        }
+
+        if (action === 'supervisados-asignarme') {
+            const sub = state.db.users.find(u => u.id === state.selectedSubordinateId);
+            const subName = sub ? sub.name : 'Subordinado';
+            showConfirm(`¿Seguro que desea asignarse los ${state.supervisadosSelection.length} trámites seleccionados?`, async () => {
+                const itemsToAssign = [...state.supervisadosSelection];
+                for (const sel of itemsToAssign) {
+                    const [type, id] = sel.split(':');
+                    if (type === 'documento') {
+                        const doc = state.db.documents.find(d => d.id === id);
+                        if (doc) {
+                            const hEntry = createHistoryEntry(state.currentUser.id, 'Autoasignado por Superior', `Tomado de la bandeja de ${subName}`);
+                            if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(doc.status)) {
+                                doc.currentOwnerId = state.currentUser.id;
+                                doc.areaId = state.currentUser.areaId;
+                            } else {
+                                doc.owners = doc.owners.filter(oId => oId !== state.selectedSubordinateId);
+                                if (!doc.owners.includes(state.currentUser.id)) doc.owners.push(state.currentUser.id);
+                            }
+                            doc.history.push(hEntry);
+                            await syncData(doc, 'documento', hEntry);
+                        }
+                    } else if (type === 'expediente') {
+                        const exp = state.db.expedientes.find(e => e.id === id);
+                        if (exp) {
+                            const hEntry = createHistoryEntry(state.currentUser.id, 'Autoasignado por Superior', `Tomado de la bandeja de ${subName}`);
+                            exp.currentOwnerId = state.currentUser.id;
+                            exp.areaId = state.currentUser.areaId;
+                            exp.history.push(hEntry);
+                            await syncData(exp, 'expediente', hEntry);
+                        }
+                    }
+                }
+                state.supervisadosSelection = [];
+                alert("Trámites autoasignados exitosamente.");
+                renderApp();
+            });
+            return;
+        }
+
+        if (action === 'supervisados-derivar') {
+            state.modal = {
+                type: 'supervisados_derivar',
+                title: 'Derivar Trámites Seleccionados',
+                selectedId: '',
+                note: '',
+                search: '',
+                selectionArr: []
+            };
+            return renderApp();
+        }
+
         if (action === 'toggle-notifications') {
             state.ui.notificationsOpen = !state.ui.notificationsOpen;
             return renderNotificationUI();
@@ -5488,8 +6478,15 @@ document.addEventListener('click', async (e) => {
             const item = (itemType === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === itemId);
             if (item) {
                 if (itemType === 'documento') {
-                    const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
-                    if (!hasReadPerm) return alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
+                    const isDraft = ['Borrador', 'Rechazado'].includes(item.status);
+                    const requiredPerm = isDraft ? (item.isPublic ? 'doc_edit' : 'doc_edit_reserved') : (item.isPublic ? 'doc_read' : 'doc_read_reserved');
+                    const hasPerm = state.currentUser.permissions && state.currentUser.permissions.includes(requiredPerm);
+                    if (!hasPerm) {
+                        const permDesc = isDraft
+                            ? (item.isPublic ? "Editar Borrador de Documento (doc_edit)" : "Editar Borradores Reservados (doc_edit_reserved)")
+                            : (item.isPublic ? "Visualizar Detalles de Documento (doc_read)" : "Visualizar Documentos Reservados Firmados (doc_read_reserved)");
+                        return alert(`Acceso denegado. No posee el permiso: ${permDesc}.`);
+                    }
                     await ensureDocContent(item);
                 } else if (itemType === 'expediente') {
                     const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
@@ -5782,12 +6779,16 @@ document.addEventListener('click', async (e) => {
                 }
                 mState.editURole = mState.editURoles[0] || 'user';
                 mState.editUAreas = u.areas || [u.areaId];
+                mState.editUAreaId = u.areaId || u.areas?.[0] || '';
                 mState.editU2FA = !!u.twoFactorEnabled;
                 mState.editUStatus = u.status || 'active';
                 mState.editULicenceStart = u.licence_start || '';
                 mState.editULicenceEnd = u.licence_end || '';
                 mState.editUDelegatedTo = u.delegated_to || '';
                 mState.editULicenceNote = '';
+                mState.editUSuperiorId = u.superiorId || '';
+                mState.editUCanCreateExp = true;
+                mState.editUAllowedDocTypes = u.allowed_doc_types || [];
             }
             if (type === 'editar_rol') {
                 const r = state.db.roles.find(x => x.id === actionBtn.getAttribute('data-id'));
@@ -5800,7 +6801,13 @@ document.addEventListener('click', async (e) => {
             return setState({ modal: mState });
         }
 
-        if (action === 'close-modal') return setState({ modal: null });
+        if (action === 'close-modal') {
+            const updates = { modal: null };
+            if (state.modal && state.modal.isQuickAction) {
+                updates.selectedItem = null;
+            }
+            return setState(updates);
+        }
 
         // --- MANEJO DE SELECCIÓN MASIVA ---
         if (action === 'toggle-batch-item') {
@@ -5867,6 +6874,105 @@ document.addEventListener('click', async (e) => {
                 return;
             }
 
+            if (m.type === 'supervisados_derivar') {
+                if (!m.selectedId) return alert("Seleccione un destino.");
+                if (!m.note || !m.note.trim()) return alert("Ingrese un motivo.");
+
+                const executeDerivarSupervisados = async () => {
+                    const btn = e.target;
+                    const origHtml = btn.innerHTML;
+                    btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Derivando...';
+                    btn.disabled = true;
+
+                    const itemsToDerive = [...state.supervisadosSelection];
+                    const sub = state.db.users.find(u => u.id === state.selectedSubordinateId);
+                    const subName = sub ? sub.name : 'Subordinado';
+
+                    try {
+                        for (const sel of itemsToDerive) {
+                            const [type, id] = sel.split(':');
+                            if (type === 'documento') {
+                                const doc = state.db.documents.find(d => d.id === id);
+                                if (doc) {
+                                    const hEntry = createHistoryEntry(state.currentUser.id, `Derivado por Superior a ${m.selectedId.startsWith('a') ? 'Área: ' + getAreaName(m.selectedId) : getUserName(m.selectedId)}`, m.note);
+                                    if ([STATUS.BORRADOR, STATUS.FIRMANDOSE, STATUS.RECHAZADO].includes(doc.status)) {
+                                        doc.currentOwnerId = m.selectedId;
+                                        if (m.selectedId.startsWith('u')) {
+                                            const targetUser = state.db.users.find(u => u.id === m.selectedId);
+                                            if (targetUser) doc.areaId = targetUser.areaId;
+                                        } else {
+                                            doc.areaId = m.selectedId;
+                                        }
+                                    } else {
+                                        doc.owners = doc.owners.filter(oId => oId !== state.selectedSubordinateId);
+                                        if (!doc.owners.includes(m.selectedId)) doc.owners.push(m.selectedId);
+                                    }
+                                    doc.history.push(hEntry);
+                                    await syncData(doc, 'documento', hEntry);
+                                    await notifyUsers([m.selectedId], 'Derivación', `Te derivó el documento ${doc.number || ''}`, doc.id, 'documento');
+                                }
+                            } else if (type === 'expediente') {
+                                const res = await fetch(`${API_BASE}/api/exps/${id}/pase`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${localStorage.getItem('gde_token')}`
+                                    },
+                                    body: JSON.stringify({ receiverId: m.selectedId, notes: m.note })
+                                });
+                                if (!res.ok) {
+                                    const err = await res.json();
+                                    throw new Error(err.message || `Error al derivar expediente ${id}`);
+                                }
+                                const resData = await res.json();
+                                const exp = state.db.expedientes.find(e => e.id === id);
+                                if (exp) {
+                                    exp.currentOwnerId = m.selectedId;
+                                    exp.status = 'En Tramite';
+                                    if (m.selectedId.startsWith('u')) {
+                                        const targetUser = state.db.users.find(u => u.id === m.selectedId);
+                                        if (targetUser) exp.areaId = targetUser.areaId;
+                                    } else {
+                                        exp.areaId = null;
+                                    }
+                                    exp.sealedDocs = resData.nextSealed;
+                                    const hEntry = createHistoryEntry(state.currentUser.id, `Derivado por Superior a ${m.selectedId.startsWith('a') ? 'Área: ' + getAreaName(m.selectedId) : getUserName(m.selectedId)}`, m.note);
+                                    exp.history.push(hEntry);
+
+                                    const movDate = new Date().toISOString();
+                                    let receiverUserId = m.selectedId.startsWith('u') ? m.selectedId : null;
+                                    let receiverAreaId = m.selectedId.startsWith('a') ? m.selectedId : (state.db.users.find(u => u.id === m.selectedId)?.areaId || null);
+                                    if (!exp.movements) exp.movements = [];
+                                    exp.movements.push({
+                                        id: `mov_${Date.now()}`,
+                                        senderId: state.currentUser.id,
+                                        senderAreaId: state.currentUser.areaId,
+                                        receiverId: receiverUserId,
+                                        receiverAreaId: receiverAreaId,
+                                        notes: m.note,
+                                        linkedDocsSnapshot: [...(exp.linkedDocs || [])],
+                                        date: movDate
+                                    });
+                                    await notifyUsers([m.selectedId], 'Derivación', 'Te derivó un expediente', exp.id, 'expediente');
+                                }
+                            }
+                        }
+                        state.supervisadosSelection = [];
+                        setState({ modal: null, selectedItem: null });
+                        alert("Trámites derivados correctamente.");
+                        renderApp();
+                    } catch (err) {
+                        alert(`Error: ${err.message}`);
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                        if (window.lucide) lucide.createIcons();
+                    }
+                };
+
+                await executeDerivarSupervisados();
+                return;
+            }
+
             if (m.type === 'batch_reject') {
                 if (!m.note || !m.note.trim()) return alert("Debe ingresar un motivo para el rechazo masivo.");
                 return processBatchReject(m.note);
@@ -5924,18 +7030,23 @@ document.addEventListener('click', async (e) => {
                         return alert("La fecha de fin del período de licencia no puede ser menor a la fecha de inicio.");
                     }
                 }
+                const primaryArea = m.editUAreaId || m.editUAreas[0] || null;
                 if (!m.editUName || !m.editUEmail || !m.editUAreas || m.editUAreas.length === 0) return alert("Complete todos los campos obligatorios y seleccione al menos un área.");
+                if (!primaryArea) return alert("Debe seleccionar un área principal para el usuario.");
 
                 const updatedUser = {
                     name: m.editUName,
                     email: m.editUEmail,
                     password: m.editUPass, // Si está vacío, el backend lo ignorará
-                    areaId: m.editUAreas[0],
+                    areaId: primaryArea,
                     areas: m.editUAreas,
                     role: m.editURoles[0] || 'user', // Mantenemos compatibilidad de rol primario
                     roles: m.editURoles,
                     status: m.editUStatus || 'active',
-                    twoFactorEnabled: m.editU2FA
+                    twoFactorEnabled: m.editU2FA,
+                    superiorId: m.editUSuperiorId || null,
+                    canCreateExpedientes: 1,
+                    allowedDocTypes: m.editUAllowedDocTypes || null
                 };
 
                 const licencePayload = {
@@ -5959,7 +7070,10 @@ document.addEventListener('click', async (e) => {
                             if (uIdx > -1) {
                                 state.db.users[uIdx] = {
                                     ...state.db.users[uIdx],
-                                    ...updatedUser
+                                    ...updatedUser,
+                                    superiorId: updatedUser.superiorId,
+                                    can_create_expedientes: updatedUser.canCreateExpedientes,
+                                    allowed_doc_types: updatedUser.allowedDocTypes
                                 };
                             }
 
@@ -6223,6 +7337,7 @@ document.addEventListener('click', async (e) => {
                 return setState({ modal: null, selectedItem: null, currentView: m.type.includes('archivar') ? 'archive' : 'inbox' });
             }
             if (action === 'doc-desarchivar') {
+                item.status = STATUS.FIRMADO;
                 const hEntry = createHistoryEntry(state.currentUser.id, 'Desarchivado', 'Recuperado a la bandeja personal');
                 item.history.push(hEntry);
                 await syncData(item, 'documento', hEntry);
@@ -6468,23 +7583,28 @@ document.addEventListener('click', async (e) => {
     const tr = e.target.closest('tr[data-id]') || e.target.closest('.mobile-card[data-id]');
     if (tr && !e.target.closest('[data-action]')) {
         const type = tr.getAttribute('data-type') || (tr.getAttribute('data-id').startsWith('exp') ? 'expediente' : 'documento');
-
-        if (type === 'documento') {
-            const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('doc_read');
-            if (!hasReadPerm) {
-                alert("Acceso denegado. No posee el permiso: Visualizar Detalles de Documento.");
-                return;
-            }
-        } else if (type === 'expediente') {
-            const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
-            if (!hasReadPerm) {
-                alert("Acceso denegado. No posee el permiso: Visualizar Expediente.");
-                return;
-            }
-        }
-
         const item = (type === 'expediente' ? state.db.expedientes : state.db.documents).find(i => i.id === tr.getAttribute('data-id'));
+
         if (item) {
+            if (type === 'documento') {
+                const isDraft = ['Borrador', 'Rechazado'].includes(item.status);
+                const requiredPerm = isDraft ? (item.isPublic ? 'doc_edit' : 'doc_edit_reserved') : (item.isPublic ? 'doc_read' : 'doc_read_reserved');
+                const hasPerm = state.currentUser.permissions && state.currentUser.permissions.includes(requiredPerm);
+                if (!hasPerm) {
+                    const permDesc = isDraft
+                        ? (item.isPublic ? "Editar Borrador de Documento (doc_edit)" : "Editar Borradores Reservados (doc_edit_reserved)")
+                        : (item.isPublic ? "Visualizar Detalles de Documento (doc_read)" : "Visualizar Documentos Reservados Firmados (doc_read_reserved)");
+                    alert(`Acceso denegado. No posee el permiso: ${permDesc}.`);
+                    return;
+                }
+            } else if (type === 'expediente') {
+                const hasReadPerm = state.currentUser.permissions && state.currentUser.permissions.includes('exp_read');
+                if (!hasReadPerm) {
+                    alert("Acceso denegado. No posee el permiso: Visualizar Expediente.");
+                    return;
+                }
+            }
+
             checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
             activeInputSelector = null;
             if (type === 'documento') await ensureDocContent(item); // <--- LAZY LOAD AL HACER CLICK EN LA FILA

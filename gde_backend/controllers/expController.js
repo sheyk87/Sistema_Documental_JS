@@ -15,14 +15,14 @@ exports.createExpediente = async (req, res) => {
     try {
         const { checkUserHasPermission } = require('../middlewares/roleMiddleware');
         
-        // Validar permiso general para caratular expedientes (exp_create)
-        const hasCreatePermission = await checkUserHasPermission(req.user.id, 'exp_create');
-        if (!hasCreatePermission) {
-            return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Caratular / Iniciar Expediente (exp_create).' });
-        }
-
+        // Validar permisos para caratular expedientes
         const isPublicVal = isPublic === false ? 0 : 1;
-        if (isPublicVal === 0) {
+        if (isPublicVal === 1) {
+            const hasCreatePermission = await checkUserHasPermission(req.user.id, 'exp_create');
+            if (!hasCreatePermission) {
+                return res.status(403).json({ message: 'Acceso denegado. Se requiere el permiso: Caratular / Iniciar Expediente (exp_create).' });
+            }
+        } else {
             const hasCreateReserved = await checkUserHasPermission(req.user.id, 'exp_create_reserved');
             if (!hasCreateReserved) {
                 return res.status(403).json({ message: 'Acceso denegado. Se requieren permisos para crear expedientes reservados (exp_create_reserved).' });
@@ -105,6 +105,9 @@ exports.getAllExpedientes = async (req, res) => {
 
         let filteredExps = exps;
         if (!isAuditorOrAdmin) {
+            const [subordinatesRows] = await pool.query('SELECT id FROM users WHERE superior_id = ?', [userId]);
+            const subordinateIds = subordinatesRows.map(s => s.id);
+
             filteredExps = exps.filter(e => {
                 if (e.is_public !== 0) return true;
                 
@@ -115,8 +118,9 @@ exports.getAllExpedientes = async (req, res) => {
                 const isAreaOwner = userAreas.includes(e.current_owner_id);
                 const isUserAuth = authUsers.includes(userId);
                 const isAreaAuth = userAreas.some(area => authAreas.includes(area));
+                const isOwnedBySubordinate = subordinateIds.includes(e.current_owner_id);
                 
-                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth;
+                return hasDirectAccess || isAreaOwner || isUserAuth || isAreaAuth || isOwnedBySubordinate;
             });
         }
 
