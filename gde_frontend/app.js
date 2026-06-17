@@ -2715,8 +2715,12 @@ function renderAdminUsers() {
                 </div>
             </form>
             
+            <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} items-center gap-3 mb-3">
+                <label class="font-semibold text-sm text-gray-700 flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i> Buscar Usuario</label>
+                <input type="text" data-local-search="admin-users-table" placeholder="Filtrar por nombre, email, área o rol..." class="flex-1 px-3 py-2 border rounded-lg outline-none text-sm focus:border-blue-500 bg-white" />
+            </div>
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm border-collapse">
+                <table id="admin-users-table" class="w-full text-left text-sm border-collapse">
                     <thead class="bg-gray-50">
                         <tr class="border-b">
                             <th class="p-2 whitespace-nowrap">ID</th>
@@ -5170,6 +5174,17 @@ document.addEventListener('input', (e) => {
             items = document.querySelectorAll('#create-u-superior-container .dest-item');
         } else if (searchType === 'edit-u-superior') {
             items = document.querySelectorAll('#edit-u-superior-container .dest-item');
+        } else if (searchType === 'admin-users-table') {
+            const tableRows = document.querySelectorAll('#admin-users-table tbody tr');
+            tableRows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                let matches = false;
+                cells.forEach(td => {
+                    if (td.textContent.toLowerCase().includes(term)) matches = true;
+                });
+                row.style.display = matches ? '' : 'none';
+            });
+            return;
         } else {
             items = document.querySelectorAll('.dest-item');
         }
