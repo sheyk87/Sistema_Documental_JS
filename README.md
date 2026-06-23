@@ -25,6 +25,7 @@ La aplicación separa limpiamente el Frontend (SPA reactiva en Vanilla JavaScrip
   - [3. Proceso de Activación de 2FA](#3-proceso-de-activación-de-2fa)
   - [4. Flujo de Firma Digital en Cascada en Segundo Plano](#4-flujo-de-firma-digital-en-cascada-en-segundo-plano)
   - [5. Diagrama Entidad-Relación (ERD)](#5-diagrama-entidad-relación-erd)
+  - [6. Diagrama de Tareas de Notificaciones por Email (Email Worker)](#6-diagrama-de-tareas-de-notificaciones-por-email-email-worker)
 - [🏗️ Estructura y Arquitectura del Sistema](#%EF%B8%8F-estructura-y-arquitectura-del-sistema)
 - [🚀 Instalación y Uso Local](#-instalación-y-uso-local)
 - [🐳 Despliegue con Docker y Docker Swarm](#-despliegue-con-docker-y-docker-swarm)
@@ -80,6 +81,57 @@ El sistema soporta la creación de documentos y expedientes marcados como no pú
 Cada cuenta de usuario posee un estado administrativo (`active`, `inactive`, `suspended`):
 *   Los estados `inactive` y `suspended` impiden inmediatamente la autenticación en el sistema, cancelando la generación del token de sesión JWT y notificando al usuario de su condición.
 
+### 🖋️ Funcionalidad de Firma y Rechazo Masivo
+El sistema implementa una potente y segura característica para procesar múltiples documentos en un solo bloque:
+*   **Firma Masiva Secuencial:** El usuario selecciona en su bandeja de "Firma Masiva" los documentos que desea firmar de forma conjunta.
+    *   **Validación de 2FA Mandatoria:** Si la selección incluye algún documento de carácter *reservado*, el motor exige al firmante autenticar la transacción ingresando su token 2FA en tiempo real antes de iniciar la firma.
+    *   **Procesamiento Cíclico Frontend:** El cliente web recorre secuencialmente los documentos seleccionados y aplica las firmas. Si es una firma intermedia, transfiere la pertenencia del trámite al siguiente firmante (`signatories[0]`).
+    *   **Firma Final en Background (BullMQ):** En caso de ser la firma final, el cliente solicita un número oficial atómico en el backend y renderiza el PDF en memoria con `html2pdf()`. Este PDF crudo se sube mediante `/api/docs/sign-final/:id` a la cola asíncrona de BullMQ (`signatureQueue`), donde el *Signature Worker* se encarga de:
+        1. Leer archivos adjuntos encriptados y descifrarlos en memoria.
+        2. Embeber físicamente dichos adjuntos en el PDF (mediante `pdf-lib`).
+        3. Firmar digitalmente el PDF final (criptografía PKCS#7 / certificado PKCS#12).
+        4. Generar el hash SHA-256 definitivo y encriptar el archivo en reposo (`secure_docs/{id}.enc`).
+        5. Actualizar el estado a `Firmado` e inyectar el número correlativo asignado.
+    *   **Mecanismo de Rollback:** Ante cualquier fallo en la cadena de firma, el sistema deshace los cambios del documento afectado retornándolo al estado original exacto (rollback de estado, firmantes y número asignado) y continúa con el lote.
+*   **Rechazo Masivo:** Permite devolver múltiples borradores elevados para firma. El usuario ingresa un único motivo general de rechazo y el sistema en bucle:
+    *   Revierte el estado del documento a `Borrador` o `Rechazado`.
+    *   Restablece como propietario actual (`current_owner_id`) y área (`area_id`) al redactor/remitente anterior.
+    *   Registra el evento de rechazo masivo y su correspondiente motivo en el historial de auditoría (`history`).
+    *   Notifica inmediatamente a los creadores de los documentos devueltos.
+
+### 📥 Bandeja Principal de Usuario y Área (Tenencia Física y Reclamo)
+La gestión operativa de los trámites se organiza en bandejas de entrada segmentadas por propiedad física para evitar la colisión de agentes públicos sobre un mismo expediente:
+*   **Bandeja de Entrada Personal (Inbox):** Muestra los documentos y expedientes asignados directamente al usuario actual. Solo este usuario puede editarlos, derivarlos o firmarlos.
+*   **Bandeja de Entrada del Área:** Muestra los trámites asignados al sector/departamento completo del usuario (basado en la pertenencia a múltiples áreas configurada en la columna JSON `areas`).
+*   **Adquisición / Reclamo de Trámites:** Un agente puede "Adquirir" de forma explícita un trámite de la bandeja del área. Al hacerlo, el sistema actualiza de manera atómica el `current_owner_id` al ID del usuario y el trámite se traslada automáticamente a su bandeja personal (Inbox), bloqueándolo para otros agentes del área.
+
+### 📝 Gestión de Borradores y Cifrado de Adjuntos
+La fase inicial de redacción de los documentos se realiza de forma interactiva bajo estrictas directivas de confidencialidad:
+*   **Mutabilidad de Borradores:** En el estado `BORRADOR` o `RECHAZADO`, el creador puede modificar libremente el asunto, cuerpo y destinatarios del documento.
+*   **Cifrado en Reposo de Anexos (AES-256-CBC + IV Único):** Al adjuntar un archivo a un borrador, el backend cifra el binario utilizando el algoritmo AES-256-CBC con una clave de encriptación global y un vector de inicialización (IV) único generado de forma aleatoria por cada archivo. Este IV se incrusta como prefijo en el nombre físico del archivo guardado en el disco (`iv-nombre_original.enc`). Durante la descarga, el archivo se descifra "on the fly" y se transmite por streams de Express únicamente si el usuario solicitante supera las validaciones de acceso ACL.
+
+### 📊 Dashboards Estadísticos y Exportación de Datos
+El sistema ofrece a los administradores y auditores herramientas analíticas para monitorear el desempeño de la organización:
+*   **Métricas de Rendimiento:** Un panel dinámico en el Frontend calcula totales de documentos por estado, firmantes con mayor volumen de firmas estampadas, expedientes en curso e historial general.
+*   **Filtros Avanzados:** Segmentación por rango de fechas (desde/hasta), áreas específicas y usuarios.
+*   **Exportación a CSV:** Genera archivos descargables estructurados con los listados de usuarios, áreas y métricas estadísticas agregadas.
+
+### 📱 Interfaz Adaptativa (Responsiva) y Visualización en Modo Oscuro
+La experiencia de usuario está optimizada para cualquier dispositivo y condición lumínica:
+*   **Mobile-Cards:** La interfaz detecta dinámicamente si se accede desde un dispositivo móvil (`isMobile()` en la SPA) y reestructura las extensas tablas de datos en tarjetas compactas optimizadas para gestos táctiles, ocultando columnas redundantes.
+*   **Modo Oscuro Integrado:** Implementado de forma nativa a nivel de CSS y Tailwind, el sistema permite alternar la visualización entre modo claro y oscuro, adaptando fondos, textos y componentes interactivos para reducir el cansancio visual.
+
+### 🔔 Sistema de Notificaciones en Tiempo Real (Campana y Email)
+Las notificaciones alertan de inmediato ante cualquier cambio de estado en el ecosistema documental:
+*   **Notificaciones Internas (Campana):** Se almacenan en la tabla `notifications` y se actualizan dinámicamente en el menú superior de la aplicación.
+*   **Notificaciones SMTP en Background:** Al enviarse un documento a firmar, bloquearse una cuenta por intentos fallidos, o redirigirse un trámite por licencia/ausencia, se genera un email. Para evitar latencia y bloqueos de red en el hilo de Express, el despacho de correos se encola en Redis y el *Email Worker* se encarga de enviarlo en segundo plano de manera controlada.
+
+### 🔍 Validación por Código QR Público (Trazabilidad y Verificación)
+Para garantizar la autenticidad y prevenir la alteración de documentos oficiales impresos o digitales, el sistema implementa una verificación descentralizada:
+*   **Código QR Estampado:** Cada documento finalizado y firmado incluye un código QR dinámico apuntando a la dirección de verificación del sistema (`/?verify={id}`).
+*   **Verificación sin Autenticación:** Cualquier usuario o tercero puede escanear el QR para acceder a la ruta pública del backend `/api/docs/verify-public/:id`.
+*   **Privacidad Blindada (OWASP A01):** El endpoint público de validación retorna únicamente metadatos clave (estado, número oficial, tipo de documento, asunto, fecha de firma, nombre y área del firmante y hash digital SHA-256). **Bajo ninguna circunstancia se expone el cuerpo/contenido del documento o sus archivos adjuntos**, preservando la confidencialidad absoluta y cumpliendo con estándares de seguridad de datos de nivel institucional.
+
 ---
 
 ## 🔒 Fortalezas y Directivas de Seguridad
@@ -111,6 +163,7 @@ GDE Web fue diseñado con directrices de seguridad robustas de tipo industrial (
 *   **Mitigación de Revelación de Datos (OWASP A07):** Las respuestas de error durante login y restablecimiento de contraseña emplean mensajes genéricos e idénticos, evitando la enumeración o detección de existencia de correos electrónicos.
 *   **Lista Negra de Tokens en Redis (JWT Blacklist):** Al realizar el cierre de sesión (logout), el token JWT es invalidado de forma real introduciéndolo en una base de datos Redis en memoria con un TTL equivalente al tiempo restante de vida del token, impidiendo ataques de secuestro o replay.
 *   **Recarga Dinámica del Entorno (.env):** Para garantizar que cambios globales en políticas de seguridad (como SMTP, LDAP o 2FA obligatorio) tengan efecto inmediato sin interrumpir el servicio ni requerir un despliegue de contenedores, el backend relee y sobreescribe de forma dinámica las variables del archivo `.env` en cada inicio de sesión.
+*   **Trazabilidad Forense Completa:** El sistema registra de forma inmutable en la tabla `history` cualquier transacción o acción realizada sobre documentos y expedientes (creación, edición, firma, pase, derivación, archivo, desarchivo y anulación) indexando la fecha, la acción y el usuario responsable, impidiendo cualquier alteración posterior de la traza de auditoría.
 
 ---
 
@@ -670,15 +723,55 @@ erDiagram
     AREAS ||--o{ EXPEDIENTE_MOVEMENTS : "receptor"
     USERS ||--o{ NOTIFICATIONS : "destinatario"
     USERS ||--o{ NOTIFICATIONS : "remitente"
+    DOCUMENT_TYPES ||--o{ DOCUMENTS : "clasifica"
+```
+
+### 6. Diagrama de Tareas de Notificaciones por Email (Email Worker)
+Para garantizar la responsividad de la API REST, el envío de correos electrónicos se desacopla utilizando BullMQ y Redis. A continuación se ilustra el ciclo de vida del Email Worker:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant E as Servidor Express (API REST)
+    participant R as Redis (BullMQ Queue)
+    participant W as Email Worker
+    participant S as Servidor SMTP (Nodemailer Transporter)
+
+    E->>R: Encola trabajo en 'gde-email' con payload (to, subject, text, html)
+    R-->>E: Retorna ID del trabajo (Job ID)
+    Note over W: El Worker se ejecuta de forma independiente
+    R->>W: Entrega el trabajo disponible para procesar
+    W->>W: Recarga dinámica del archivo .env (configuración en caliente)
+    W->>W: Valida si EMAIL_ENABLED es true en el .env
+    alt Email Deshabilitado
+        W-->>R: Finaliza trabajo (skipped: true)
+    else Email Habilitado
+        W->>W: Obtiene/Inicializa pool de conexiones (Nodemailer Pool)
+        W->>S: Despacha email mediante protocolo SMTP (límite 30/minuto, 5 conexiones máx)
+        alt Envío Exitoso
+            S-->>W: Confirmación de envío (250 OK)
+            W-->>R: Marca trabajo como completado con éxito (sent: true)
+        else Fallo SMTP o de Conexión
+            S-->>W: Error de red o credenciales incorrectas
+            W-->>R: Marca trabajo como fallido (BullMQ agenda reintento automático)
+        end
+    end
 ```
 
 ---
 
 ## 🏗️ Estructura y Arquitectura del Sistema
 
-El sistema implementa una arquitectura desacoplada y modular:
+El sistema implementa una arquitectura desacoplada, modular y de alta disponibilidad:
 
-### Backend (Node.js + Express)
+### ⚙️ Arquitectura Cliente-Servidor y Microservicios
+*   **Cliente SPA (Frontend):** Construido en Vanilla JavaScript, HTML5 y CSS (Tailwind). Prescinde de frameworks pesados y maneja el estado a través de un **Estado Global Reactivo** (`setState`), lo que garantiza tiempos de respuesta mínimos en el cliente.
+*   **Servidor de Aplicación (Backend):** Servidor Node.js con Express estructurado en Capas (Rutas, Middlewares, Controladores y Servicios). Se encarga de las políticas ACL, validaciones de seguridad profunda y cifrado criptográfico.
+*   **Servicio de Tareas Asíncronas (Microservicios):** Las tareas pesadas de CPU (firmas criptográficas PKCS#12, combinación de fojas PDF y cifrado AES-256) y de red (envío SMTP) se delegan a trabajadores dedicados en segundo plano (**BullMQ Workers** y **Redis**). En producción, estos operan en contenedores aislados y escalan independientemente de la API REST.
+
+### 📁 Organización del Repositorio
+
+#### Backend (Node.js + Express)
 Se encarga de la seguridad profunda, encriptado criptográfico, colas de procesamiento de tareas y APIs.
 *   `/config`: Gestión del Pool de conexiones MySQL, inicialización del cliente Redis y definición de colas BullMQ.
 *   `/controllers`: Lógica de negocio profunda (`areaController`, `authController`, `docController`, `expController`, `licenceController`, `notificationController`, `systemController`, `userController`).
@@ -687,7 +780,7 @@ Se encarga de la seguridad profunda, encriptado criptográfico, colas de procesa
 *   `/workers`: Procesos independientes (Signature Worker y Email Worker) que ejecutan tareas asíncronas de BullMQ en segundo plano.
 *   `/routes`: Definición limpia de Endpoints expuestos a la SPA.
 
-### Frontend (Vanilla JS SPA)
+#### Frontend (Vanilla JS SPA)
 Aplicación de una sola página (SPA) rápida y responsiva, enfocada en la presentación y el estado local interactivo.
 *   `app.js`: Implementa un patrón de **Estado Global Reactivo (`setState`)**. Cualquier actualización al objeto de estado central dispara una re-evaluación del DOM virtual nativo y dibuja los componentes pertinentes al instante, prescindiendo de dependencias o frameworks pesados.
 *   `index.html`: Estructura HTML5 semántica y responsiva.
