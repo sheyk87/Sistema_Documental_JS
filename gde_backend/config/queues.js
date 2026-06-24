@@ -32,4 +32,14 @@ const signatureQueue = new Queue('gde-signature', {
     },
 });
 
-module.exports = { emailQueue, signatureQueue, connection };
+// Cola de antivirus: escaneo de adjuntos en segundo plano
+const antivirusQueue = new Queue('gde-antivirus', {
+    connection,
+    defaultJobOptions: {
+        attempts: 1,                       // No reintentar escaneo de virus para evitar bucles
+        removeOnComplete: { count: 200 },
+        removeOnFail: { count: 500 },      // Mantener fallidos para diagnóstico
+    },
+});
+
+module.exports = { emailQueue, signatureQueue, antivirusQueue, connection };

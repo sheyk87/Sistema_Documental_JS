@@ -11,7 +11,8 @@ const ALLOWED_SETTINGS_KEYS = [
     'EMAIL_ENABLED', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_SECURE',
     'EMAIL_USER', 'EMAIL_PASS', 'EMAIL_FROM',
     'LDAP_ENABLED', 'LDAP_URL', 'LDAP_DOMAIN',
-    'TWO_FACTOR_GLOBAL_ENABLED', 'TWO_FACTOR_MANDATORY'
+    'TWO_FACTOR_GLOBAL_ENABLED', 'TWO_FACTOR_MANDATORY',
+    'ANTIVIRUS_ENABLED', 'ANTIVIRUS_HOST', 'ANTIVIRUS_PORT', 'ANTIVIRUS_FAIL_SAFE'
 ];
 
 // ==========================================
@@ -148,7 +149,11 @@ exports.getSettings = async (req, res) => {
         LDAP_URL: process.env.LDAP_URL || '',
         LDAP_DOMAIN: process.env.LDAP_DOMAIN || '',
         TWO_FACTOR_GLOBAL_ENABLED: process.env.TWO_FACTOR_GLOBAL_ENABLED === 'true',
-        TWO_FACTOR_MANDATORY: process.env.TWO_FACTOR_MANDATORY === 'true'
+        TWO_FACTOR_MANDATORY: process.env.TWO_FACTOR_MANDATORY === 'true',
+        ANTIVIRUS_ENABLED: process.env.ANTIVIRUS_ENABLED === 'true',
+        ANTIVIRUS_HOST: process.env.ANTIVIRUS_HOST || '',
+        ANTIVIRUS_PORT: process.env.ANTIVIRUS_PORT || '',
+        ANTIVIRUS_FAIL_SAFE: process.env.ANTIVIRUS_FAIL_SAFE || 'closed'
     });
 };
 

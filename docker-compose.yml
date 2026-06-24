@@ -119,6 +119,34 @@ services:
       disable: true
 
   # ============================================
+  # ANTIVIRUS WORKER — Escaneo de adjuntos en background
+  # ============================================
+  antivirus-worker:
+    build: ./gde_backend
+    container_name: gde-antivirus-worker
+    command: ["node", "workers/antivirusWorker.js"]
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads        # Lee y elimina adjuntos
+      - ./gde_backend/.env:/app/.env        # Editable sin rebuild
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  # ============================================
   # REDIS — Cache, BullMQ, Blacklist JWT
   # ============================================
   redis:
@@ -136,6 +164,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+
+  # ============================================
+  # CLAMAV — Antivirus para escaneo de adjuntos
+  # ============================================
+  clamav:
+    image: clamav/clamav:latest
+    container_name: gde-clamav
+    networks:
+      - gde_network
+    volumes:
+      - clamav_data:/var/lib/clamav
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+    deploy:
+      resources:
+        limits:
+          memory: 3000M
+        reservations:
+          memory: 1500M
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 5 127.0.0.1 3310 | grep PONG"]
+      interval: 20s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
     restart: unless-stopped
 
   # ============================================
@@ -177,6 +230,8 @@ volumes:
   db_data:
     driver: local
   redis_data:
+    driver: local
+  clamav_data:
     driver: local
   backend_uploads:
     driver: local

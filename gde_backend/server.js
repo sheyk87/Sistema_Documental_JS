@@ -182,6 +182,10 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
     const jobRoutes = require('./routes/jobRoutes');
     app.use('/api/jobs', jobRoutes);
 
+    // Antivirus routes
+    const antivirusRoutes = require('./routes/antivirusRoutes');
+    app.use('/api/antivirus', antivirusRoutes);
+
     // === SEGURIDAD: Manejador global de errores (OWASP A05, A09) ===
     // No expone stack traces ni detalles internos al cliente
     app.use((err, req, res, next) => {
@@ -222,6 +226,7 @@ if (cluster.isPrimary && process.env.NODE_ENV === 'production') {
                     try {
                         require('./workers/emailWorker');
                         require('./workers/signatureWorker');
+                        require('./workers/antivirusWorker');
                     } catch (err) {
                         console.error('⚠️  Error iniciando workers BullMQ:', err.message);
                     }

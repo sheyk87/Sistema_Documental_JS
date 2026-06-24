@@ -324,7 +324,15 @@ window.handleEditPrimaryRadioChange = handleEditPrimaryRadioChange;
 
 
 
-function setState(newState) { state = { ...state, ...newState }; renderApp(); }
+function setState(newState) {
+    state = { ...state, ...newState };
+    if (state.selectedItem && state.selectedItem.type === 'documento' && state.selectedItem.attachments && state.selectedItem.attachments.some(a => a.status === 'pending')) {
+        startAttachmentPolling(state.selectedItem.id);
+    } else {
+        stopAttachmentPolling();
+    }
+    renderApp();
+}
 
 window.alert = function (message) {
     setState({
@@ -442,6 +450,97 @@ async function ensureDocContent(item) {
         }
     } catch (e) { console.error('Error cargando contenido:', e); }
     return item;
+}
+
+// Obtener todos los detalles (metadatos, adjuntos, historial) de un documento
+async function fetchDocumentDetails(docId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/docs/${docId}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+        });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (e) {
+        console.error('Error al obtener detalles del documento:', e);
+    }
+    return null;
+}
+
+let attachmentPollInterval = null;
+let currentPollingDocId = null;
+
+function startAttachmentPolling(docId) {
+    if (attachmentPollInterval) {
+        if (currentPollingDocId === docId) return;
+        stopAttachmentPolling();
+    }
+    currentPollingDocId = docId;
+    attachmentPollInterval = setInterval(async () => {
+        if (!state.selectedItem || state.selectedItem.id !== docId || state.selectedItem.type !== 'documento') {
+            stopAttachmentPolling();
+            return;
+        }
+        const hasPending = state.selectedItem.attachments && state.selectedItem.attachments.some(a => a.status === 'pending');
+        if (!hasPending) {
+            stopAttachmentPolling();
+            return;
+        }
+        const freshDoc = await fetchDocumentDetails(docId);
+        if (freshDoc) {
+            const idx = state.db.documents.findIndex(d => d.id === docId);
+            if (idx > -1) {
+                state.db.documents[idx] = freshDoc;
+            }
+            const wasPending = state.selectedItem.attachments.some(a => a.status === 'pending');
+            const isPending = freshDoc.attachments && freshDoc.attachments.some(a => a.status === 'pending');
+            
+            // Detectar alertas de virus del historial para avisar con un modal dinámico
+            const oldHistoryLen = (state.selectedItem && state.selectedItem.history) ? state.selectedItem.history.length : 0;
+            const newHistoryEntries = (freshDoc.history || []).slice(oldHistoryLen);
+            const virusAlerts = newHistoryEntries.filter(h => h.action === 'Antivirus - Virus Detectado' || h.action === 'Antivirus - Error de Análisis');
+            if (virusAlerts.length > 0) {
+                const alertMsg = virusAlerts.map(h => h.notes).join('\n\n');
+                showVirusAlertModal(alertMsg);
+            }
+
+            if (state.selectedItem && state.selectedItem.id === docId) {
+                state.selectedItem = { ...freshDoc, type: 'documento', parentId: state.selectedItem.parentId, parentType: state.selectedItem.parentType };
+                
+                const container = document.getElementById('attachments-list-container');
+                if (container) {
+                    const doc = state.selectedItem;
+                    const isOwner = doc.currentOwnerId === state.currentUser.id;
+                    const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
+                    const isBorradorOrRechazado = (doc.status === STATUS.BORRADOR || doc.status === STATUS.RECHAZADO) && isOwner;
+                    const canEdit = isBorradorOrRechazado || isMyTurnToSign;
+                    const isSignedOrArchived = doc.status === STATUS.FIRMADO || doc.status === STATUS.ARCHIVADO;
+                    const canAttach = state.currentUser.permissions && state.currentUser.permissions.includes(doc.isPublic ? 'doc_attach' : 'doc_attach_reserved');
+                    
+                    container.innerHTML = renderAttachmentsHTML(doc, canEdit, canAttach, isSignedOrArchived);
+                    if (window.lucide) {
+                        lucide.createIcons({
+                            attrs: { class: 'lucide' },
+                            node: container
+                        });
+                    }
+                    if (wasPending !== isPending && !isPending) {
+                        stopAttachmentPolling();
+                    }
+                } else if (wasPending !== isPending) {
+                    setState({});
+                }
+            }
+        }
+    }, 3000);
+}
+
+function stopAttachmentPolling() {
+    if (attachmentPollInterval) {
+        clearInterval(attachmentPollInterval);
+        attachmentPollInterval = null;
+    }
+    currentPollingDocId = null;
 }
 
 async function requestDocumentNumber(docId) {
@@ -2103,6 +2202,32 @@ function buildChart(id, labels, data, bgColors, cType) {
 // 5. RENDERIZADO PRINCIPAL Y VISTAS
 // ==========================================
 function renderApp() {
+    // Salvaguardar cambios del borrador actual en memoria antes de repintar la UI
+    if (state.selectedItem && state.selectedItem.type === 'documento' &&
+        ['Borrador', 'Rechazado', 'Firmandose'].includes(state.selectedItem.status)) {
+        const subjectInput = document.getElementById('edit-doc-subject');
+        const contentInput = document.getElementById('edit-doc-content');
+        if (subjectInput && contentInput) {
+            const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
+            if (docIdx > -1) {
+                if (window.tinymce && tinymce.get('edit-doc-content')) {
+                    tinymce.get('edit-doc-content').save();
+                }
+                const subjectVal = subjectInput.value;
+                const htmlContent = window.tinymce && tinymce.get('edit-doc-content')
+                    ? tinymce.get('edit-doc-content').getContent()
+                    : contentInput.value;
+                
+                state.db.documents[docIdx].subject = subjectVal;
+                state.selectedItem.subject = subjectVal;
+                if (htmlContent && htmlContent.trim() !== '') {
+                    state.db.documents[docIdx].content = htmlContent;
+                    state.selectedItem.content = htmlContent;
+                }
+            }
+        }
+    }
+
     if (state.ui.darkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
 
@@ -2208,6 +2333,7 @@ function renderMainLayout() {
                         }
                         if (permissions.includes('admin_services')) {
                             items += renderNavItem('server', 'Servicios', 'admin_services');
+                            items += renderNavItem('shield-alert', 'Antivirus', 'admin_antivirus');
                         }
                         if (permissions.includes('admin_manage_templates')) {
                             items += renderNavItem('file-text', 'Plantillas', 'admin_templates');
@@ -2334,6 +2460,7 @@ function renderMobileLayout() {
                 }
                 if (permissions.includes('admin_services')) {
                     items += renderNavItem('server', 'Servicios', 'admin_services');
+                    items += renderNavItem('shield-alert', 'Antivirus', 'admin_antivirus');
                 }
                 if (permissions.includes('admin_manage_templates')) {
                     items += renderNavItem('file-text', 'Plantillas', 'admin_templates');
@@ -2445,8 +2572,11 @@ function getViewContent() {
     if (state.currentView === 'admin_doctypes' && !permissions.includes('admin_manage_doc_types')) {
         state.currentView = 'inbox';
     }
+    if (state.currentView === 'admin_antivirus' && !permissions.includes('admin_services')) {
+        state.currentView = 'inbox';
+    }
 
-    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); case 'supervisados': return state.selectedSubordinateId ? renderSupervisadoInbox(state.selectedSubordinateId) : renderSupervisados(); default: return renderInbox(); }
+    switch (state.currentView) { case 'inbox': return renderInbox(); case 'batch_sign': return renderBatchSign(); case 'drafts': return renderDrafts(); case 'create_doc': return renderCreateDocument(); case 'create_exp': return renderCreateExpediente(); case 'search': return renderSearcher(); case 'archive': return renderArchive(); case 'anulados': return renderAnulados(); case 'stats': return renderStats(); case 'admin_users': return renderAdminUsers(); case 'admin_areas': return renderAdminAreas(); case 'admin_roles': return renderAdminRoles(); case 'admin_services': return renderAdminServices(); case 'admin_antivirus': return renderAdminAntivirus(); case 'admin_templates': return renderAdminTemplates(); case 'admin_doctypes': return renderAdminDocTypes(); case 'user_settings': return renderUserSettings(); case 'supervisados': return state.selectedSubordinateId ? renderSupervisadoInbox(state.selectedSubordinateId) : renderSupervisados(); default: return renderInbox(); }
 }
 
 function renderPasswordRequirementsHTML() {
@@ -3388,6 +3518,22 @@ function renderAdminServices() {
                     <p class="text-xs text-gray-500 mt-2">Nota: Si el servicio esta deshabilitado, nadie usara 2FA. Si es obligatorio, forzara la configuracion a quienes no lo tengan.</p>
                 </div>
 
+                <div>
+                    <h3 class="text-lg font-bold text-teal-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="shield-alert"></i> Servicio de Antivirus (ClamAV)</h3>
+                    ${renderToggle('ANTIVIRUS_ENABLED', 'Habilitar Escaneo de Antivirus para Adjuntos', c.ANTIVIRUS_ENABLED)}
+                    <div class="grid grid-cols-2 gap-4 mt-4">
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Host de ClamAV (Service Name o IP)</label><input type="text" id="ANTIVIRUS_HOST" value="${c.ANTIVIRUS_HOST || ''}" placeholder="ej: clamav" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (ClamD TCP)</label><input type="number" id="ANTIVIRUS_PORT" value="${c.ANTIVIRUS_PORT || '3310'}" placeholder="3310" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        <div class="col-span-2">
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Política en caso de error de conexión (Fallo Seguro)</label>
+                            <select id="ANTIVIRUS_FAIL_SAFE" class="w-full p-2 border rounded outline-none text-sm bg-white">
+                                <option value="closed" ${c.ANTIVIRUS_FAIL_SAFE === 'closed' ? 'selected' : ''}>Fail-Closed (Bloquear subida y eliminar adjunto - Recomendado)</option>
+                                <option value="open" ${c.ANTIVIRUS_FAIL_SAFE === 'open' ? 'selected' : ''}>Fail-Open (Permitir subida omitiendo análisis - Alta disponibilidad)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="pt-6 border-t flex justify-end">
                     <button type="submit" class="px-6 py-3 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Aplicar y Reiniciar Servicios</button>
                 </div>
@@ -4244,6 +4390,31 @@ function renderCreateExpediente() {
     </div>`;
 }
 
+function renderAttachmentsHTML(doc, canEdit, canAttach, isSignedOrArchived) {
+    return `
+        <ul class="space-y-2">
+            ${doc.attachments && doc.attachments.length > 0 ? doc.attachments.map(att => `
+                <li class="flex items-center justify-between p-3 bg-white border border-gray-200 shadow-sm rounded-lg group">
+                    <div class="flex items-center gap-2 text-sm text-gray-700">
+                        <i data-lucide="paperclip" class="w-4 h-4"></i> 
+                        ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    ${att.status === 'pending' ? `
+                        <span class="text-xs bg-amber-50 text-amber-700 px-2.5 py-1 rounded-md border border-amber-200 font-bold flex items-center gap-1">
+                            <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Analizando...
+                        </span>
+                    ` : !(isSignedOrArchived || doc.status === STATUS.ANULADO) ? `
+                        <div class="flex items-center gap-2">
+                            <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 text-sm outline-none"><i data-lucide="download" class="w-4 h-4"></i></button>
+                            ${canEdit && canAttach ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                        </div>
+                    ` : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 font-bold uppercase tracking-wide">Embebido en PDF</span>'}
+                </li>
+            `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
+        </ul>
+    `;
+}
+
 function renderDocumentDetail() {
     const doc = state.selectedItem;
     const isOwner = doc.currentOwnerId === state.currentUser.id; const isMyTurnToSign = doc.status === STATUS.FIRMANDOSE && isOwner;
@@ -4308,22 +4479,9 @@ function renderDocumentDetail() {
                                         <button data-action="upload-file" class="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><i data-lucide="upload" class="w-4 h-4"></i> Subir</button>
                                     </div>
                                 ` : ''}
-                                <ul class="space-y-2">
-                                    ${doc.attachments && doc.attachments.length > 0 ? doc.attachments.map(att => `
-                                        <li class="flex items-center justify-between p-3 bg-white border border-gray-200 shadow-sm rounded-lg group">
-                                            <div class="flex items-center gap-2 text-sm text-gray-700">
-                                                <i data-lucide="paperclip" class="w-4 h-4"></i> 
-                                                ${att.originalname} <span class="text-xs text-gray-400 font-normal">(${(att.size / 1024).toFixed(1)} KB)</span>
-                                            </div>
-                                            ${!(isSignedOrArchived || doc.status === STATUS.ANULADO) ? `
-                                                <div class="flex items-center gap-2">
-                                                    <button type="button" data-action="download-single-file" data-filename="${att.filename}" data-original="${att.originalname}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 text-sm outline-none"><i data-lucide="download" class="w-4 h-4"></i></button>
-                                                    ${canEdit && canAttach ? `<button type="button" data-action="delete-file" data-filename="${att.filename}" class="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded outline-none" title="Eliminar archivo"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
-                                                </div>
-                                            ` : '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 font-bold uppercase tracking-wide">Embebido en PDF</span>'}
-                                        </li>
-                                    `).join('') : '<p class="text-xs text-gray-500 italic">No hay archivos adjuntos.</p>'}
-                                </ul>
+                                <div id="attachments-list-container">
+                                    ${renderAttachmentsHTML(doc, canEdit, canAttach, isSignedOrArchived)}
+                                </div>
                             </div>
                             ` : ''}
                         </div>
@@ -5111,6 +5269,34 @@ function showNewRecoveryCodes(codes) {
     if (window.lucide) lucide.createIcons();
 }
 
+// Función para mostrar alertas de virus de forma no invasiva al editar
+function showVirusAlertModal(message) {
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 bg-slate-900/40 z-[9999] flex items-center justify-center backdrop-blur-sm p-4";
+    modal.innerHTML = `
+        <div class="bg-white rounded-xl p-6 w-[500px] max-h-[90vh] shadow-2xl flex flex-col overflow-y-auto">
+            <h3 class="font-bold text-lg mb-4 text-red-600 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5"></i> Alerta de Seguridad (Antivirus)
+            </h3>
+            <div class="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-100 mb-6">
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-red-950 leading-relaxed break-words whitespace-pre-line">${escapeHtml(message)}</p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-auto pt-2 border-t">
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" class="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 font-bold shadow-md transition-colors">Aceptar</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    if (window.lucide) {
+        lucide.createIcons({
+            attrs: { class: 'lucide' },
+            node: modal
+        });
+    }
+}
+
 // ==========================================
 // 8. EVENTOS GLOBALES (DELEGACIÓN)
 // ==========================================
@@ -5745,6 +5931,10 @@ document.addEventListener('submit', async (e) => {
             LDAP_DOMAIN: document.getElementById('LDAP_DOMAIN').value,
             TWO_FACTOR_GLOBAL_ENABLED: document.getElementById('TWO_FACTOR_GLOBAL_ENABLED').checked,
             TWO_FACTOR_MANDATORY: document.getElementById('TWO_FACTOR_MANDATORY').checked,
+            ANTIVIRUS_ENABLED: document.getElementById('ANTIVIRUS_ENABLED').checked,
+            ANTIVIRUS_HOST: document.getElementById('ANTIVIRUS_HOST').value,
+            ANTIVIRUS_PORT: document.getElementById('ANTIVIRUS_PORT').value,
+            ANTIVIRUS_FAIL_SAFE: document.getElementById('ANTIVIRUS_FAIL_SAFE').value,
         };
 
         const btn = e.target.querySelector('button[type="submit"]');
@@ -6127,6 +6317,25 @@ document.addEventListener('click', async (e) => {
                 });
             return;
         }
+
+        // Si entramos al dashboard del antivirus, cargamos sus datos
+        if (view === 'admin_antivirus') {
+            const token = localStorage.getItem('gde_token');
+            const headers = { 'Authorization': `Bearer ${token}` };
+            
+            Promise.all([
+                fetch(`${API_BASE}/api/antivirus/stats`, { headers }).then(r => r.json()),
+                fetch(`${API_BASE}/api/antivirus/status`, { headers }).then(r => r.json())
+            ]).then(([stats, status]) => {
+                state.antivirusStats = stats;
+                state.antivirusStatus = status;
+                setState({ currentView: view, selectedItem: null, modal: null });
+            }).catch(err => {
+                console.error(err);
+                alert("Error de conexión al obtener datos del antivirus.");
+            });
+            return;
+        }
         if (isMobile()) state.ui.mobileDrawerOpen = false;
         if (view !== 'stats') stopDashboardPolling();
         return setState({ currentView: view, selectedItem: null, modal: null });
@@ -6146,8 +6355,54 @@ document.addEventListener('click', async (e) => {
         if (action === 'set-timeline-range') { state.statsOpts.timelineRange = parseInt(actionBtn.value); fetchDashboardData(); return; }
         if (action === 'set-realtime-unit') { state.statsOpts.realtimeUnit = actionBtn.getAttribute('data-unit'); updateDashboardDynamic(); document.querySelectorAll('.metric-time-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-unit') === state.statsOpts.realtimeUnit)); return; }
         if (action === 'export-csv') return handleExport(actionBtn.getAttribute('data-model'));
-        if (action === 'toggle-menu') { state.menus[actionBtn.getAttribute('data-menu')] = !state.menus[actionBtn.getAttribute('data-menu')]; return setState({}); }
         if (action === 'logout') { await clearSession(); return renderApp(); }
+        if (action === 'update-antivirus-signatures') {
+            const btn = actionBtn;
+            const origHtml = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Actualizando...';
+            btn.disabled = true;
+
+            fetch(`${API_BASE}/api/antivirus/update`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('gde_token')}` }
+            }).then(async res => {
+                const data = await res.json();
+                alert(data.message);
+                
+                // Refresh status and stats
+                const token = localStorage.getItem('gde_token');
+                const headers = { 'Authorization': `Bearer ${token}` };
+                Promise.all([
+                    fetch(`${API_BASE}/api/antivirus/stats`, { headers }).then(r => r.json()),
+                    fetch(`${API_BASE}/api/antivirus/status`, { headers }).then(r => r.json())
+                ]).then(([stats, status]) => {
+                    state.antivirusStats = stats;
+                    state.antivirusStatus = status;
+                    renderApp();
+                });
+            }).catch(err => {
+                alert("Error al actualizar firmas: " + err.message);
+                btn.innerHTML = origHtml;
+                btn.disabled = false;
+                if (window.lucide) lucide.createIcons();
+            });
+            return;
+        }
+
+        if (action === 'refresh-antivirus-stats') {
+            const token = localStorage.getItem('gde_token');
+            const headers = { 'Authorization': `Bearer ${token}` };
+            Promise.all([
+                fetch(`${API_BASE}/api/antivirus/stats`, { headers }).then(r => r.json()),
+                fetch(`${API_BASE}/api/antivirus/status`, { headers }).then(r => r.json())
+            ]).then(([stats, status]) => {
+                state.antivirusStats = stats;
+                state.antivirusStatus = status;
+                alert("Estadísticas actualizadas.");
+                renderApp();
+            });
+            return;
+        }
 
         if (action === 'go-forgot-password') {
             state.forgotPass = { step: 1, email: '', maskedEmail: '', code: '' };
@@ -6164,6 +6419,7 @@ document.addEventListener('click', async (e) => {
         }
 
         if (action === 'download-doc-zip') {
+            await autoSaveDraft();
             actionBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';
             await downloadDocumentArchive(actionBtn.getAttribute('data-id'));
             renderApp(); // Repinta para restaurar el botón a la normalidad
@@ -6216,9 +6472,24 @@ document.addEventListener('click', async (e) => {
             if (item) {
                 checkAndMarkRead(item, type); // <--- AVISAMOS QUE SE LEYÓ
                 activeInputSelector = null;
-                // Carga lazy del contenido del documento
-                if (type === 'documento') await ensureDocContent(item);
-                return setState({ selectedItem: { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type } });
+                
+                let selectedItemObj = { ...item, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type };
+                
+                // Carga lazy del contenido del documento y metadatos actualizados (p. ej., estado de escaneos)
+                if (type === 'documento') {
+                    const freshDoc = await fetchDocumentDetails(item.id);
+                    if (freshDoc) {
+                        const idx = state.db.documents.findIndex(d => d.id === item.id);
+                        if (idx > -1) {
+                            state.db.documents[idx] = freshDoc;
+                        }
+                        selectedItemObj = { ...freshDoc, type, parentId: state.selectedItem?.id, parentType: state.selectedItem?.type };
+                    } else {
+                        await ensureDocContent(item);
+                    }
+                }
+                
+                return setState({ selectedItem: selectedItemObj });
             }
         }
 
@@ -6261,6 +6532,7 @@ document.addEventListener('click', async (e) => {
 
         if (action === 'upload-file') {
             e.preventDefault();
+            await autoSaveDraft();
             const fileInput = document.getElementById('file-upload-input');
             if (!fileInput.files || fileInput.files.length === 0) return alert("Seleccione un archivo primero.");
 
@@ -6275,7 +6547,7 @@ document.addEventListener('click', async (e) => {
                 if (res.ok) {
                     const data = await res.json();
 
-                    // Solo actualizamos la memoria central (el espejo se actualiza solo)
+                    // Solo actualizamos la memoria central (el espejo se antes actualizaba solo)
                     const docIdx = state.db.documents.findIndex(d => d.id === state.selectedItem.id);
                     if (docIdx > -1) {
                         if (!state.db.documents[docIdx].attachments) state.db.documents[docIdx].attachments = [];
@@ -6285,13 +6557,17 @@ document.addEventListener('click', async (e) => {
                         state.selectedItem = state.db.documents[docIdx]; // Refrescamos el espejo
                     }
                     setState({});
-                } else { alert("Error al subir el archivo."); }
+                } else {
+                    const errData = await res.json().catch(() => ({}));
+                    alert(errData.message || "Error al subir el archivo.");
+                }
             });
             return;
         }
 
         if (action === 'delete-file') {
             e.preventDefault();
+            await autoSaveDraft();
             const filename = actionBtn.getAttribute('data-filename');
             showConfirm('¿Seguro que desea eliminar este archivo adjunto?', () => {
                 fetch(`${API_BASE}/api/docs/${state.selectedItem.id}/attach/${filename}`, {
@@ -7523,6 +7799,7 @@ document.addEventListener('click', async (e) => {
             }
             else if (action === 'doc-delete') {
                 e.preventDefault();
+                await autoSaveDraft();
                 const targetId = state.selectedItem.id;
                 const originalHtml = actionBtn.innerHTML;
                 showConfirm('¿Seguro que desea eliminar este borrador de forma permanente? Se eliminarán también todos sus archivos adjuntos del servidor.', () => {
@@ -7547,6 +7824,7 @@ document.addEventListener('click', async (e) => {
             }
             else if (action === 'doc-unrelate') {
                 const docId = actionBtn.getAttribute('data-id');
+                await autoSaveDraft();
                 showConfirm('¿Seguro que desea eliminar esta relación?', async () => {
                     item.relatedDocs = item.relatedDocs.filter(id => id !== docId); state.selectedItem.relatedDocs = item.relatedDocs;
                     await syncData(item, 'documento'); setState({});
@@ -7644,6 +7922,177 @@ document.addEventListener('focusout', (e) => {
         }
     }
 });
+
+// ==========================================
+// AUDITORÍA Y DASHBOARD DE ANTIVIRUS
+// ==========================================
+function renderAdminAntivirus() {
+    const stats = state.antivirusStats || {};
+    const status = state.antivirusStatus || {};
+    const alerts = stats.recentAlerts || [];
+
+    const formatBytes = (bytes) => {
+        if (!bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = 1;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const formatDate = (isoString) => {
+        if (!isoString) return '-';
+        const d = new Date(isoString);
+        return d.toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+    };
+
+    return `
+        <div class="max-w-6xl mx-auto space-y-6">
+            <!-- Header Card -->
+            <div class="bg-gradient-to-r from-slate-900 to-slate-800 p-6 rounded-2xl shadow-lg border border-slate-700 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold flex items-center gap-2"><i data-lucide="shield-alert" class="w-7 h-7 text-red-500"></i> Auditoría y Monitoreo del Antivirus</h2>
+                    <p class="text-slate-400 text-xs mt-1">Supervisión en tiempo real del estado de escaneos, firmas y amenazas.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button data-action="refresh-antivirus-stats" class="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-semibold hover:bg-slate-600 transition-colors flex items-center gap-2 outline-none"><i data-lucide="refresh-cw" class="w-4 h-4"></i> Actualizar Datos</button>
+                    <button data-action="update-antivirus-signatures" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-2 outline-none"><i data-lucide="download-cloud" class="w-4 h-4"></i> Actualizar Firmas</button>
+                </div>
+            </div>
+
+            <!-- Status Card -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border">
+                    <div class="p-3 bg-blue-100 text-blue-700 rounded-lg"><i data-lucide="server" class="w-6 h-6"></i></div>
+                    <div>
+                        <span class="block text-xs font-bold text-gray-500 uppercase">Servicio Antivirus</span>
+                        <span class="text-sm font-bold flex items-center gap-1.5 ${status.online ? 'text-emerald-600' : 'text-red-500'} mt-0.5">
+                            <span class="w-2 h-2 rounded-full ${status.online ? 'bg-emerald-600 animate-pulse' : 'bg-red-500'}"></span>
+                            ${status.online ? 'En Línea' : 'Fuera de Línea'}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border">
+                    <div class="p-3 bg-purple-100 text-purple-700 rounded-lg"><i data-lucide="cpu" class="w-6 h-6"></i></div>
+                    <div>
+                        <span class="block text-xs font-bold text-gray-500 uppercase">Motor ClamAV</span>
+                        <span class="text-sm font-bold text-gray-700 mt-0.5">${status.online ? status.version : '-'}</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border">
+                    <div class="p-3 bg-indigo-100 text-indigo-700 rounded-lg"><i data-lucide="hash" class="w-6 h-6"></i></div>
+                    <div>
+                        <span class="block text-xs font-bold text-gray-500 uppercase">Versión de Firmas</span>
+                        <span class="text-sm font-bold text-gray-700 mt-0.5">${status.online ? status.dbVersion : '-'}</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border">
+                    <div class="p-3 bg-amber-100 text-amber-700 rounded-lg"><i data-lucide="calendar" class="w-6 h-6"></i></div>
+                    <div>
+                        <span class="block text-xs font-bold text-gray-500 uppercase">Fecha de Firmas</span>
+                        <span class="text-xs font-bold text-gray-700 mt-1 block truncate" title="${status.online ? status.dbDate : '-'}">${status.online ? status.dbDate : '-'}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Counters -->
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
+                <!-- Total Scanned -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-bold text-slate-500 uppercase">Total Escaneados</span>
+                        <span class="p-1 bg-slate-100 text-slate-600 rounded"><i data-lucide="eye" class="w-4 h-4"></i></span>
+                    </div>
+                    <span class="text-3xl font-extrabold text-slate-800">${stats.totalScanned || 0}</span>
+                </div>
+
+                <!-- Clean Count -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-bold text-emerald-500 uppercase">Archivos Limpios</span>
+                        <span class="p-1 bg-emerald-50 text-emerald-600 rounded"><i data-lucide="check-circle" class="w-4 h-4"></i></span>
+                    </div>
+                    <span class="text-3xl font-extrabold text-emerald-600">${stats.cleanCount || 0}</span>
+                </div>
+
+                <!-- Infected Count -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-bold text-red-500 uppercase">Amenazas Bloqueadas</span>
+                        <span class="p-1 bg-red-50 text-red-600 rounded"><i data-lucide="shield-alert" class="w-4 h-4"></i></span>
+                    </div>
+                    <span class="text-3xl font-extrabold text-red-600">${stats.infectedCount || 0}</span>
+                </div>
+
+                <!-- Scanning/Active -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-bold text-blue-500 uppercase">Analizando</span>
+                        <span class="p-1 bg-blue-50 text-blue-600 rounded"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i></span>
+                    </div>
+                    <span class="text-3xl font-extrabold text-blue-600">${stats.scanningCount || 0}</span>
+                </div>
+
+                <!-- Queue/Pending -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-bold text-amber-500 uppercase">En Cola (Redis)</span>
+                        <span class="p-1 bg-amber-50 text-amber-600 rounded"><i data-lucide="list-ordered" class="w-4 h-4"></i></span>
+                    </div>
+                    <span class="text-3xl font-extrabold text-amber-600">${stats.pendingCount || 0}</span>
+                </div>
+            </div>
+
+            <!-- Alerts / Log Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i data-lucide="alert-triangle" class="text-red-500"></i> Registro de Amenazas Recientes (Infecciones Bloqueadas)</h3>
+                    <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">${alerts.length} Alertas</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                    ${alerts.length > 0 ? `
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-slate-100/50 text-xs font-bold text-gray-500 border-b">
+                                    <th class="p-4">Fecha/Hora</th>
+                                    <th class="p-4">Usuario</th>
+                                    <th class="p-4">Documento ID</th>
+                                    <th class="p-4">Archivo Adjunto</th>
+                                    <th class="p-4">Tamaño</th>
+                                    <th class="p-4 text-red-600">Virus Detectado</th>
+                                    <th class="p-4">Tiempo Escaneo</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${alerts.map(a => `
+                                    <tr class="border-b hover:bg-slate-50">
+                                        <td class="p-4 font-medium text-gray-700">${formatDate(a.scanDate)}</td>
+                                        <td class="p-4 text-gray-600">${a.userName}</td>
+                                        <td class="p-4 font-mono text-xs text-blue-600"><span class="cursor-pointer hover:underline" data-action="view-item" data-id="${a.documentId}" data-type="documento">${a.documentId}</span></td>
+                                        <td class="p-4 font-medium text-gray-800">${a.attachmentName}</td>
+                                        <td class="p-4 text-gray-500">${formatBytes(a.fileSizeBytes)}</td>
+                                        <td class="p-4"><span class="bg-red-50 border border-red-200 text-red-600 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> ${a.virusName}</span></td>
+                                        <td class="p-4 text-gray-500 font-mono">${a.scanDurationMs} ms</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    ` : `
+                        <div class="p-8 text-center text-gray-500 italic">
+                            <i data-lucide="shield-check" class="w-12 h-12 text-emerald-500 mx-auto mb-2 font-light"></i>
+                            <p class="mt-2 text-sm">No se han detectado amenazas en el sistema recientemente.</p>
+                            <p class="text-xs text-gray-400 font-normal">Todos los adjuntos analizados están limpios.</p>
+                        </div>
+                    `}
+                </div>
+            </div>
+        </div>
+    `;
+}
 
 // ==========================================
 // ARRANQUE DE LA APLICACIÓN

@@ -22,6 +22,7 @@ async function resetData() {
         await connection.query('TRUNCATE TABLE templates');
         await connection.query('TRUNCATE TABLE password_history');
         await connection.query('TRUNCATE TABLE numbering_sequences');
+        await connection.query('TRUNCATE TABLE antivirus_scans');
         console.log('🧹 Tablas transaccionales limpiadas.');
 
         // 2. Limpieza de tablas maestras y de configuración para re-sembrado

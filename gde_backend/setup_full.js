@@ -14,6 +14,7 @@ async function setupFull() {
 
         // Dropear tablas en orden inverso para evitar colisiones
         const tablesToDrop = [
+            'antivirus_scans',
             'history',
             'notifications',
             'expediente_movements',
@@ -278,6 +279,24 @@ async function setupFull() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         `);
         console.log('✅ Tabla "notifications" creada.');
+        
+        // 11b. Crear tabla antivirus_scans para registros de antivirus
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS antivirus_scans (
+                id VARCHAR(36) PRIMARY KEY,
+                attachment_name VARCHAR(255) NOT NULL,
+                document_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                scan_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_size_bytes BIGINT NOT NULL,
+                status ENUM('pending', 'scanning', 'clean', 'infected', 'error') NOT NULL DEFAULT 'pending',
+                virus_name VARCHAR(150) NULL,
+                scan_duration_ms INT NULL,
+                INDEX idx_av_status (status),
+                INDEX idx_av_scan_date (scan_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+        `);
+        console.log('✅ Tabla "antivirus_scans" creada.');
 
         // Reactivar foreign keys
         await pool.query('SET FOREIGN_KEY_CHECKS = 1');

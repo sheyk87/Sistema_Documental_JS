@@ -185,6 +185,49 @@ exports.getDocumentContent = async (req, res) => {
     }
 };
 
+// Endpoint para obtener un documento individual con sus metadatos, adjuntos e historial
+exports.getDocument = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [id]);
+        if (docs.length === 0) return res.status(404).json({ message: 'Documento no encontrado' });
+        
+        const doc = docs[0];
+        const [history] = await pool.query(
+            "SELECT created_at, user_id, action, notes FROM history WHERE item_id = ? AND item_type = 'documento' ORDER BY created_at ASC",
+            [id]
+        );
+        
+        const historyFormatted = history.map(h => ({
+            date: h.created_at, userId: h.user_id, action: h.action, notes: h.notes
+        }));
+
+        const formattedDoc = {
+            id: doc.id, type: 'documento', docType: doc.doc_type, subject: doc.subject,
+            content: doc.content,
+            creatorId: doc.creator_id, currentOwnerId: doc.current_owner_id, areaId: doc.area_id, status: doc.status, number: doc.number, createdAt: doc.created_at,
+            owners: typeof doc.owners === 'string' ? JSON.parse(doc.owners) : (doc.owners || []),
+            recipients: typeof doc.recipients === 'string' ? JSON.parse(doc.recipients) : (doc.recipients || []),
+            readBy: typeof doc.read_by === 'string' ? JSON.parse(doc.read_by) : (doc.read_by || []),
+            signedBy: typeof doc.signed_by === 'string' ? JSON.parse(doc.signed_by) : (doc.signed_by || []),
+            relatedDocs: typeof doc.related_docs === 'string' ? JSON.parse(doc.related_docs) : (doc.related_docs || []),
+            signatories: typeof doc.signatories === 'string' ? JSON.parse(doc.signatories) : (doc.signatories || []),
+            attachments: typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []),
+            isPublic: doc.is_public === 1,
+            authAreas: typeof doc.auth_areas === 'string' ? JSON.parse(doc.auth_areas) : (doc.auth_areas || []),
+            authUsers: typeof doc.auth_users === 'string' ? JSON.parse(doc.auth_users) : (doc.auth_users || []),
+            history: historyFormatted
+        };
+        
+        res.json(formattedDoc);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener el documento' });
+    }
+};
+
+
+
 exports.updateDocument = async (req, res) => {
     const { item, historyEntry } = req.body;
     try {
@@ -312,14 +355,44 @@ exports.uploadAttachment = async (req, res) => {
         const [rows] = await pool.query('SELECT attachments FROM documents WHERE id = ?', [id]);
         let attachments = typeof rows[0].attachments === 'string' ? JSON.parse(rows[0].attachments) : (rows[0].attachments || []);
         
-        const newAttachment = { filename: encryptedFilename, originalname: file.originalname, size: file.size };
+        // Recargar configuraciones en caliente del .env
+        try {
+            const envPath = path.join(__dirname, '../.env');
+            if (fs.existsSync(envPath)) {
+                require('dotenv').config({ path: envPath, override: true });
+            }
+        } catch (err) {
+            console.error('Error al recargar dynamic .env en uploadAttachment:', err.message);
+        }
+
+        const antivirusEnabled = process.env.ANTIVIRUS_ENABLED === 'true';
+        const newAttachment = { 
+            filename: encryptedFilename, 
+            originalname: file.originalname, 
+            size: file.size,
+            status: antivirusEnabled ? 'pending' : 'clean'
+        };
         attachments.push(newAttachment);
 
         await pool.query('UPDATE documents SET attachments = ? WHERE id = ?', [JSON.stringify(attachments), id]);
+        
+        const hAction = antivirusEnabled ? 'Archivo Adjuntado (En cola de escaneo)' : 'Archivo Adjuntado (Cifrado)';
         await pool.query(
-            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, 'Archivo Adjuntado (Cifrado)', ?, ?)`,
-            [id, userId, file.originalname, getArgTime()]
+            `INSERT INTO history (item_id, item_type, user_id, action, notes, created_at) VALUES (?, 'documento', ?, ?, ?, ?)`,
+            [id, userId, hAction, file.originalname, getArgTime()]
         );
+
+        // Encolar escaneo si el antivirus está activo
+        if (antivirusEnabled) {
+            const { antivirusQueue } = require('../config/queues');
+            await antivirusQueue.add('scan-attachment', {
+                documentId: id,
+                filename: encryptedFilename,
+                originalname: file.originalname,
+                size: file.size,
+                userId
+            });
+        }
 
         res.json({ attachment: newAttachment });
     } catch (error) {
@@ -383,12 +456,19 @@ exports.downloadAttachment = async (req, res) => {
         // 1. VALIDACIÓN DE AUTORIZACIÓN (OWASP A01 / BOLA):
         // Buscamos el documento al que pertenece este adjunto para evaluar la ACL
         const [docRows] = await pool.query(
-            `SELECT id, creator_id, current_owner_id, owners, recipients, signatories, status, is_public, auth_areas, auth_users FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
+            `SELECT id, creator_id, current_owner_id, owners, recipients, signatories, status, is_public, auth_areas, auth_users, attachments FROM documents WHERE JSON_CONTAINS(attachments, JSON_OBJECT('filename', ?)) LIMIT 1`,
             [filename]
         );
 
         if (docRows.length > 0) {
             const doc = docRows[0];
+            
+            // Validar que el archivo no esté pendiente de escaneo de antivirus
+            const attachments = typeof doc.attachments === 'string' ? JSON.parse(doc.attachments) : (doc.attachments || []);
+            const fileMeta = attachments.find(a => a.filename === filename);
+            if (fileMeta && fileMeta.status === 'pending') {
+                return res.status(403).json({ message: 'El archivo adjunto se encuentra en proceso de análisis de seguridad.' });
+            }
             const [userRows] = await pool.query('SELECT area_id, areas, role FROM users WHERE id = ?', [userId]);
             if (userRows.length === 0) {
                 return res.status(404).json({ message: 'Usuario no encontrado.' });

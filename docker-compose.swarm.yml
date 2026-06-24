@@ -105,6 +105,31 @@ services:
         condition: on-failure
 
   # ============================================
+  # ANTIVIRUS WORKER — Escaneo de adjuntos en background
+  # ============================================
+  antivirus-worker:
+    image: gde-backend:latest
+    command: ["node", "workers/antivirusWorker.js"]
+    networks:
+      - gde_network
+    volumes:
+      - backend_uploads:/app/uploads
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - NODE_ENV=production
+      - TZ=America/Argentina/Buenos_Aires
+    env_file:
+      - ./gde_backend/.env
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+
+  # ============================================
   # REDIS — Cache, BullMQ, Blacklist JWT
   # ============================================
   redis:
@@ -143,6 +168,30 @@ services:
       restart_policy:
         condition: on-failure
 
+  # ============================================
+  # CLAMAV — Antivirus para escaneo de adjuntos (Swarm)
+  # ============================================
+  clamav:
+    image: clamav/clamav:latest
+    networks:
+      - gde_network
+    volumes:
+      - clamav_data:/var/lib/clamav
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
 # ============================================
 # RED OVERLAY — Comunicación entre nodos Swarm
 # ============================================
@@ -159,6 +208,9 @@ volumes:
     driver: local
 
   redis_data:
+    driver: local
+
+  clamav_data:
     driver: local
 
   # Volúmenes compartidos via NFS (necesarios para que todas las réplicas
