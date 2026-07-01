@@ -69,14 +69,13 @@ exports.getStats = async (req, res) => {
 
         const totalScanned = cleanCount + infectedCount + errorCount;
 
-        // 3. Obtener alertas recientes de virus (últimos 15)
+        // 3. Obtener todos los análisis de virus recientes (últimos 200 para mantener performance)
         const [recentAlerts] = await pool.query(
             `SELECT a.*, u.name AS user_name 
              FROM antivirus_scans a
              JOIN users u ON a.user_id = u.id
-             WHERE a.status = 'infected'
              ORDER BY a.scan_date DESC 
-             LIMIT 15`
+             LIMIT 200`
         );
 
         res.json({
@@ -93,8 +92,9 @@ exports.getStats = async (req, res) => {
                 userName: alert.user_name,
                 scanDate: alert.scan_date,
                 fileSizeBytes: alert.file_size_bytes,
-                virusName: alert.virus_name,
-                scanDurationMs: alert.scan_duration_ms
+                status: alert.status,
+                virusName: alert.virus_name || '-',
+                scanDurationMs: alert.scan_duration_ms || 0
             }))
         });
 

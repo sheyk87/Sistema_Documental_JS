@@ -57,8 +57,9 @@ let state = {
     selectedSubordinateId: null,
     supervisadosSelection: [],
 
-    // Añadido 'batchSign: ''' al final
-    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '', supervisados: '' },
+    searchTerms: { inbox: '', drafts: '', search: '', archive: '', anulados: '', expDetail: '', globalFilter: 'todos', docTypeCreate: '', batchSign: '', supervisados: '', templates: '', docTypes: '', roles: '' },
+    antivirusFilter: 'infected',
+    antivirusFilters: { scanDate: '', userName: '', documentId: '', attachmentName: '', fileSizeBytes: '', virusName: '', scanDurationMs: '' },
 
     sort: {
         inboxDoc: { field: 'date', order: 'desc' }, inboxExp: { field: 'date', order: 'desc' },
@@ -67,7 +68,13 @@ let state = {
         archiveDoc: { field: 'date', order: 'desc' }, archiveExp: { field: 'date', order: 'desc' },
         anuladosDoc: { field: 'date', order: 'desc' }, anuladosExp: { field: 'date', order: 'desc' },
         batchSign: { field: 'date', order: 'desc' },
-        supervisadoDoc: { field: 'date', order: 'desc' }, supervisadoExp: { field: 'date', order: 'desc' }
+        supervisadoDoc: { field: 'date', order: 'desc' }, supervisadoExp: { field: 'date', order: 'desc' },
+        antivirus: { field: 'scanDate', order: 'desc' },
+        admin_users: { field: 'id', order: 'asc' },
+        admin_areas: { field: 'id', order: 'asc' },
+        admin_roles: { field: 'id', order: 'asc' },
+        admin_templates: { field: 'name', order: 'asc' },
+        admin_doctypes: { field: 'code', order: 'asc' }
     },
 
     pagination: {
@@ -77,7 +84,8 @@ let state = {
         archiveDoc: { page: 1, limit: 10 }, archiveExp: { page: 1, limit: 10 },
         anuladosDoc: { page: 1, limit: 10 }, anuladosExp: { page: 1, limit: 10 },
         batchSign: { page: 1, limit: 10 },
-        supervisadoDoc: { page: 1, limit: 10 }, supervisadoExp: { page: 1, limit: 10 }
+        supervisadoDoc: { page: 1, limit: 10 }, supervisadoExp: { page: 1, limit: 10 },
+        antivirus: { page: 1, limit: 200 }
     },
 
     batchSelection: [],
@@ -130,6 +138,14 @@ activityEvents.forEach(eventName => {
 // MOBILE DETECTION & PWA
 // ==========================================
 function isMobile() { return window.innerWidth <= 768; }
+
+function renderSortIcon(model, field) {
+    if (!state.sort[model]) return '<i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-gray-450"></i>';
+    if (state.sort[model].field !== field) return '<i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-gray-450"></i>';
+    return state.sort[model].order === 'asc' 
+        ? '<i data-lucide="chevron-up" class="w-3.5 h-3.5 text-blue-600"></i>' 
+        : '<i data-lucide="chevron-down" class="w-3.5 h-3.5 text-blue-600"></i>';
+}
 
 // Resize listener: Auto-toggle sidebar based on screen size
 window.addEventListener('resize', () => {
@@ -882,6 +898,28 @@ async function loadFullState(token) {
         } catch (e) {
             console.error('Error al cargar permisos:', e);
         }
+        try {
+            const settingsResponse = await fetch(`${API_BASE}/api/system/settings`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (settingsResponse.ok) {
+                state.servicesConfig = await settingsResponse.json();
+            }
+        } catch (e) {
+            console.error('Error al cargar config de servicios:', e);
+        }
+    }
+
+    try {
+        const templatesResponse = await fetch(`${API_BASE}/api/templates`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (templatesResponse.ok) {
+            const data = await templatesResponse.json();
+            state.db.templates = data.templates || data || [];
+        }
+    } catch (e) {
+        console.error('Error al cargar plantillas:', e);
     }
 
     const docsResponse = await fetch(`${API_BASE}/api/docs/all`, {
@@ -2332,11 +2370,11 @@ function renderMainLayout() {
                             items += renderNavItem('shield', `Roles (${state.db.roles?.length || 0})`, 'admin_roles');
                         }
                         if (permissions.includes('admin_services')) {
-                            items += renderNavItem('server', 'Servicios', 'admin_services');
+                            items += renderNavItem('server', 'Servicios (4)', 'admin_services');
                             items += renderNavItem('shield-alert', 'Antivirus', 'admin_antivirus');
                         }
                         if (permissions.includes('admin_manage_templates')) {
-                            items += renderNavItem('file-text', 'Plantillas', 'admin_templates');
+                            items += renderNavItem('file-text', `Plantillas (${state.db.templates?.length || 0})`, 'admin_templates');
                         }
                         if (permissions.includes('admin_manage_doc_types')) {
                             items += renderNavItem('file-cog', `Tipos Doc. (${state.db.documentTypes?.length || 0})`, 'admin_doctypes');
@@ -2744,6 +2782,25 @@ function renderAdminUsers() {
         desc: r.description || ''
     }));
 
+    const users = [...(state.db.users || [])];
+    const s = state.sort.admin_users || { field: 'id', order: 'asc' };
+    users.sort((a, b) => {
+        let valA = a[s.field];
+        let valB = b[s.field];
+        if (s.field === 'areaId') {
+            valA = getAreaName(a.areaId);
+            valB = getAreaName(b.areaId);
+        } else if (s.field === 'role') {
+            valA = a.role + (a.roles ? a.roles.join(', ') : '');
+            valB = b.role + (b.roles ? b.roles.join(', ') : '');
+        }
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+        if (valA < valB) return s.order === 'asc' ? -1 : 1;
+        if (valA > valB) return s.order === 'asc' ? 1 : -1;
+        return 0;
+    });
+
     return `
         <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
             <div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}">
@@ -2754,96 +2811,104 @@ function renderAdminUsers() {
             
             <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="users" class="w-5 h-5"></i> ABM de Usuarios (${state.db.users.length})</h3>
             
-            <form id="form-admin-user" class="flex flex-col gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
-                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
-                    <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
-                    <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
-                    <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none text-sm" />
-                    <select id="admin-u-status" class="px-3 py-2 border rounded outline-none text-sm font-semibold bg-white" title="Estado de la Cuenta">
-                        <option value="active">Activo</option>
-                        <option value="inactive">Inactivo</option>
-                        <option value="suspended">Suspendido</option>
-                    </select>
-                </div>
-                
-                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
-                    <div class="flex-1">
-                        <label class="block text-xs font-bold text-gray-600 mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Seleccione y asigne la Principal)</span></label>
-                        <input type="text" data-local-search="create-u-areas" placeholder="Buscar área..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
-                        <div id="create-u-areas-list" class="max-h-36 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
-                            ${state.db.areas.map(a => `
-                                <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
-                                    <input type="checkbox" name="create_u_areas" value="${a.id}" class="w-4 h-4 rounded text-blue-600" onchange="handleCreateAreaCheckChange(this)" />
-                                    <span class="dest-text font-semibold text-slate-700 truncate" style="max-width: 140px;" title="${a.name}">${a.name}</span>
-                                    <label class="ml-auto flex items-center gap-1 text-[10px] text-gray-500 bg-white px-1.5 py-0.5 border rounded hover:bg-blue-50 cursor-pointer" onclick="event.stopPropagation()">
-                                        <input type="radio" name="create_u_primary_area" value="${a.id}" class="w-3 h-3 text-blue-600" onchange="handleCreatePrimaryRadioChange(this.value)" />
-                                        <span>Principal</span>
+            <details class="group bg-slate-50 rounded-lg border mb-6 overflow-hidden shadow-sm">
+                <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                    <span class="flex items-center gap-1.5">
+                        <i data-lucide="user-plus" class="w-4 h-4 text-slate-600"></i> Crear Nuevo Usuario
+                    </span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                </summary>
+                <form id="form-admin-user" class="flex flex-col gap-4 p-4 border-t bg-white">
+                    <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                        <input required type="text" id="admin-u-name" placeholder="Nombre Completo" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
+                        <input required type="email" id="admin-u-email" placeholder="Correo Electrónico" class="flex-1 px-3 py-2 border rounded outline-none text-sm" />
+                        <input required type="text" id="admin-u-pass" placeholder="Contraseña" class="${isMobile() ? 'w-full' : 'w-32'} px-3 py-2 border rounded outline-none text-sm" />
+                        <select id="admin-u-status" class="px-3 py-2 border rounded outline-none text-sm font-semibold bg-white" title="Estado de la Cuenta">
+                            <option value="active">Activo</option>
+                            <option value="inactive">Inactivo</option>
+                            <option value="suspended">Suspendido</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Áreas Asignadas <span class="text-gray-400 font-normal">(Seleccione y asigne la Principal)</span></label>
+                            <input type="text" data-local-search="create-u-areas" placeholder="Buscar área..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                            <div id="create-u-areas-list" class="max-h-36 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                                ${state.db.areas.map(a => `
+                                    <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                        <input type="checkbox" name="create_u_areas" value="${a.id}" class="w-4 h-4 rounded text-blue-600" onchange="handleCreateAreaCheckChange(this)" />
+                                        <span class="dest-text font-semibold text-slate-700 truncate" style="max-width: 140px;" title="${a.name}">${a.name}</span>
+                                        <label class="ml-auto flex items-center gap-1 text-[10px] text-gray-500 bg-white px-1.5 py-0.5 border rounded hover:bg-blue-50 cursor-pointer" onclick="event.stopPropagation()">
+                                            <input type="radio" name="create_u_primary_area" value="${a.id}" class="w-3 h-3 text-blue-600" onchange="handleCreatePrimaryRadioChange(this.value)" />
+                                            <span>Principal</span>
+                                        </label>
                                     </label>
-                                </label>
-                            `).join('')}
+                                `).join('')}
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div class="flex-[2] bg-white p-3 rounded border">
-                        <label class="block text-xs font-bold text-slate-700 mb-2 uppercase flex items-center gap-1"><i data-lucide="shield" class="w-4 h-4"></i> Roles y Permisos Granulares</label>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            ${rolesList.map(r => `
-                                <label class="flex items-center gap-2 p-1.5 bg-slate-50 border rounded hover:border-blue-300 cursor-pointer shadow-sm relative">
-                                    <input type="checkbox" name="create_u_roles" value="${r.id}" ${r.id === 'user' ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600" />
-                                    <span class="text-xs text-slate-700 font-semibold truncate" style="max-width: 120px;" title="${r.name}">${r.name}</span>
-                                    <div class="relative group ml-auto flex items-center shrink-0">
-                                        <i data-lucide="info" class="w-3.5 h-3.5 text-blue-500 cursor-pointer"></i>
-                                        <div class="absolute bottom-full right-0 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
-                                            ${r.desc}
-                                            <div class="absolute top-full right-2 border-4 border-transparent border-t-slate-900"></div>
-                                        </div>
-                                    </div>
-                                </label>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
-                    <div class="flex-1">
-                        <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documento Habilitados <span class="text-gray-400 font-normal">(Vacío para todos)</span></label>
-                        <input type="text" data-local-search="create-u-doctypes" placeholder="Buscar tipo documento..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
-                        <div id="create-u-doctypes-list" class="max-h-32 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
-                            ${(state.db.documentTypes || []).map(dt => `
-                                <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
-                                    <input type="checkbox" name="create_u_doctypes" value="${dt.code}" class="w-4 h-4 rounded text-blue-600" />
-                                    <span class="dest-text font-semibold text-slate-700 truncate" title="${dt.name}">${dt.name} (${dt.code})</span>
-                                </label>
-                            `).join('')}
-                        </div>
-                    </div>
-                    
-                    <div class="flex-1">
-                        <label class="block text-xs font-bold text-gray-700 mb-1">Superior Jerárquico</label>
-                        <input type="text" 
-                               data-local-search="create-u-superior" 
-                               placeholder="Buscar superior por nombre o área..." 
-                               class="w-full px-3 py-2 border rounded-lg outline-none text-xs mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
                         
-                        <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="create-u-superior-container">
-                            <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
-                                <input type="radio" name="create_u_superior_sel" value="" checked class="w-4 h-4 text-indigo-600" />
-                                <span>-- Sin Superior --</span>
-                            </label>
-                            ${state.db.users.filter(x => x.status === 'active').map(x => `
-                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item" data-name="${x.name} ${getAreaName(x.areaId)}">
-                                    <input type="radio" name="create_u_superior_sel" value="${x.id}" class="w-4 h-4 text-indigo-600" />
-                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
-                                </label>
-                            `).join('')}
+                        <div class="flex-[2] bg-white p-3 rounded border bg-slate-50">
+                            <label class="block text-xs font-bold text-slate-700 mb-2 uppercase flex items-center gap-1"><i data-lucide="shield" class="w-4 h-4"></i> Roles y Permisos Granulares</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                ${rolesList.map(r => `
+                                    <label class="flex items-center gap-2 p-1.5 bg-slate-50 border rounded hover:border-blue-300 cursor-pointer shadow-sm relative bg-white">
+                                        <input type="checkbox" name="create_u_roles" value="${r.id}" ${r.id === 'user' ? 'checked' : ''} class="w-4 h-4 rounded text-blue-600" />
+                                        <span class="text-xs text-slate-700 font-semibold truncate" style="max-width: 120px;" title="${r.name}">${r.name}</span>
+                                        <div class="relative group/tooltip ml-auto flex items-center shrink-0">
+                                            <i data-lucide="info" class="w-3.5 h-3.5 text-blue-500 cursor-pointer"></i>
+                                            <div class="absolute bottom-full right-0 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-xl shadow-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
+                                                ${r.desc}
+                                                <div class="absolute top-full right-2 border-4 border-transparent border-t-slate-900"></div>
+                                            </div>
+                                        </div>
+                                    </label>
+                                `).join('')}
+                            </div>
                         </div>
                     </div>
-                </div>
-                
-                <div class="flex justify-end pt-2 border-t">
-                    <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center gap-1 shadow"><i data-lucide="plus" class="w-4 h-4"></i> Crear Usuario</button>
-                </div>
-            </form>
+
+                    <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} gap-4">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documento Habilitados <span class="text-gray-400 font-normal">(Vacío para todos)</span></label>
+                            <input type="text" data-local-search="create-u-doctypes" placeholder="Buscar tipo documento..." class="w-full p-2 border rounded-lg text-xs mb-1 outline-none focus:border-blue-500 bg-white" />
+                            <div id="create-u-doctypes-list" class="max-h-32 overflow-y-auto border rounded-lg p-2 bg-white space-y-1">
+                                ${(state.db.documentTypes || []).map(dt => `
+                                    <label class="dest-item flex items-center gap-2 p-1.5 bg-slate-50 border rounded-lg hover:border-blue-300 cursor-pointer shadow-sm relative text-xs">
+                                        <input type="checkbox" name="create_u_doctypes" value="${dt.code}" class="w-4 h-4 rounded text-blue-600" />
+                                        <span class="dest-text font-semibold text-slate-700 truncate" title="${dt.name}">${dt.name} (${dt.code})</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Superior Jerárquico</label>
+                            <input type="text" 
+                                   data-local-search="create-u-superior" 
+                                   placeholder="Buscar superior por nombre o área..." 
+                                   class="w-full px-3 py-2 border rounded-lg outline-none text-xs mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+                            
+                            <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="create-u-superior-container">
+                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
+                                    <input type="radio" name="create_u_superior_sel" value="" checked class="w-4 h-4 text-indigo-600" />
+                                    <span>-- Sin Superior --</span>
+                                </label>
+                                ${state.db.users.filter(x => x.status === 'active').map(x => `
+                                    <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item" data-name="${x.name} ${getAreaName(x.areaId)}">
+                                        <input type="radio" name="create_u_superior_sel" value="${x.id}" class="w-4 h-4 text-indigo-600" />
+                                        <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.areaId)})</span></span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-end pt-2 border-t">
+                        <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center gap-1 shadow"><i data-lucide="plus" class="w-4 h-4"></i> Crear Usuario</button>
+                    </div>
+                </form>
+            </details>
             
             <div class="flex ${isMobile() ? 'flex-col' : 'flex-row'} items-center gap-3 mb-3">
                 <label class="font-semibold text-sm text-gray-700 flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i> Buscar Usuario</label>
@@ -2851,18 +2916,28 @@ function renderAdminUsers() {
             </div>
             <div class="overflow-x-auto">
                 <table id="admin-users-table" class="w-full text-left text-sm border-collapse">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-gray-50 select-none">
                         <tr class="border-b">
-                            <th class="p-2 whitespace-nowrap">ID</th>
-                            <th class="p-2 whitespace-nowrap">Nombre</th>
-                            <th class="p-2 whitespace-nowrap">Email</th>
-                            <th class="p-2 whitespace-nowrap">Área</th>
-                            <th class="p-2 whitespace-nowrap">Rol / Estado</th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_users" data-field="id">
+                                <span class="flex items-center gap-1">ID ${renderSortIcon('admin_users', 'id')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_users" data-field="name">
+                                <span class="flex items-center gap-1">Nombre ${renderSortIcon('admin_users', 'name')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_users" data-field="email">
+                                <span class="flex items-center gap-1">Email ${renderSortIcon('admin_users', 'email')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_users" data-field="areaId">
+                                <span class="flex items-center gap-1">Área ${renderSortIcon('admin_users', 'areaId')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_users" data-field="role">
+                                <span class="flex items-center gap-1">Rol / Estado ${renderSortIcon('admin_users', 'role')}</span>
+                            </th>
                             <th class="p-2 whitespace-nowrap">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${state.db.users.map(u => {
+                        ${users.map(u => {
         const activeRoles = u.roles ? u.roles.join(', ') : u.role;
         return `
                                 <tr class="hover:bg-slate-50 transition-colors">
@@ -2954,6 +3029,35 @@ function renderAdminTemplates() {
     }
 
     const templates = state.db.templates || [];
+    let filteredTemplates = [...templates];
+    if (state.searchTerms.templates) {
+        const query = state.searchTerms.templates.toLowerCase();
+        filteredTemplates = templates.filter(t => 
+            t.name.toLowerCase().includes(query) || 
+            t.doc_types.some(code => code.toLowerCase().includes(query))
+        );
+    }
+
+    // Sort templates
+    const s = state.sort.admin_templates || { field: 'name', order: 'asc' };
+    filteredTemplates.sort((a, b) => {
+        let valA = a[s.field];
+        let valB = b[s.field];
+        if (s.field === 'doc_types') {
+            valA = (a.doc_types || []).join(', ');
+            valB = (b.doc_types || []).join(', ');
+        } else if (s.field === 'is_global') {
+            valA = a.is_global ? 1 : 0;
+            valB = b.is_global ? 1 : 0;
+            return s.order === 'asc' ? valA - valB : valB - valA;
+        }
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+        if (valA < valB) return s.order === 'asc' ? -1 : 1;
+        if (valA > valB) return s.order === 'asc' ? 1 : -1;
+        return 0;
+    });
+
     const docTypesList = [...DOC_TYPES.CON_DEST_EXCL, ...DOC_TYPES.CON_DEST_MULT, ...DOC_TYPES.SIN_DEST];
     const isEditing = !!state.editingTemplate;
     const tpl = state.editingTemplate || { id: '', name: '', content: '', is_global: false, doc_types: [] };
@@ -2967,78 +3071,93 @@ function renderAdminTemplates() {
                 Gestión de Plantillas (Templates)
             </h3>
             
-            <form id="form-admin-template" class="space-y-4 mb-8 p-6 bg-slate-50 rounded-xl border border-slate-200">
-                <h4 class="font-bold text-sm text-slate-700 border-b pb-2 flex items-center gap-1">
-                    <i data-lucide="${isEditing ? 'edit-3' : 'plus-circle'}" class="w-4 h-4 text-blue-500"></i>
-                    ${isEditing ? `Editar Plantilla: "${tpl.name}"` : 'Crear Nueva Plantilla'}
-                </h4>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <details class="group bg-slate-50 rounded-lg border mb-8 overflow-hidden shadow-sm" ${isEditing ? 'open' : ''}>
+                <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                    <span class="flex items-center gap-1.5">
+                        <i data-lucide="${isEditing ? 'edit-3' : 'plus-circle'}" class="w-4 h-4 text-blue-500"></i>
+                        ${isEditing ? `Editar Plantilla: "${tpl.name}"` : 'Crear Nueva Plantilla'}
+                    </span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                </summary>
+                <form id="form-admin-template" class="space-y-4 p-6 border-t bg-white">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 mb-1">Nombre de la Plantilla</label>
+                            <input required type="text" id="admin-t-name" value="${tpl.name}" placeholder="Ej: Nota de Agradecimiento" class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white" />
+                        </div>
+                        <div class="flex items-center gap-3 pt-6">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="admin-t-global" class="sr-only peer" ${tpl.is_global ? 'checked' : ''}>
+                                <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                            <span class="text-sm font-bold text-slate-700 flex items-center gap-1">
+                                Definir como Plantilla Global 
+                                <span class="text-[10px] text-gray-500 font-normal">(Se usa como fallback si el documento no tiene plantilla específica)</span>
+                            </span>
+                        </div>
+                    </div>
+                    
                     <div>
-                        <label class="block text-xs font-bold text-gray-600 mb-1">Nombre de la Plantilla</label>
-                        <input required type="text" id="admin-t-name" value="${tpl.name}" placeholder="Ej: Nota de Agradecimiento" class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white" />
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documentales Asignados (Un tipo documental no admite más de 1 plantilla)</label>
+                        <div class="max-h-40 overflow-y-auto border rounded-lg bg-white p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            ${docTypesList.map(type => {
+            const code = getDocCode(type);
+            const isChecked = (tpl.doc_types || []).includes(code);
+            // Buscar si este tipo ya está asignado a otra plantilla para avisar al usuario
+            const otherTpl = templates.find(t => t.id !== tpl.id && t.doc_types.includes(code));
+            const labelSuffix = otherTpl ? `<span class="text-[10px] text-amber-600 font-bold block">(Reasignará de: ${otherTpl.name})</span>` : '';
+            return `
+                                    <label class="flex items-start gap-2 p-1.5 hover:bg-slate-50 cursor-pointer rounded border border-transparent hover:border-slate-200">
+                                        <input type="checkbox" name="admin_t_doctype" value="${code}" ${isChecked ? 'checked' : ''} class="mt-1 w-4 h-4 rounded text-blue-600" />
+                                        <span class="text-xs text-slate-700 leading-tight">
+                                            <strong>${type}</strong> <span class="text-gray-400">(${code})</span>
+                                            ${labelSuffix}
+                                        </span>
+                                    </label>
+                                `;
+        }).join('')}
+                        </div>
                     </div>
-                    <div class="flex items-center gap-3 pt-6">
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="admin-t-global" class="sr-only peer" ${tpl.is_global ? 'checked' : ''}>
-                            <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                        <span class="text-sm font-bold text-slate-700 flex items-center gap-1">
-                            Definir como Plantilla Global 
-                            <span class="text-[10px] text-gray-500 font-normal">(Se usa como fallback si el documento no tiene plantilla específica)</span>
-                        </span>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 mb-1">Cuerpo / Estructura de la Plantilla</label>
+                        <textarea id="admin-t-content" class="w-full min-h-[150px] p-2 border rounded-lg outline-none font-mono text-xs">${tpl.content}</textarea>
                     </div>
-                </div>
-                
-                <div>
-                    <label class="block text-xs font-bold text-gray-600 mb-1">Tipos Documentales Asignados (Un tipo documental no admite más de 1 plantilla)</label>
-                    <div class="max-h-40 overflow-y-auto border rounded-lg bg-white p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${docTypesList.map(type => {
-        const code = getDocCode(type);
-        const isChecked = (tpl.doc_types || []).includes(code);
-        // Buscar si este tipo ya está asignado a otra plantilla para avisar al usuario
-        const otherTpl = templates.find(t => t.id !== tpl.id && t.doc_types.includes(code));
-        const labelSuffix = otherTpl ? `<span class="text-[10px] text-amber-600 font-bold block">(Reasignará de: ${otherTpl.name})</span>` : '';
-        return `
-                                <label class="flex items-start gap-2 p-1.5 hover:bg-slate-50 cursor-pointer rounded border border-transparent hover:border-slate-200">
-                                    <input type="checkbox" name="admin_t_doctype" value="${code}" ${isChecked ? 'checked' : ''} class="mt-1 w-4 h-4 rounded text-blue-600" />
-                                    <span class="text-xs text-slate-700 leading-tight">
-                                        <strong>${type}</strong> <span class="text-gray-400">(${code})</span>
-                                        ${labelSuffix}
-                                    </span>
-                                </label>
-                            `;
-    }).join('')}
+                    
+                    <div class="flex justify-end gap-2 pt-2 border-t">
+                        ${isEditing ? `<button type="button" data-action="cancel-edit-template" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-xs">Cancelar</button>` : ''}
+                        <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1">
+                            <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                            ${isEditing ? 'Guardar Cambios' : 'Crear Plantilla'}
+                        </button>
                     </div>
-                </div>
-                
-                <div>
-                    <label class="block text-xs font-bold text-gray-600 mb-1">Cuerpo / Estructura de la Plantilla</label>
-                    <textarea id="admin-t-content" class="w-full min-h-[150px] p-2 border rounded-lg outline-none font-mono text-xs">${tpl.content}</textarea>
-                </div>
-                
-                <div class="flex justify-end gap-2 pt-2 border-t">
-                    ${isEditing ? `<button type="button" data-action="cancel-edit-template" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-xs">Cancelar</button>` : ''}
-                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1">
-                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
-                        ${isEditing ? 'Guardar Cambios' : 'Crear Plantilla'}
-                    </button>
-                </div>
-            </form>
+                </form>
+            </details>
+            
+            <div class="flex items-center gap-3 mb-4 mt-6">
+                <label class="font-semibold text-sm text-gray-700 flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i> Buscar Plantilla</label>
+                <input type="text" data-search-model="templates" value="${state.searchTerms.templates || ''}" placeholder="Filtrar por nombre o tipo documental..." class="flex-1 px-3 py-2 border rounded-lg outline-none text-sm focus:border-blue-500 bg-white" />
+            </div>
             
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm border-collapse">
-                    <thead class="bg-gray-50 border-b">
+                    <thead class="bg-gray-50 border-b select-none">
                         <tr>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Nombre</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Tipos Asignados</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Alcance</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_templates" data-field="name">
+                                <span class="flex items-center gap-1">Nombre ${renderSortIcon('admin_templates', 'name')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_templates" data-field="doc_types">
+                                <span class="flex items-center gap-1">Tipos Asignados ${renderSortIcon('admin_templates', 'doc_types')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_templates" data-field="is_global">
+                                <span class="flex items-center gap-1">Alcance ${renderSortIcon('admin_templates', 'is_global')}</span>
+                            </th>
                             <th class="p-3 font-bold text-slate-700 text-xs uppercase text-right">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y text-slate-600">
-                        ${templates.length === 0 ? `<tr><td colspan="4" class="p-4 text-center text-gray-400 italic">No hay plantillas registradas. Cree una arriba.</td></tr>` : ''}
-                        ${templates.map(t => {
+                        ${filteredTemplates.length === 0 ? `<tr><td colspan="4" class="p-4 text-center text-gray-400 italic">${state.searchTerms.templates ? 'No se encontraron plantillas para la búsqueda.' : 'No hay plantillas registradas. Cree una arriba.'}</td></tr>` : ''}
+                        ${filteredTemplates.map(t => {
         const badges = t.doc_types.map(code => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">${code}</span>`).join(' ') || '<span class="text-xs text-gray-400 italic">Ninguno</span>';
         const alcanceBadge = t.is_global
             ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Global</span>`
@@ -3092,7 +3211,35 @@ function renderAdminDocTypes() {
     }
 
     const docTypes = state.db.documentTypes || [];
+    let filteredDocTypes = [...docTypes];
+    if (state.searchTerms.docTypes) {
+        const query = state.searchTerms.docTypes.toLowerCase();
+        filteredDocTypes = docTypes.filter(d => 
+            d.code.toLowerCase().includes(query) || 
+            d.name.toLowerCase().includes(query)
+        );
+    }
     const templates = state.db.templates || [];
+
+    // Sort document types
+    const s = state.sort.admin_doctypes || { field: 'code', order: 'asc' };
+    filteredDocTypes.sort((a, b) => {
+        let valA = a[s.field];
+        let valB = b[s.field];
+        if (s.field === 'features') {
+            valA = (a.requires_signature ? 'sig' : '') + (a.allows_attachments ? 'att' : '') + (a.is_reserved ? 'res' : '');
+            valB = (b.requires_signature ? 'sig' : '') + (b.allows_attachments ? 'att' : '') + (b.is_reserved ? 'res' : '');
+        } else if (s.field === 'template_id') {
+            valA = templates.find(t => t.id === a.template_id)?.name || '';
+            valB = templates.find(t => t.id === b.template_id)?.name || '';
+        }
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+        if (valA < valB) return s.order === 'asc' ? -1 : 1;
+        if (valA > valB) return s.order === 'asc' ? 1 : -1;
+        return 0;
+    });
+
     const isEditing = !!state.editingDocType;
     const dt = state.editingDocType || { code: '', name: '', requires_signature: true, allows_attachments: true, is_reserved: false, dest_type: 'none', template_id: '' };
 
@@ -3162,21 +3309,36 @@ function renderAdminDocTypes() {
                 </div>
             </form>
             
+            <div class="flex items-center gap-3 mb-4">
+                <label class="font-semibold text-sm text-gray-700 flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i> Buscar Tipo Documental</label>
+                <input type="text" data-search-model="docTypes" value="${state.searchTerms.docTypes || ''}" placeholder="Filtrar por código o nombre..." class="flex-1 px-3 py-2 border rounded-lg outline-none text-sm focus:border-blue-500 bg-white" />
+            </div>
+
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm border-collapse">
-                    <thead class="bg-gray-50 border-b">
+                    <thead class="bg-gray-50 border-b select-none">
                         <tr>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Código</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Nombre</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Firma / Adjuntos / Reservado</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Destinatario</th>
-                            <th class="p-3 font-bold text-slate-700 text-xs uppercase">Plantilla</th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_doctypes" data-field="code">
+                                <span class="flex items-center gap-1">Código ${renderSortIcon('admin_doctypes', 'code')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_doctypes" data-field="name">
+                                <span class="flex items-center gap-1">Nombre ${renderSortIcon('admin_doctypes', 'name')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_doctypes" data-field="features">
+                                <span class="flex items-center gap-1">Firma / Adjuntos / Reservado ${renderSortIcon('admin_doctypes', 'features')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_doctypes" data-field="dest_type">
+                                <span class="flex items-center gap-1">Destinatario ${renderSortIcon('admin_doctypes', 'dest_type')}</span>
+                            </th>
+                            <th class="p-3 font-bold text-slate-700 text-xs uppercase cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_doctypes" data-field="template_id">
+                                <span class="flex items-center gap-1">Plantilla ${renderSortIcon('admin_doctypes', 'template_id')}</span>
+                            </th>
                             <th class="p-3 font-bold text-slate-700 text-xs uppercase text-right">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y text-slate-600">
-                        ${docTypes.length === 0 ? `<tr><td colspan="6" class="p-4 text-center text-gray-400 italic">No hay tipos documentales registrados. Cree uno arriba.</td></tr>` : ''}
-                        ${docTypes.map(d => {
+                        ${filteredDocTypes.length === 0 ? `<tr><td colspan="6" class="p-4 text-center text-gray-400 italic">${state.searchTerms.docTypes ? 'No se encontraron tipos documentales para la búsqueda.' : 'No hay tipos documentales registrados. Cree uno arriba.'}</td></tr>` : ''}
+                        ${filteredDocTypes.map(d => {
                             const sigBadge = d.requires_signature ? '<span class="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-bold">Firma</span>' : '';
                             const attBadge = d.allows_attachments ? '<span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-bold">Adjuntos</span>' : '';
                             const resBadge = d.is_reserved ? '<span class="px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded text-[10px] font-bold animate-pulse">Reservado</span>' : '';
@@ -3217,19 +3379,72 @@ function renderAdminDocTypes() {
 }
 
 function renderAdminAreas() {
-    return `<div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative"><div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}"><input type="file" id="csv-upload-areas" accept=".csv" class="hidden" /><button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button><button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button></div><h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3><form id="form-admin-area" class="flex ${isMobile() ? 'flex-col' : ''} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border"><input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" /><button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button></form><div class="overflow-x-auto"><table class="w-full text-left text-sm border-collapse"><thead class="bg-gray-50"><tr class="border-b"><th class="p-2 whitespace-nowrap">ID</th><th class="p-2 whitespace-nowrap">Nombre</th><th class="p-2 text-center whitespace-nowrap">Usuarios</th><th class="p-2 whitespace-nowrap">Acciones</th></tr></thead>
-    <tbody class="divide-y">${state.db.areas.map(a => {
-        // Ahora buscamos si el ID del área existe dentro del array de áreas del usuario
-        const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length;
-        return `<tr>
-            <td class="p-2 text-xs text-gray-500">${a.id}</td>
-            <td class="p-2 font-medium">${a.name}</td>
-            <td class="p-2 text-center font-bold text-blue-600">
-                <button data-action="open-modal" data-modal-type="ver_usuarios_area" data-id="${a.id}" class="hover:underline px-2 py-1 bg-blue-50 rounded" title="Ver usuarios">${uCount}</button>
-            </td>
-            <td class="p-2 whitespace-nowrap"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
-            </tr>`;
-    }).join('')}</tbody></table></div></div>`;
+    const areas = [...(state.db.areas || [])];
+    const s = state.sort.admin_areas || { field: 'id', order: 'asc' };
+    areas.sort((a, b) => {
+        let valA = a[s.field];
+        let valB = b[s.field];
+        if (s.field === 'users') {
+            valA = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length;
+            valB = state.db.users.filter(u => (u.areas || [u.areaId]).includes(b.id)).length;
+            return s.order === 'asc' ? valA - valB : valB - valA;
+        }
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+        if (valA < valB) return s.order === 'asc' ? -1 : 1;
+        if (valA > valB) return s.order === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    return `
+        <div class="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative">
+            <div class="${isMobile() ? 'flex flex-col gap-2 mb-4' : 'absolute top-6 right-6 z-10 flex gap-2'}">
+                <input type="file" id="csv-upload-areas" accept=".csv" class="hidden" />
+                <button onclick="document.getElementById('csv-upload-areas').click()" class="text-xs bg-emerald-100 text-emerald-700 px-3 py-2 rounded hover:bg-emerald-200 font-bold flex items-center justify-center gap-1" title="Formato: id,name"><i data-lucide="upload" class="w-3 h-3"></i> Importar CSV</button>
+                <button data-action="export-csv" data-model="admin_areas" class="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded hover:bg-slate-300 font-bold flex items-center justify-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar CSV</button>
+            </div>
+            
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i data-lucide="building" class="w-5 h-5"></i> ABM de Áreas (${state.db.areas.length})</h3>
+            <form id="form-admin-area" class="flex ${isMobile() ? 'flex-col' : ''} gap-4 mb-6 p-4 bg-slate-50 rounded-lg border">
+                <input required type="text" id="admin-a-name" placeholder="Nombre del Área" class="flex-1 px-3 py-2 border rounded outline-none" />
+                <button type="submit" class="px-4 py-2 bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center justify-center gap-1"><i data-lucide="plus" class="w-4 h-4"></i> Agregar</button>
+            </form>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead class="bg-gray-50 select-none">
+                        <tr class="border-b">
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_areas" data-field="id">
+                                <span class="flex items-center gap-1">ID ${renderSortIcon('admin_areas', 'id')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_areas" data-field="name">
+                                <span class="flex items-center gap-1">Nombre ${renderSortIcon('admin_areas', 'name')}</span>
+                            </th>
+                            <th class="p-2 text-center whitespace-nowrap cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_areas" data-field="users">
+                                <span class="flex items-center justify-center gap-1">Usuarios ${renderSortIcon('admin_areas', 'users')}</span>
+                            </th>
+                            <th class="p-2 whitespace-nowrap">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${areas.map(a => {
+                            const uCount = state.db.users.filter(u => (u.areas || [u.areaId]).includes(a.id)).length;
+                            return `
+                                <tr>
+                                    <td class="p-2 text-xs text-gray-500">${a.id}</td>
+                                    <td class="p-2 font-medium">${a.name}</td>
+                                    <td class="p-2 text-center font-bold text-blue-600">
+                                        <button data-action="open-modal" data-modal-type="ver_usuarios_area" data-id="${a.id}" class="hover:underline px-2 py-1 bg-blue-50 rounded" title="Ver usuarios">${uCount}</button>
+                                    </td>
+                                    <td class="p-2 whitespace-nowrap"><button data-action="admin-del-area" data-id="${a.id}" class="text-red-500 hover:text-red-700 text-xs font-bold inline-flex items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> Eliminar</button></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
 }
 
 function renderAdminRoles() {
@@ -3311,6 +3526,32 @@ function renderAdminRoles() {
 
     const rolesList = state.db.roles || [];
 
+    const term = (state.searchTerms.roles || '').toLowerCase().trim();
+    const filteredRoles = rolesList.filter(r => {
+        if (!term) return true;
+        const idMatch = (r.id || '').toLowerCase().includes(term);
+        const nameMatch = (r.name || '').toLowerCase().includes(term);
+        const descMatch = (r.description || '').toLowerCase().includes(term);
+        return idMatch || nameMatch || descMatch;
+    });
+
+    const sortedRoles = [...filteredRoles];
+    const s = state.sort.admin_roles || { field: 'id', order: 'asc' };
+    sortedRoles.sort((a, b) => {
+        let valA = a[s.field];
+        let valB = b[s.field];
+        if (s.field === 'permissions') {
+            valA = (a.permissions || []).length;
+            valB = (b.permissions || []).length;
+            return s.order === 'asc' ? valA - valB : valB - valA;
+        }
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+        if (valA < valB) return s.order === 'asc' ? -1 : 1;
+        if (valA > valB) return s.order === 'asc' ? 1 : -1;
+        return 0;
+    });
+
     return `
         <div class="max-w-6xl mx-auto space-y-6">
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -3324,11 +3565,11 @@ function renderAdminRoles() {
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-700 mb-1">Descripción del Rol</label>
-                            <input type="text" id="admin-r-desc" placeholder="Detalle informativo sobre el rol..." class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white focus:border-blue-500" />
+                            <input required type="text" id="admin-r-desc" placeholder="Ej: Rol con permisos de firma y derivación..." class="w-full px-3 py-2 border rounded-lg outline-none text-sm bg-white focus:border-blue-500" />
                         </div>
                     </div>
 
-                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm" open>
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
                             <span class="flex items-center gap-1.5">
                                 <i data-lucide="shield" class="w-4 h-4 text-slate-600"></i> Permisos Generales
@@ -3340,7 +3581,7 @@ function renderAdminRoles() {
                                 const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
                                 if (catPerms.length === 0) return '';
                                 return `
-                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3">
                                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                             <span class="flex items-center gap-1.5">
                                                 <i data-lucide="${cat.icon}" class="w-4 h-4 text-blue-600"></i> ${cat.title}
@@ -3370,8 +3611,8 @@ function renderAdminRoles() {
                             }).join('')}
                         </div>
                     </details>
-
-                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4" open>
+ 
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4">
                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
                             <span class="flex items-center gap-1.5">
                                 <i data-lucide="shield-alert" class="w-4 h-4 text-slate-600"></i> Clasificación de Seguridad (Reservados)
@@ -3383,7 +3624,7 @@ function renderAdminRoles() {
                                 const catPerms = allPerms.filter(p => cat.permissionIds.includes(p.id));
                                 if (catPerms.length === 0) return '';
                                 return `
-                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3" open>
+                                    <details class="group/cat bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col space-y-3">
                                         <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none font-bold text-xs text-blue-800 uppercase tracking-wide pb-1.5 border-b border-slate-100">
                                             <span class="flex items-center gap-1.5">
                                                 <i data-lucide="${cat.icon}" class="w-4 h-4 text-blue-600"></i> ${cat.title}
@@ -3420,23 +3661,37 @@ function renderAdminRoles() {
                 </form>
             </div>
 
+            <div class="flex items-center gap-3 mb-4 mt-6">
+                <label class="font-semibold text-sm text-gray-700 flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i> Buscar Rol</label>
+                <input type="text" data-search-model="roles" value="${state.searchTerms.roles || ''}" placeholder="Filtrar por ID, nombre o descripción..." class="flex-1 px-3 py-2 border rounded-lg outline-none text-sm focus:border-blue-500 bg-white" />
+            </div>
+
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
                     <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="shield-check" class="w-5 h-5 text-gray-500"></i> Roles Registrados</h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm border-collapse">
-                        <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                        <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider select-none">
                             <tr class="border-b">
-                                <th class="p-4">ID</th>
-                                <th class="p-4">Nombre</th>
-                                <th class="p-4">Descripción</th>
-                                <th class="p-4">Permisos</th>
+                                <th class="p-4 cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_roles" data-field="id">
+                                    <span class="flex items-center gap-1">ID ${renderSortIcon('admin_roles', 'id')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_roles" data-field="name">
+                                    <span class="flex items-center gap-1">Nombre ${renderSortIcon('admin_roles', 'name')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_roles" data-field="description">
+                                    <span class="flex items-center gap-1">Descripción ${renderSortIcon('admin_roles', 'description')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-gray-100 transition-colors" data-sort="admin_roles" data-field="permissions">
+                                    <span class="flex items-center gap-1">Permisos ${renderSortIcon('admin_roles', 'permissions')}</span>
+                                </th>
                                 <th class="p-4 text-right">Acciones</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            ${rolesList.map(r => {
+                            ${sortedRoles.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-400 italic">${state.searchTerms.roles ? 'No se encontraron roles para la búsqueda.' : 'No hay roles registrados.'}</td></tr>` : ''}
+                            ${sortedRoles.map(r => {
         const isSystemRole = ['admin', 'user'].includes(r.id);
         const permBadges = (r.permissions || []).map(pId => {
             const p = allPerms.find(x => x.id === pId);
@@ -3483,56 +3738,84 @@ function renderAdminServices() {
             <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="server" class="w-6 h-6"></i> Configuración de Servicios Core</h2>
             
             <form id="form-admin-services" class="space-y-8">
-                <div>
-                    <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="mail"></i> Correo Electrónico (SMTP)</h3>
-                    ${renderToggle('EMAIL_ENABLED', 'Habilitar Notificaciones por Correo', c.EMAIL_ENABLED)}
-                    
-                    <div class="grid grid-cols-2 gap-4 mt-4">
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Host del Servidor</label><input type="text" id="EMAIL_HOST" value="${c.EMAIL_HOST}" placeholder="ej: smtp.gmail.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (25, 465, 587)</label><input type="number" id="EMAIL_PORT" value="${c.EMAIL_PORT}" placeholder="587" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Usuario / Email</label><input type="email" id="EMAIL_USER" value="${c.EMAIL_USER}" placeholder="usuario@correo.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Contraseña (o App Password)</label><input type="password" id="EMAIL_PASS" value="${c.EMAIL_PASS}" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div class="col-span-2"><label class="block text-xs font-bold text-gray-600 mb-1">Remitente (From)</label><input type="text" id="EMAIL_FROM" value="${c.EMAIL_FROM}" placeholder='"Sistema GDE" <usuario@correo.com>' class="w-full p-2 border rounded outline-none text-sm" /></div>
-                    </div>
-                    <div class="mt-4">
-                        ${renderToggle('EMAIL_SECURE', 'Usar Conexión Segura Estricta (Activar solo para puerto 465)', c.EMAIL_SECURE)}
-                    </div>
-                </div>
-
-                <div>
-                    <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="network"></i> Directorio Activo (LDAP)</h3>
-                    ${renderToggle('LDAP_ENABLED', 'Habilitar Autenticación LDAP', c.LDAP_ENABLED)}
-                    
-                    <div class="grid grid-cols-2 gap-4 mt-4">
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">URL de Conexión</label><input type="text" id="LDAP_URL" value="${c.LDAP_URL}" placeholder="ldap://192.168.1.200:389" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Dominio (Ej: midominio.local)</label><input type="text" id="LDAP_DOMAIN" value="${c.LDAP_DOMAIN}" placeholder="midominio.local" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 class="text-lg font-bold text-emerald-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="shield-check"></i> Autenticacion de Dos Factores (2FA)</h3>
-                    ${renderToggle('TWO_FACTOR_GLOBAL_ENABLED', 'Habilitar Servicio 2FA a nivel Sistema', c.TWO_FACTOR_GLOBAL_ENABLED)}
-                    <div class="mt-4">
-                        ${renderToggle('TWO_FACTOR_MANDATORY', 'Hacer 2FA Obligatorio para TODOS los usuarios', c.TWO_FACTOR_MANDATORY)}
-                    </div>
-                    <p class="text-xs text-gray-500 mt-2">Nota: Si el servicio esta deshabilitado, nadie usara 2FA. Si es obligatorio, forzara la configuracion a quienes no lo tengan.</p>
-                </div>
-
-                <div>
-                    <h3 class="text-lg font-bold text-teal-800 mb-4 border-b pb-2 mt-8 flex items-center gap-2"><i data-lucide="shield-alert"></i> Servicio de Antivirus (ClamAV)</h3>
-                    ${renderToggle('ANTIVIRUS_ENABLED', 'Habilitar Escaneo de Antivirus para Adjuntos', c.ANTIVIRUS_ENABLED)}
-                    <div class="grid grid-cols-2 gap-4 mt-4">
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Host de ClamAV (Service Name o IP)</label><input type="text" id="ANTIVIRUS_HOST" value="${c.ANTIVIRUS_HOST || ''}" placeholder="ej: clamav" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (ClamD TCP)</label><input type="number" id="ANTIVIRUS_PORT" value="${c.ANTIVIRUS_PORT || '3310'}" placeholder="3310" class="w-full p-2 border rounded outline-none text-sm" /></div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-bold text-gray-600 mb-1">Política en caso de error de conexión (Fallo Seguro)</label>
-                            <select id="ANTIVIRUS_FAIL_SAFE" class="w-full p-2 border rounded outline-none text-sm bg-white">
-                                <option value="closed" ${c.ANTIVIRUS_FAIL_SAFE === 'closed' ? 'selected' : ''}>Fail-Closed (Bloquear subida y eliminar adjunto - Recomendado)</option>
-                                <option value="open" ${c.ANTIVIRUS_FAIL_SAFE === 'open' ? 'selected' : ''}>Fail-Open (Permitir subida omitiendo análisis - Alta disponibilidad)</option>
-                            </select>
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-blue-800 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="mail" class="w-4 h-4 text-blue-600"></i> Correo Electrónico (SMTP)
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-blue-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-6 bg-white border-t border-slate-200 space-y-4">
+                        ${renderToggle('EMAIL_ENABLED', 'Habilitar Notificaciones por Correo', c.EMAIL_ENABLED)}
+                        
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Host del Servidor</label><input type="text" id="EMAIL_HOST" value="${c.EMAIL_HOST}" placeholder="ej: smtp.gmail.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (25, 465, 587)</label><input type="number" id="EMAIL_PORT" value="${c.EMAIL_PORT}" placeholder="587" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Usuario / Email</label><input type="email" id="EMAIL_USER" value="${c.EMAIL_USER}" placeholder="usuario@correo.com" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Contraseña (o App Password)</label><input type="password" id="EMAIL_PASS" value="${c.EMAIL_PASS}" placeholder="***" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div class="col-span-2"><label class="block text-xs font-bold text-gray-600 mb-1">Remitente (From)</label><input type="text" id="EMAIL_FROM" value="${c.EMAIL_FROM}" placeholder='"Sistema GDE" <usuario@correo.com>' class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        </div>
+                        <div class="mt-4">
+                            ${renderToggle('EMAIL_SECURE', 'Usar Conexión Segura Estricta (Activar solo para puerto 465)', c.EMAIL_SECURE)}
                         </div>
                     </div>
-                </div>
+                </details>
+
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4">
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-purple-800 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="network" class="w-4 h-4 text-purple-600"></i> Directorio Activo (LDAP)
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-6 bg-white border-t border-slate-200 space-y-4">
+                        ${renderToggle('LDAP_ENABLED', 'Habilitar Autenticación LDAP', c.LDAP_ENABLED)}
+                        
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">URL de Conexión</label><input type="text" id="LDAP_URL" value="${c.LDAP_URL}" placeholder="ldap://192.168.1.200:389" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Dominio (Ej: midominio.local)</label><input type="text" id="LDAP_DOMAIN" value="${c.LDAP_DOMAIN}" placeholder="midominio.local" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4">
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-emerald-800 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Autenticacion de Dos Factores (2FA)
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-6 bg-white border-t border-slate-200 space-y-4">
+                        ${renderToggle('TWO_FACTOR_GLOBAL_ENABLED', 'Habilitar Servicio 2FA a nivel Sistema', c.TWO_FACTOR_GLOBAL_ENABLED)}
+                        <div class="mt-4">
+                            ${renderToggle('TWO_FACTOR_MANDATORY', 'Hacer 2FA Obligatorio para TODOS los usuarios', c.TWO_FACTOR_MANDATORY)}
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Nota: Si el servicio esta deshabilitado, nadie usara 2FA. Si es obligatorio, forzara la configuracion a quienes no lo tengan.</p>
+                    </div>
+                </details>
+
+                <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4">
+                    <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-teal-800 uppercase tracking-wider">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="shield-alert" class="w-4 h-4 text-teal-600"></i> Servicio de Antivirus (ClamAV)
+                        </span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                    </summary>
+                    <div class="p-6 bg-white border-t border-slate-200 space-y-4">
+                        ${renderToggle('ANTIVIRUS_ENABLED', 'Habilitar Escaneo de Antivirus para Adjuntos', c.ANTIVIRUS_ENABLED)}
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Host de ClamAV (Service Name o IP)</label><input type="text" id="ANTIVIRUS_HOST" value="${c.ANTIVIRUS_HOST || ''}" placeholder="ej: clamav" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div><label class="block text-xs font-bold text-gray-600 mb-1">Puerto (ClamD TCP)</label><input type="number" id="ANTIVIRUS_PORT" value="${c.ANTIVIRUS_PORT || '3310'}" placeholder="3310" class="w-full p-2 border rounded outline-none text-sm" /></div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Política en caso de error de conexión (Fallo Seguro)</label>
+                                <select id="ANTIVIRUS_FAIL_SAFE" class="w-full p-2 border rounded outline-none text-sm bg-white">
+                                    <option value="closed" ${c.ANTIVIRUS_FAIL_SAFE === 'closed' ? 'selected' : ''}>Fail-Closed (Bloquear subida y eliminar adjunto - Recomendado)</option>
+                                    <option value="open" ${c.ANTIVIRUS_FAIL_SAFE === 'open' ? 'selected' : ''}>Fail-Open (Permitir subida omitiendo análisis - Alta disponibilidad)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </details>
 
                 <div class="pt-6 border-t flex justify-end">
                     <button type="submit" class="px-6 py-3 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-900 flex items-center gap-2"><i data-lucide="save" class="w-4 h-4"></i> Aplicar y Reiniciar Servicios</button>
@@ -3577,9 +3860,14 @@ function renderUserSettings() {
                 <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2"><i data-lucide="settings" class="w-6 h-6"></i> Configuración de mi Perfil</h2>
                 
                 <form id="form-user-settings" class="space-y-6">
-                    <div>
-                        <h3 class="text-lg font-bold text-blue-800 mb-4 border-b pb-2 flex items-center gap-2"><i data-lucide="user"></i> Credenciales de Acceso</h3>
-                        <div class="grid grid-cols-1 gap-4">
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                            <span class="flex items-center gap-1.5">
+                                <i data-lucide="user" class="w-4 h-4 text-slate-600"></i> Credenciales de Acceso
+                            </span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                        </summary>
+                        <div class="p-6 bg-white border-t border-slate-200 grid grid-cols-1 gap-4">
                             <div><label class="block text-xs font-bold text-gray-600 mb-1">Correo Electrónico</label><input type="email" id="profile-email" value="${u.email}" required class="w-full p-2 border rounded outline-none text-sm" /></div>
                             <div>
                                 <label class="block text-xs font-bold text-gray-600 mb-1">Nueva Contraseña (Dejar en blanco para no cambiarla)</label>
@@ -3609,15 +3897,20 @@ function renderUserSettings() {
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </details>
 
-                    <div>
-                        <h3 class="text-lg font-bold text-purple-800 mb-4 border-b pb-2 mt-4 flex items-center gap-2"><i data-lucide="bell"></i> Preferencias de Notificaciones</h3>
-                        <div class="space-y-4">
+                    <details class="group bg-slate-100/60 rounded-xl border border-slate-200 overflow-hidden shadow-sm mt-4">
+                        <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-slate-700 uppercase tracking-wider">
+                            <span class="flex items-center gap-1.5">
+                                <i data-lucide="bell" class="w-4 h-4 text-slate-600"></i> Preferencias de Notificaciones
+                            </span>
+                            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                        </summary>
+                        <div class="p-6 bg-white border-t border-slate-200 space-y-4">
                             ${renderToggle('profile-web-notif', 'Recibir Notificaciones en la Web (Campanita)', webNotif)}
                             ${renderToggle('profile-email-notif', 'Recibir Correos Electrónicos transaccionales', emailNotif)}
                         </div>
-                    </div>
+                    </details>
 
                     <div class="pt-6 border-t flex justify-end">
                         <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 shadow-md"><i data-lucide="save" class="w-4 h-4"></i> Guardar Cambios del Perfil</button>
@@ -3626,72 +3919,77 @@ function renderUserSettings() {
             </div>
 
             <!-- Licencia / Ausencia Autogestión -->
-            <div class="bg-white p-8 rounded-xl shadow-sm border border-indigo-100">
-                <h3 class="text-lg font-bold text-indigo-800 mb-4 border-b pb-2 flex items-center gap-2">
-                    <i data-lucide="plane" class="w-5 h-5 text-indigo-600"></i> Licencia / Ausencia Administrativa
-                </h3>
-                <form id="form-user-licence" class="space-y-4">
-                    <p class="text-xs text-gray-500">Configure su ausencia temporal. El sistema derivará automáticamente todo documento o expediente destinado a su bandeja hacia su delegado durante este rango.</p>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Inicio</label>
-                            <input type="datetime-local" id="licence-start" 
-                                   value="${u.licence_start ? new Date(new Date(u.licence_start).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
-                                   class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Fin</label>
-                            <input type="datetime-local" id="licence-end" 
-                                   value="${u.licence_end ? new Date(new Date(u.licence_end).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
-                                   class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-xs font-bold text-gray-700 mb-1">Usuario Delegado</label>
-                        <!-- Buscador dinámico (utiliza data-local-search que filtra .dest-item reactivamente en el DOM) -->
-                        <input type="text" 
-                               id="licence-delegate-search" 
-                               data-local-search="licence-delegate"
-                               placeholder="Buscar delegado por nombre o área..." 
-                               class="w-full px-3 py-2 border rounded-lg outline-none text-sm mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+            <details class="group bg-slate-100/60 rounded-xl border border-indigo-100 overflow-hidden shadow-sm">
+                <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors select-none font-bold text-xs text-indigo-850 uppercase tracking-wider">
+                    <span class="flex items-center gap-1.5">
+                        <i data-lucide="plane" class="w-4 h-4 text-indigo-600"></i> Licencia / Ausencia Administrativa
+                    </span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 transition-transform duration-200 group-open:rotate-180"></i>
+                </summary>
+                <div class="p-6 bg-white border-t border-indigo-100">
+                    <form id="form-user-licence" class="space-y-4">
+                        <p class="text-xs text-gray-500">Configure su ausencia temporal. El sistema derivará automáticamente todo documento o expediente destinado a su bandeja hacia su delegado durante este rango.</p>
                         
-                        <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="licence-delegate-container">
-                            <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
-                                <input type="radio" name="licence_delegate_sel" value="" ${!u.delegated_to ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
-                                <span>-- Sin delegación (Limpiar Licencia) --</span>
-                            </label>
-                            ${(state.eligibleDelegates || []).map(x => `
-                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item licence-delegate-item" data-name="${x.name} ${getAreaName(x.area_id || x.areaId)}">
-                                    <input type="radio" name="licence_delegate_sel" value="${x.id}" ${u.delegated_to === x.id ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
-                                    <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.area_id || x.areaId)})</span></span>
-                                </label>
-                            `).join('')}
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Inicio</label>
+                                <input type="datetime-local" id="licence-start" 
+                                       value="${u.licence_start ? new Date(new Date(u.licence_start).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
+                                       class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Fecha y Hora de Fin</label>
+                                <input type="datetime-local" id="licence-end" 
+                                       value="${u.licence_end ? new Date(new Date(u.licence_end).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}" 
+                                       class="w-full p-2.5 border rounded outline-none text-sm bg-white" />
+                            </div>
                         </div>
-                    </div>
+                        
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Usuario Delegado</label>
+                            <!-- Buscador dinámico (utiliza data-local-search que filtra .dest-item reactivamente en el DOM) -->
+                            <input type="text" 
+                                   id="licence-delegate-search" 
+                                   data-local-search="licence-delegate"
+                                   placeholder="Buscar delegado por nombre o área..." 
+                                   class="w-full px-3 py-2 border rounded-lg outline-none text-sm mb-2 bg-slate-50 border-slate-200 focus:border-indigo-400 focus:bg-white transition-colors" />
+                            
+                            <div class="border rounded-lg max-h-36 overflow-y-auto bg-gray-50 p-2 space-y-1 relative" id="licence-delegate-container">
+                                <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs font-bold text-slate-500 border border-transparent">
+                                    <input type="radio" name="licence_delegate_sel" value="" ${!u.delegated_to ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                    <span>-- Sin delegación (Limpiar Licencia) --</span>
+                                </label>
+                                ${(state.eligibleDelegates || []).map(x => `
+                                    <label class="flex items-center gap-2 p-1.5 hover:bg-white cursor-pointer rounded text-xs border border-transparent dest-item licence-delegate-item" data-name="${x.name} ${getAreaName(x.area_id || x.areaId)}">
+                                        <input type="radio" name="licence_delegate_sel" value="${x.id}" ${u.delegated_to === x.id ? 'checked' : ''} class="w-4 h-4 text-indigo-600" />
+                                        <span class="dest-text font-semibold text-slate-800">${x.name} <span class="text-[10px] text-slate-400 font-normal">(${getAreaName(x.area_id || x.areaId)})</span></span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
 
-                    <!-- Nota para el delegado (opcional) -->
-                    <div class="mt-3">
-                        <label class="block text-xs font-bold text-gray-700 mb-1">Nota para el Delegado <span class="text-gray-400 font-normal">(Opcional - Llegará en la notificación y el correo)</span></label>
-                        <textarea id="licence-note" 
-                                  placeholder="Ej: Estimado, le delego mi bandeja para la gestión de expedientes durante mi ausencia..." 
-                                  class="w-full p-2.5 border rounded-lg text-xs outline-none bg-white border-gray-200" 
-                                  rows="2"></textarea>
-                    </div>
-                    
-                    <div class="flex justify-end gap-2 pt-2">
-                        ${u.delegated_to ? `
-                            <button type="button" data-action="clear-my-licence" class="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-1 shadow-sm">
-                                <i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Licencia
+                        <!-- Nota para el delegado (opcional) -->
+                        <div class="mt-3">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Nota para el Delegado <span class="text-gray-400 font-normal">(Opcional - Llegará en la notificación y el correo)</span></label>
+                            <textarea id="licence-note" 
+                                      placeholder="Ej: Estimado, le delego mi bandeja para la gestión de expedientes durante mi ausencia..." 
+                                      class="w-full p-2.5 border rounded-lg text-xs outline-none bg-white border-gray-200" 
+                                      rows="2"></textarea>
+                        </div>
+                        
+                        <div class="flex justify-end gap-2 pt-2">
+                            ${u.delegated_to ? `
+                                <button type="button" data-action="clear-my-licence" class="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-1 shadow-sm">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i> Eliminar Licencia
+                                </button>
+                            ` : ''}
+                            <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-md">
+                                <i data-lucide="save" class="w-4 h-4"></i> Guardar Licencia
                             </button>
-                        ` : ''}
-                        <button type="submit" class="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-md">
-                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Licencia
-                        </button>
-                    </div>
-                </form>
-            </div>
+                        </div>
+                    </form>
+                </div>
+            </details>
 
 
             ${u.twoFactorEnabled ? `
@@ -4968,9 +5266,9 @@ function renderModalOverlay() {
                             <label class="flex items-center gap-1.5 p-1 bg-white border rounded hover:border-blue-300 cursor-pointer shadow-sm relative text-[11px]">
                                 <input type="checkbox" value="${r.id}" ${m.editURoles.includes(r.id) ? 'checked' : ''} data-modal-toggle="editURoles" class="w-3.5 h-3.5 rounded text-blue-600" />
                                 <span class="font-semibold text-slate-700 truncate w-3/4">${r.name}</span>
-                                <div class="relative group ml-auto flex items-center shrink-0">
+                                <div class="relative group/tooltip ml-auto flex items-center shrink-0">
                                     <i data-lucide="info" class="w-3 h-3 text-blue-500 cursor-pointer"></i>
-                                    <div class="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
+                                    <div class="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg shadow-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 z-50 leading-relaxed font-normal normal-case">
                                         ${r.desc}
                                         <div class="absolute top-full right-1 border-4 border-transparent border-t-slate-900"></div>
                                     </div>
@@ -5314,6 +5612,12 @@ async function syncData(item, type, historyEntry = null) {
 document.addEventListener('input', (e) => {
     if (e.target.id === 'profile-password' || e.target.id === 'forgot-pass1' || e.target.id === 'force-password-input') {
         updatePasswordStrengthUI(e.target.value);
+    }
+    if (e.target.hasAttribute('data-search-filter')) {
+        const filterField = e.target.getAttribute('data-search-filter');
+        state.antivirusFilters[filterField] = e.target.value;
+        activeInputSelector = `[data-search-filter="${filterField}"]`;
+        renderApp();
     }
     if (e.target.hasAttribute('data-search-model')) {
         const model = e.target.getAttribute('data-search-model');
@@ -6298,7 +6602,20 @@ async function autoSaveDraft() {
 
 document.addEventListener('click', async (e) => {
     const thSort = e.target.closest('th[data-sort]');
-    if (thSort) { const model = thSort.getAttribute('data-sort'); const field = thSort.getAttribute('data-field'); if (state.sort[model].field === field) state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc'; else { state.sort[model].field = field; state.sort[model].order = 'asc'; } state.pagination[model].page = 1; return renderApp(); }
+    if (thSort) {
+        const model = thSort.getAttribute('data-sort');
+        const field = thSort.getAttribute('data-field');
+        if (state.sort[model].field === field) {
+            state.sort[model].order = state.sort[model].order === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.sort[model].field = field;
+            state.sort[model].order = 'asc';
+        }
+        if (state.pagination[model]) {
+            state.pagination[model].page = 1;
+        }
+        return renderApp();
+    }
 
     const navBtn = e.target.closest('[data-target-view]');
     if (navBtn) {
@@ -6346,6 +6663,15 @@ document.addEventListener('click', async (e) => {
         const action = actionBtn.getAttribute('data-action');
 
         if (action === 'toggle-sidebar') { state.ui.sidebarOpen = !state.ui.sidebarOpen; return setState({}); }
+        if (action === 'toggle-menu') {
+            const menuId = actionBtn.getAttribute('data-menu');
+            state.menus[menuId] = !state.menus[menuId];
+            return renderApp();
+        }
+        if (action === 'set-antivirus-filter') {
+            state.antivirusFilter = actionBtn.getAttribute('data-filter');
+            return renderApp();
+        }
         if (action === 'open-mobile-drawer') { state.ui.mobileDrawerOpen = true; return renderApp(); }
         if (action === 'close-mobile-drawer') { state.ui.mobileDrawerOpen = false; return renderApp(); }
         if (action === 'pwa-install') { return handlePWAInstall(); }
@@ -7946,6 +8272,101 @@ function renderAdminAntivirus() {
         return d.toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
     };
 
+
+
+    // Filter by Overall status (KPI Selection)
+    let filteredAlerts = [...alerts];
+    if (state.antivirusFilter && state.antivirusFilter !== 'all') {
+        filteredAlerts = filteredAlerts.filter(a => a.status === state.antivirusFilter);
+    }
+
+    // Column Filters
+    if (state.antivirusFilters.scanDate) {
+        const query = state.antivirusFilters.scanDate.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => {
+            const formatted = formatDate(a.scanDate).toLowerCase();
+            const raw = a.scanDate ? a.scanDate.toLowerCase() : '';
+            return formatted.includes(query) || raw.includes(query);
+        });
+    }
+    if (state.antivirusFilters.userName) {
+        const query = state.antivirusFilters.userName.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => a.userName && a.userName.toLowerCase().includes(query));
+    }
+    if (state.antivirusFilters.documentId) {
+        const query = state.antivirusFilters.documentId.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => a.documentId && a.documentId.toLowerCase().includes(query));
+    }
+    if (state.antivirusFilters.attachmentName) {
+        const query = state.antivirusFilters.attachmentName.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => a.attachmentName && a.attachmentName.toLowerCase().includes(query));
+    }
+    if (state.antivirusFilters.fileSizeBytes) {
+        const query = state.antivirusFilters.fileSizeBytes.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => {
+            const sizeStr = formatBytes(a.fileSizeBytes).toLowerCase();
+            return sizeStr.includes(query) || String(a.fileSizeBytes).includes(query);
+        });
+    }
+    if (state.antivirusFilters.virusName) {
+        const query = state.antivirusFilters.virusName.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => {
+            const virus = (a.virusName || '').toLowerCase();
+            const statusVal = (a.status || '').toLowerCase();
+            return virus.includes(query) || statusVal.includes(query);
+        });
+    }
+    if (state.antivirusFilters.scanDurationMs) {
+        const query = state.antivirusFilters.scanDurationMs.toLowerCase();
+        filteredAlerts = filteredAlerts.filter(a => String(a.scanDurationMs).includes(query));
+    }
+
+    // Sorting
+    const sortField = state.sort.antivirus.field;
+    const sortOrder = state.sort.antivirus.order;
+    if (sortField) {
+        filteredAlerts.sort((x, y) => {
+            let valX = x[sortField];
+            let valY = y[sortField];
+
+            if (sortField === 'scanDate') {
+                valX = valX ? new Date(valX).getTime() : 0;
+                valY = valY ? new Date(valY).getTime() : 0;
+            } else if (sortField === 'fileSizeBytes' || sortField === 'scanDurationMs') {
+                valX = Number(valX) || 0;
+                valY = Number(valY) || 0;
+            } else {
+                valX = String(valX || '').toLowerCase();
+                valY = String(valY || '').toLowerCase();
+            }
+
+            if (valX < valY) return sortOrder === 'asc' ? -1 : 1;
+            if (valX > valY) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
+    let sectionTitle = 'Registro de Amenazas Recientes (Infecciones Bloqueadas)';
+    let sectionIcon = 'shield-alert';
+    let sectionIconColor = 'text-red-500';
+    if (state.antivirusFilter === 'all') {
+        sectionTitle = 'Registro Completo de Escaneos de Archivos';
+        sectionIcon = 'eye';
+        sectionIconColor = 'text-slate-600';
+    } else if (state.antivirusFilter === 'clean') {
+        sectionTitle = 'Registro de Archivos Limpios y Aprobados';
+        sectionIcon = 'check-circle';
+        sectionIconColor = 'text-emerald-600';
+    } else if (state.antivirusFilter === 'scanning') {
+        sectionTitle = 'Escaneos Activos en Tiempo Real';
+        sectionIcon = 'loader';
+        sectionIconColor = 'text-blue-600 animate-spin';
+    } else if (state.antivirusFilter === 'pending') {
+        sectionTitle = 'Cola de Escaneos Pendientes';
+        sectionIcon = 'list-ordered';
+        sectionIconColor = 'text-amber-600';
+    }
+
     return `
         <div class="max-w-6xl mx-auto space-y-6">
             <!-- Header Card -->
@@ -8001,7 +8422,7 @@ function renderAdminAntivirus() {
             <!-- Stats Counters -->
             <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
                 <!-- Total Scanned -->
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div data-action="set-antivirus-filter" data-filter="all" class="bg-white p-5 rounded-2xl shadow-sm border transition-all select-none cursor-pointer ${state.antivirusFilter === 'all' ? 'border-slate-800 ring-2 ring-slate-100 shadow-md scale-102 bg-slate-50/50' : 'border-gray-200 hover:border-slate-300 hover:shadow'}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="text-xs font-bold text-slate-500 uppercase">Total Escaneados</span>
                         <span class="p-1 bg-slate-100 text-slate-600 rounded"><i data-lucide="eye" class="w-4 h-4"></i></span>
@@ -8010,7 +8431,7 @@ function renderAdminAntivirus() {
                 </div>
 
                 <!-- Clean Count -->
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div data-action="set-antivirus-filter" data-filter="clean" class="bg-white p-5 rounded-2xl shadow-sm border transition-all select-none cursor-pointer ${state.antivirusFilter === 'clean' ? 'border-emerald-600 ring-2 ring-emerald-100 shadow-md scale-102 bg-emerald-50/20' : 'border-gray-200 hover:border-emerald-300 hover:shadow'}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="text-xs font-bold text-emerald-500 uppercase">Archivos Limpios</span>
                         <span class="p-1 bg-emerald-50 text-emerald-600 rounded"><i data-lucide="check-circle" class="w-4 h-4"></i></span>
@@ -8019,7 +8440,7 @@ function renderAdminAntivirus() {
                 </div>
 
                 <!-- Infected Count -->
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div data-action="set-antivirus-filter" data-filter="infected" class="bg-white p-5 rounded-2xl shadow-sm border transition-all select-none cursor-pointer ${state.antivirusFilter === 'infected' ? 'border-red-600 ring-2 ring-red-100 shadow-md scale-102 bg-red-50/20' : 'border-gray-200 hover:border-red-300 hover:shadow'}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="text-xs font-bold text-red-500 uppercase">Amenazas Bloqueadas</span>
                         <span class="p-1 bg-red-50 text-red-600 rounded"><i data-lucide="shield-alert" class="w-4 h-4"></i></span>
@@ -8028,7 +8449,7 @@ function renderAdminAntivirus() {
                 </div>
 
                 <!-- Scanning/Active -->
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div data-action="set-antivirus-filter" data-filter="scanning" class="bg-white p-5 rounded-2xl shadow-sm border transition-all select-none cursor-pointer ${state.antivirusFilter === 'scanning' ? 'border-blue-600 ring-2 ring-blue-100 shadow-md scale-102 bg-blue-50/20' : 'border-gray-200 hover:border-blue-300 hover:shadow'}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="text-xs font-bold text-blue-500 uppercase">Analizando</span>
                         <span class="p-1 bg-blue-50 text-blue-600 rounded"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i></span>
@@ -8037,7 +8458,7 @@ function renderAdminAntivirus() {
                 </div>
 
                 <!-- Queue/Pending -->
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                <div data-action="set-antivirus-filter" data-filter="pending" class="bg-white p-5 rounded-2xl shadow-sm border transition-all select-none cursor-pointer ${state.antivirusFilter === 'pending' ? 'border-amber-600 ring-2 ring-amber-100 shadow-md scale-102 bg-amber-50/20' : 'border-gray-200 hover:border-amber-300 hover:shadow'}">
                     <div class="flex justify-between items-center mb-3">
                         <span class="text-xs font-bold text-amber-500 uppercase">En Cola (Redis)</span>
                         <span class="p-1 bg-amber-50 text-amber-600 rounded"><i data-lucide="list-ordered" class="w-4 h-4"></i></span>
@@ -8049,45 +8470,98 @@ function renderAdminAntivirus() {
             <!-- Alerts / Log Section -->
             <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-slate-50">
-                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i data-lucide="alert-triangle" class="text-red-500"></i> Registro de Amenazas Recientes (Infecciones Bloqueadas)</h3>
-                    <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">${alerts.length} Alertas</span>
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i data-lucide="${sectionIcon}" class="${sectionIconColor}"></i> ${sectionTitle}</h3>
+                    <span class="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">${filteredAlerts.length} Registros</span>
                 </div>
 
                 <div class="overflow-x-auto">
-                    ${alerts.length > 0 ? `
-                        <table class="w-full text-left border-collapse text-sm">
-                            <thead>
-                                <tr class="bg-slate-100/50 text-xs font-bold text-gray-500 border-b">
-                                    <th class="p-4">Fecha/Hora</th>
-                                    <th class="p-4">Usuario</th>
-                                    <th class="p-4">Documento ID</th>
-                                    <th class="p-4">Archivo Adjunto</th>
-                                    <th class="p-4">Tamaño</th>
-                                    <th class="p-4 text-red-600">Virus Detectado</th>
-                                    <th class="p-4">Tiempo Escaneo</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${alerts.map(a => `
-                                    <tr class="border-b hover:bg-slate-50">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead>
+                            <tr class="bg-slate-100/50 text-xs font-bold text-gray-500 border-b select-none">
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="scanDate">
+                                    <span class="flex items-center gap-1">Fecha/Hora ${renderSortIcon('antivirus', 'scanDate')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="userName">
+                                    <span class="flex items-center gap-1">Usuario ${renderSortIcon('antivirus', 'userName')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="documentId">
+                                    <span class="flex items-center gap-1">Documento ID ${renderSortIcon('antivirus', 'documentId')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="attachmentName">
+                                    <span class="flex items-center gap-1">Archivo Adjunto ${renderSortIcon('antivirus', 'attachmentName')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="fileSizeBytes">
+                                    <span class="flex items-center gap-1">Tamaño ${renderSortIcon('antivirus', 'fileSizeBytes')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="virusName">
+                                    <span class="flex items-center gap-1">Resultado / Virus ${renderSortIcon('antivirus', 'virusName')}</span>
+                                </th>
+                                <th class="p-4 cursor-pointer hover:bg-slate-200 transition-colors" data-sort="antivirus" data-field="scanDurationMs">
+                                    <span class="flex items-center gap-1">Tiempo Escaneo ${renderSortIcon('antivirus', 'scanDurationMs')}</span>
+                                </th>
+                            </tr>
+                            <tr class="bg-slate-50 border-b">
+                                <th class="p-2">
+                                    <input type="datetime-local" data-search-filter="scanDate" value="${state.antivirusFilters.scanDate || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar fecha..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="userName" value="${state.antivirusFilters.userName || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar usuario..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="documentId" value="${state.antivirusFilters.documentId || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal placeholder-slate-400 font-mono" placeholder="Filtrar ID..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="attachmentName" value="${state.antivirusFilters.attachmentName || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar adjunto..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="fileSizeBytes" value="${state.antivirusFilters.fileSizeBytes || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar tamaño..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="virusName" value="${state.antivirusFilters.virusName || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar resultado..." />
+                                </th>
+                                <th class="p-2">
+                                    <input type="text" data-search-filter="scanDurationMs" value="${state.antivirusFilters.scanDurationMs || ''}" class="w-full p-1 border rounded text-xs outline-none bg-white font-normal" placeholder="Filtrar ms..." />
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filteredAlerts.length > 0 ? filteredAlerts.map(a => {
+                                let statusBadge = '';
+                                if (a.status === 'clean') {
+                                    statusBadge = '<span class="bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-650"></i> Limpio</span>';
+                                } else if (a.status === 'infected') {
+                                    statusBadge = `<span class="bg-red-50 border border-red-200 text-red-600 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max" title="${a.virusName || 'Infectado'}"><i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> ${a.virusName || 'Amenaza'}</span>`;
+                                } else if (a.status === 'scanning') {
+                                    statusBadge = '<span class="bg-blue-50 border border-blue-200 text-blue-700 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Analizando...</span>';
+                                } else if (a.status === 'pending') {
+                                    statusBadge = '<span class="bg-amber-50 border border-amber-200 text-amber-700 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="list-ordered" class="w-3.5 h-3.5"></i> En Cola</span>';
+                                } else if (a.status === 'error') {
+                                    statusBadge = '<span class="bg-slate-100 border border-slate-350 text-slate-655 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Error</span>';
+                                } else {
+                                    statusBadge = `<span class="bg-slate-100 border border-slate-300 text-slate-700 font-bold px-2 py-0.5 rounded text-xs w-max">${a.status || 'Desconocido'}</span>`;
+                                }
+
+                                return `
+                                    <tr class="border-b hover:bg-slate-50 transition-colors">
                                         <td class="p-4 font-medium text-gray-700">${formatDate(a.scanDate)}</td>
-                                        <td class="p-4 text-gray-600">${a.userName}</td>
+                                        <td class="p-4 text-gray-600">${a.userName || '-'}</td>
                                         <td class="p-4 font-mono text-xs text-blue-600"><span class="cursor-pointer hover:underline" data-action="view-item" data-id="${a.documentId}" data-type="documento">${a.documentId}</span></td>
-                                        <td class="p-4 font-medium text-gray-800">${a.attachmentName}</td>
+                                        <td class="p-4 font-medium text-gray-800">${a.attachmentName || '-'}</td>
                                         <td class="p-4 text-gray-500">${formatBytes(a.fileSizeBytes)}</td>
-                                        <td class="p-4"><span class="bg-red-50 border border-red-200 text-red-600 font-bold px-2 py-0.5 rounded text-xs flex items-center gap-1 w-max"><i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> ${a.virusName}</span></td>
-                                        <td class="p-4 text-gray-500 font-mono">${a.scanDurationMs} ms</td>
+                                        <td class="p-4">${statusBadge}</td>
+                                        <td class="p-4 text-gray-500 font-mono">${a.scanDurationMs !== null && a.scanDurationMs !== undefined ? `${a.scanDurationMs} ms` : '-'}</td>
                                     </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    ` : `
-                        <div class="p-8 text-center text-gray-500 italic">
-                            <i data-lucide="shield-check" class="w-12 h-12 text-emerald-500 mx-auto mb-2 font-light"></i>
-                            <p class="mt-2 text-sm">No se han detectado amenazas en el sistema recientemente.</p>
-                            <p class="text-xs text-gray-400 font-normal">Todos los adjuntos analizados están limpios.</p>
-                        </div>
-                    `}
+                                `;
+                            }).join('') : `
+                                <tr>
+                                    <td colspan="7" class="p-8 text-center text-gray-500 italic">
+                                        <i data-lucide="shield-check" class="w-12 h-12 text-emerald-500 mx-auto mb-2 font-light"></i>
+                                        <p class="mt-2 text-sm">No se encontraron registros que coincidan con los filtros seleccionados.</p>
+                                    </td>
+                                </tr>
+                            `}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
